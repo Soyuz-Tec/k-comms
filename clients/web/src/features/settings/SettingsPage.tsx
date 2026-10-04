@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
@@ -18,9 +19,11 @@ import {
   PwaInstallHelpDialog,
   type ManualInstallMode
 } from "../../pwa/PwaInstallHelpDialog";
-type SettingsSection = "profile" | "security" | "notifications" | "accessibility";
+import "./settings.css";
+const AudioVideoSettings = lazy(() => import("./AudioVideoSettings").then((module) => ({ default: module.AudioVideoSettings })));
+type SettingsSection = "profile" | "security" | "notifications" | "audio-video" | "accessibility";
 
-const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "accessibility"];
+const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "audio-video", "accessibility"];
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -52,7 +55,17 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
   const [revocationError, setRevocationError] = useState<string | null>(null);
   const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
-  const [section, setSection] = useState<SettingsSection>("profile");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSection = searchParams.get("section");
+  const section: SettingsSection = settingsSections.includes(requestedSection as SettingsSection)
+    ? requestedSection as SettingsSection
+    : "profile";
+
+  function setSection(value: SettingsSection) {
+    const next = new URLSearchParams(searchParams);
+    next.set("section", value);
+    setSearchParams(next);
+  }
 
   async function refreshSecurity() {
     const [deviceResult, sessionResult] = await Promise.allSettled([
@@ -279,14 +292,14 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
               }
             }}
           >
-            <AppIcon name={value === "profile" ? "user" : value === "security" ? "lock" : value === "notifications" ? "bell" : "sliders"} />
+            <AppIcon name={value === "profile" ? "user" : value === "security" ? "lock" : value === "notifications" ? "bell" : value === "audio-video" ? "video" : "sliders"} />
             {value === "profile"
               ? "Profile"
               : value === "security"
                 ? "Security"
                 : value === "notifications"
                   ? "Notifications"
-                  : "Accessibility"}
+                  : value === "audio-video" ? "Audio & video" : "Accessibility"}
           </button>
         ))}
       </nav>
@@ -332,12 +345,10 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
             <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name}</small></div>
           </div>
           <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
-          <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">Verified account email</small></label>
+          <dl className="profile-account-details"><div><dt>Email address</dt><dd>{session.user.email || "Not supplied"}<small>Verified account email</small></dd></div></dl>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
       </section>}
-
-      {section === "profile" && roleTools}
 
       {section === "security" && <section id="settings-security-panel" role="tabpanel" aria-labelledby="settings-security-tab">
         <form className="settings-card" id="password-settings" onSubmit={(event) => void changePassword(event)}>
@@ -384,13 +395,26 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
         <details className="data-card settings-data-card settings-disclosure" id="session-settings">
           <summary><h2>Sessions</h2><span className="status-pill success">{sessions.filter(({ revoked_at }) => !revoked_at).length} active</span></summary>
-          <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
+          <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : devices.find(({ id }) => id === record.device_id)?.name || `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small><details><summary>Session details</summary><small>Session: {record.id}<br />Device: {record.device_id}</small></details></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
         </details>
       </section>}
 
       {section === "notifications" && <section id="settings-notifications-panel" role="tabpanel" aria-labelledby="settings-notifications-tab">
-      {preference && <form className="settings-card notification-settings" id="notification-settings" onSubmit={(event) => void updateNotifications(event)}>
+      {preference && <form key={preference.updated_at} className="settings-card notification-settings" id="notification-settings" onSubmit={(event) => void updateNotifications(event)} onChange={(event) => {
+        if (!(event.target instanceof HTMLInputElement)) return;
+        const input = event.target;
+        if (!["notify_messages", "notify_mentions"].includes(input.name)) return;
+        const form = event.currentTarget;
+        const preset = form.elements.namedItem("notification_preset") as HTMLSelectElement;
+        preset.value = notificationPreset((form.elements.namedItem("notify_messages") as HTMLInputElement).checked, (form.elements.namedItem("notify_mentions") as HTMLInputElement).checked);
+      }}>
         <div className="card-heading"><h2>Notification preferences</h2></div>
+        <label className="field">Message notification preset<select aria-label="Message notification preset" aria-describedby="notification-preset-help" name="notification_preset" defaultValue={notificationPreset(!preference.muted_event_types.includes("message.created.v1"), !preference.muted_event_types.includes("mention.created.v1"))} onChange={(event) => {
+          const form = event.currentTarget.form;
+          if (!form || event.currentTarget.value === "custom") return;
+          (form.elements.namedItem("notify_messages") as HTMLInputElement).checked = event.currentTarget.value === "all";
+          (form.elements.namedItem("notify_mentions") as HTMLInputElement).checked = event.currentTarget.value !== "muted";
+        }}><option value="all">Messages and mentions</option><option value="mentions">Mentions only</option><option value="muted">Mute messages and mentions</option><option value="custom">Custom</option></select><small id="notification-preset-help">Sets the message categories below. Delivery channels and additional categories remain your choice.</small></label>
         <fieldset className="settings-fieldset"><legend>Where should K-Comms notify you?</legend><div className="toggle-grid"><label><input name="in_app_enabled" type="checkbox" defaultChecked={preference.in_app_enabled} />In K-Comms</label><label><input name="email_enabled" type="checkbox" defaultChecked={preference.email_enabled} />By email</label><label><input name="push_enabled" type="checkbox" defaultChecked={preference.push_enabled} />On registered browsers</label></div></fieldset>
         <fieldset className="settings-fieldset"><legend>What should notify you?</legend><div className="toggle-grid">{notificationChoices.map(({ eventType, field, label }) => <label key={eventType}><input name={field} type="checkbox" defaultChecked={!preference.muted_event_types.includes(eventType)} />{label}</label>)}</div></fieldset>
         <details className="advanced-settings"><summary>Advanced notification categories</summary><label className="field">Additional categories to mute<input name="additional_muted_event_types" defaultValue={preference.muted_event_types.filter((value) => !notificationChoices.some(({ eventType }) => eventType === value)).join(", ")} /><small>Only use technical category names supplied by your administrator or support team.</small></label></details>
@@ -405,6 +429,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>
       </details>
       </section>}
+      {section === "audio-video" && <section id="settings-audio-video-panel" role="tabpanel" aria-labelledby="settings-audio-video-tab"><Suspense fallback={<p role="status">Loading device settings…</p>}><AudioVideoSettings /></Suspense></section>}
       {section === "accessibility" && (
         <section
           id="settings-accessibility-panel"
@@ -414,8 +439,13 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
           <CallControlPreferences />
         </section>
       )}
+      {roleTools}
     </main>
   );
+}
+
+function notificationPreset(messages: boolean, mentions: boolean): string {
+  return messages && mentions ? "all" : !messages && mentions ? "mentions" : !messages && !mentions ? "muted" : "custom";
 }
 
 /**

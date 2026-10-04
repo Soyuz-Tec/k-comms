@@ -10,8 +10,8 @@ import "./CallReadinessPanel.css";
 function phaseLabel(phase: CallReadinessPhase): string {
   if (phase === "preflight") return "Checking this browser and network";
   if (phase === "switching_transport") return "Switching to TURN over TLS";
-  if (phase === "waiting_for_peer") return "Waiting for the UAE office";
-  if (phase === "measuring") return "Measuring the live conversation";
+  if (phase === "waiting_for_peer") return "Waiting for your test partner";
+  if (phase === "measuring") return "Checking the live audio connection";
   if (phase === "complete") return "Test complete";
   if (phase === "failed") return "Test could not complete";
   return "Ready to begin";
@@ -45,7 +45,7 @@ export function CallReadinessPanel({ readiness }: { readiness: CallReadinessTest
       <header>
         <span className="call-readiness-icon" aria-hidden="true"><AppIcon name="lock" /></span>
         <div>
-          <span className="eyebrow">UAE office call test</span>
+          <span className="eyebrow">Connection test</span>
           <h3 id="call-readiness-title">{phaseLabel(readiness.phase)}</h3>
         </div>
       </header>
@@ -61,7 +61,7 @@ export function CallReadinessPanel({ readiness }: { readiness: CallReadinessTest
 
       {readiness.phase === "waiting_for_peer" && (
         <p className="call-readiness-guidance" role="status">
-          Ask someone in the UAE office to open the invite and join with their microphone. Measurement starts automatically when both sides are ready.
+          Ask your test partner to open the invite and join with their microphone. The test starts automatically when both sides are ready.
         </p>
       )}
 
@@ -99,7 +99,7 @@ export function CallReadinessPanel({ readiness }: { readiness: CallReadinessTest
           onClick={() => readiness.setHeardPeer(!readiness.heardPeer)}
         >
           <AppIcon name={readiness.heardPeer ? "check" : "phone"} />
-          {readiness.heardPeer ? "Office audio confirmed" : "I can hear the office"}
+          {readiness.heardPeer ? "Partner audio confirmed" : "I can hear my test partner"}
         </button>
       )}
 
@@ -110,6 +110,7 @@ export function CallReadinessPanel({ readiness }: { readiness: CallReadinessTest
           {readiness.evaluation.reasons.length > 0 && (
             <ul>{readiness.evaluation.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
           )}
+          <p>Ask your partner to confirm they can hear you. When finished, leave this test call. If a check failed, download the report to help troubleshoot.</p>
           <button
             className="button ghost compact"
             type="button"

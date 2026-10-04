@@ -278,7 +278,7 @@ export function evaluateCallReadiness({
     failures.push("No outbound microphone packets were observed.");
   }
   if (!metrics || metrics.inbound_packets === 0) {
-    failures.push("No inbound office audio packets were observed.");
+    failures.push("No inbound audio packets from your test partner were observed.");
   }
   if (!heardPeer) failures.push("Audible speech was not confirmed on this device.");
   if (failures.length > 0) return { verdict: "fail", reasons: failures };

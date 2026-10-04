@@ -30,9 +30,9 @@ function readWorkspaceSidebarPinned(): boolean {
   try {
     return window.localStorage.getItem(
       WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY
-    ) === "true";
+    ) !== "false";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -168,7 +168,7 @@ function ProductShellContent() {
     ? "Use compact navigation"
     : "Keep navigation open";
   return (
-    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}`}>
+    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}`}>
         {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
@@ -284,7 +284,7 @@ function ProductShellContent() {
           </nav>
           <div className="workspace-sidebar-spacer" />
           <div className="workspace-sidebar-notifications">
-            <NotificationCenter />
+            <NotificationCenter conversations={conversations} />
             <span>Notifications</span>
           </div>
           <details ref={desktopAccountRef} className="workspace-account-menu">
@@ -308,6 +308,10 @@ function ProductShellContent() {
                   <small>{session.tenant.name} · {session.user.role}</small>
                 </span>
               </div>
+              <nav className="desktop-role-links" aria-label="Personal settings">
+                <NavLink to="/app/you?section=profile" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Profile &amp; settings</NavLink>
+                <NavLink to="/app/you?section=audio-video" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Audio &amp; video</NavLink>
+              </nav>
               {(showAdmin || showOperations) && (
                 <nav className="desktop-role-links" aria-label="Role tools">
                   {showAdmin && <NavLink to="/admin" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Workspace administration</NavLink>}

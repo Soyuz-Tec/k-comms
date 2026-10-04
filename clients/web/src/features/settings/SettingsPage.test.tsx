@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as renderView, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../types";
@@ -66,6 +68,16 @@ vi.mock("../../pwa/PwaProvider", () => ({
   usePwa: () => harness.pwa
 }));
 
+function render(ui: ReactNode, path = "/app/you") {
+  return renderView(ui, { wrapper: ({ children }) => <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter> });
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return <><output aria-label="Current URL">{location.pathname}{location.search}</output><button type="button" onClick={() => navigate(-1)}>Back</button></>;
+}
+
 describe("profile settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,9 +117,8 @@ describe("profile settings", () => {
     render(<SettingsPage />);
 
     await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
-    const email = screen.getByRole("textbox", { name: /Email address/i });
-    expect(email).toHaveValue("verified@example.test");
-    expect(email).toHaveAttribute("readonly");
+    expect(screen.getByText("verified@example.test")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: /Email address/i })).not.toBeInTheDocument();
     expect(screen.getByText("Verified account email")).toBeVisible();
 
     const displayName = screen.getByLabelText("Display name");
@@ -278,6 +289,40 @@ describe("profile settings", () => {
     await user.click(screen.getByRole("tab", { name: "Notifications" }));
     expect(container.querySelector("#notification-settings")).toBeVisible();
     expect(container.querySelector("#password-settings")).not.toBeInTheDocument();
+  });
+
+  it("opens a linked settings section, preserves other query values, and restores it on Back", async () => {
+    const user = userEvent.setup();
+    render(<><SettingsPage /><LocationProbe /></>, "/app/you?section=security&source=account");
+    expect(screen.getByRole("tab", { name: "Security" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "Notifications" }));
+    expect(screen.getByLabelText("Current URL")).toHaveTextContent("section=notifications&source=account");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("tab", { name: "Security" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps workspace and account tools available outside Profile", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage roleTools={<aside aria-label="Workspace tools">Workspace tools</aside>} />);
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+    expect(screen.getByRole("complementary", { name: "Workspace tools" })).toBeVisible();
+  });
+
+  it("maps notification presets to supported category policy without changing delivery or custom categories", async () => {
+    harness.api.notificationPreference.mockResolvedValue({
+      email_enabled: true, push_enabled: false, in_app_enabled: true,
+      muted_event_types: ["custom.workflow.v1"], updated_at: "2026-07-14T11:00:00Z"
+    });
+    const user = userEvent.setup();
+    render(<SettingsPage />, "/app/you?section=notifications");
+    await user.selectOptions(await screen.findByLabelText("Message notification preset"), "mentions");
+    expect(screen.getByRole("checkbox", { name: "New messages" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Mentions and direct attention" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Save notifications" }));
+    await waitFor(() => expect(harness.api.updateNotificationPreference).toHaveBeenCalledWith({
+      email_enabled: true, push_enabled: false, in_app_enabled: true,
+      muted_event_types: ["message.created.v1", "custom.workflow.v1"]
+    }));
   });
 
   it("shows installed status without offering another install action", async () => {

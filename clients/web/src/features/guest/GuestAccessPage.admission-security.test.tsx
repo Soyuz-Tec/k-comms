@@ -319,6 +319,43 @@ describe("GuestAccessPage", () => {
     );
   });
 
+  it("previews and redeems a pasted link through the existing scoped admission", async () => {
+    const user = userEvent.setup();
+    const previewGuestLink = vi.spyOn(GuestApiClient.prototype, "previewGuestLink").mockResolvedValue(preview);
+    const joinGuest = vi.spyOn(GuestApiClient.prototype, "joinGuest").mockResolvedValue(guestSession);
+    renderPage();
+    await user.type(screen.getByLabelText("Room invite link"), `${window.location.origin}/join#guest=pasted-room-secret`);
+    await user.click(screen.getByRole("button", { name: "Open room invite" }));
+    await screen.findByRole("button", { name: "Join conversation" });
+    expect(previewGuestLink).toHaveBeenCalledWith("pasted-room-secret");
+    expect(window.location.hash).toBe("");
+    await user.type(screen.getByRole("textbox", { name: "Your display name" }), "Taylor");
+    await user.click(screen.getByRole("button", { name: "Join conversation" }));
+    await screen.findByRole("region", { name: "Message history" });
+    expect(joinGuest).toHaveBeenCalledWith(expect.objectContaining({ token: "pasted-room-secret", display_name: "Taylor" }));
+  });
+
+  it("consumes a sign-in continuation without leaving its bearer in history state or URLs", async () => {
+    const previewGuestLink = vi.spyOn(GuestApiClient.prototype, "previewGuestLink").mockResolvedValue(preview);
+    window.history.replaceState({ usr: { returnTo: "/join", guestToken: "continued-room-secret" }, key: "continuation", idx: 0 }, "", "/join");
+    renderPage();
+    await screen.findByRole("button", { name: "Join conversation" });
+    expect(previewGuestLink).toHaveBeenCalledWith("continued-room-secret");
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/join");
+    expect(window.history.state.usr).toEqual({ returnTo: "/join" });
+    expect(document.body).not.toHaveTextContent("continued-room-secret");
+  });
+
+  it("carries preview-room sign-in context without a bearer in the sign-in URL", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(GuestApiClient.prototype, "previewGuestLink").mockResolvedValue(preview);
+    window.history.replaceState({}, "", "/join#guest=sign-in-room-secret");
+    renderPage();
+    await user.click(await screen.findByRole("link", { name: "Sign in and return to this room" }));
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/sign-in");
+    expect(window.history.state.usr).toMatchObject({ returnTo: "/join", guestToken: "sign-in-room-secret" });
+  });
+
   it("blocks account conversion and media controls on unencrypted non-loopback HTTP", async () => {
     transportHarness.insecureNetworkOrigin = true;
     const user = userEvent.setup();

@@ -1,0 +1,10 @@
+.evidence-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
+.admin-evidence-detail { min-width: 0; max-width: 100%; }
+.admin-evidence-detail summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.admin-evidence-detail dd, .admin-evidence-detail p, .admin-evidence-detail code { overflow-wrap: anywhere; }
+.admin-evidence-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: var(--text-xs); }
+.evidence-panel-content { width: 100%; min-width: 0; }
+
+.governance-inventory > li { flex-wrap: wrap; }
+.governance-inventory > li > .admin-evidence-detail,
+.governance-inventory > li > .evidence-panel-content { width: 100%; flex-shrink: 0; }

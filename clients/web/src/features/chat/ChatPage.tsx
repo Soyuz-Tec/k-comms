@@ -118,6 +118,29 @@ export function ChatPage() {
   const [threadTarget, setThreadTarget] = useState<{ conversationId: string; messageId: string } | null>(null);
   const [showCreateConversation, setShowCreateConversation] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [searchConversationId, setSearchConversationId] = useState<string | null>(null);
+  const contentSearchRequested = searchParams.get("search") === "content";
+  useEffect(() => {
+    if (contentSearchRequested) {
+      setSearchConversationId(null);
+      setShowSearch(true);
+    } else setShowSearch(false);
+  }, [contentSearchRequested]);
+  const closeSearch = useCallback(() => {
+    setShowSearch(false);
+    if (searchParams.has("search")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("search");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+  function toggleSearch(conversationId: string | null) {
+    if (showSearch && searchConversationId === conversationId) closeSearch();
+    else {
+      setSearchConversationId(conversationId);
+      setShowSearch(true);
+    }
+  }
   const [showDetails, setShowDetails] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [showGuestShare, setShowGuestShare] = useState(false);
@@ -160,6 +183,19 @@ export function ChatPage() {
     workspaceLoading,
     closeConversationPanels
   });
+  const attachmentComposeRequested = searchParams.get("compose") === "attachment";
+  useEffect(() => {
+    if (!attachmentComposeRequested || !activeConversation || workspaceLoading) return;
+    const frame = window.requestAnimationFrame(() => {
+      const trigger = document.getElementById("chat-attachment-trigger");
+      if (!trigger) return;
+      trigger.focus({ preventScroll: true });
+      const next = new URLSearchParams(searchParams);
+      next.delete("compose");
+      setSearchParams(next, { replace: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [attachmentComposeRequested, activeConversation, workspaceLoading, searchParams, setSearchParams]);
   const threadTargetId = threadTarget?.conversationId === activeConversationId
     ? threadTarget.messageId
     : null;
@@ -211,6 +247,7 @@ export function ChatPage() {
     updateNearBottom,
     shouldAutoScroll,
     receiveMessages,
+    updateLoadedMessage,
     updateConversationSummaries,
     applyReaction,
     loadOlder,
@@ -442,10 +479,9 @@ export function ChatPage() {
     const conversationId = message.conversation_id;
     try {
       const updated = await api.editMessage(message.id, body);
+      updateConversationSummaries([updated]);
       if (activeConversationIdRef.current === conversationId) {
-        receiveMessages([updated]);
-      } else {
-        updateConversationSummaries([updated]);
+        updateLoadedMessage(updated);
       }
     } catch (reason: unknown) {
       if (activeConversationIdRef.current === conversationId) {
@@ -591,11 +627,11 @@ export function ChatPage() {
         onInboxFilterChange={setInboxFilter}
         onToggleBrowseChannels={() => {
           setShowBrowseChannels((visible) => !visible);
-          setShowSearch(false);
+          closeSearch();
           setShowDetails(false);
         }}
         onToggleSearch={() => {
-          setShowSearch((visible) => !visible);
+          toggleSearch(null);
           setShowBrowseChannels(false);
           setShowDetails(false);
         }}
@@ -609,12 +645,12 @@ export function ChatPage() {
         onShowCreateConversation={() => {
           setShowCreateConversation(true);
           setShowBrowseChannels(false);
-          setShowSearch(false);
+          closeSearch();
         }}
         onShowBrowseChannels={() => {
           setShowBrowseChannels(true);
           setShowCreateConversation(false);
-          setShowSearch(false);
+          closeSearch();
         }}
       />
 
@@ -675,7 +711,7 @@ export function ChatPage() {
         onInviteGuest={() => {
           setShowGuestShare(true);
           setShowDetails(false);
-          setShowSearch(false);
+          closeSearch();
           setShowBrowseChannels(false);
         }}
         onJumpToLatest={jumpToLatest}
@@ -704,10 +740,10 @@ export function ChatPage() {
         onToggleActivity={() => {
           setShowActivity((visible) => !visible);
           setShowDetails(false);
-          setShowSearch(false);
+          closeSearch();
         }}
         onToggleSearch={() => {
-          setShowSearch((visible) => !visible);
+          toggleSearch(activeConversationId);
           setShowBrowseChannels(false);
           setShowDetails(false);
           setShowGuestShare(false);
@@ -716,12 +752,12 @@ export function ChatPage() {
         setReplyTo={setReplyTo}
       />
 
-      {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
+      {showSearch && <SearchPanel key={searchConversationId || "workspace"} api={api} conversations={conversations} users={users} initialConversationId={searchConversationId} onClose={closeSearch} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
       {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}
       {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
-      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
+      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} onMessageUpdated={updateLoadedMessage} onReport={(message) => { setReportError(null); setReportTarget(message); }} />}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );

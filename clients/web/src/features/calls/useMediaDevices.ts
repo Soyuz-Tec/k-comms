@@ -3,9 +3,11 @@ import { Room } from "livekit-client";
 import type { CallMediaKind } from "../../types";
 import {
   cameraConstraints,
+  deviceSelection,
   mediaBoundaryError,
   mediaErrorText
 } from "./callMedia";
+import { readMediaDevicePreference } from "./media-device-preferences";
 
 interface UseMediaDevicesOptions {
   mountedRef: { current: boolean };
@@ -19,9 +21,15 @@ export function useMediaDevices({
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
-  const [selectedMicrophone, setSelectedMicrophone] = useState("");
-  const [selectedCamera, setSelectedCamera] = useState("");
-  const [selectedSpeaker, setSelectedSpeaker] = useState("");
+  const [initialPreferences] = useState(() => ({
+    microphone: readMediaDevicePreference("microphone"),
+    camera: readMediaDevicePreference("camera"),
+    speaker: readMediaDevicePreference("speaker")
+  }));
+  const appliedPreferencesRef = useRef(initialPreferences);
+  const [selectedMicrophone, setSelectedMicrophone] = useState(initialPreferences.microphone);
+  const [selectedCamera, setSelectedCamera] = useState(initialPreferences.camera);
+  const [selectedSpeaker, setSelectedSpeaker] = useState(initialPreferences.speaker);
   const [prejoinMicrophone, setPrejoinMicrophone] = useState(false);
   const [prejoinCamera, setPrejoinCamera] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -59,12 +67,22 @@ export function useMediaDevices({
         Room.getLocalDevices("audiooutput", false).catch(() => [])
       ]);
       if (!accept()) return;
+      const previousPreferences = appliedPreferencesRef.current;
+      const savedPreferences = {
+        microphone: readMediaDevicePreference("microphone"),
+        camera: readMediaDevicePreference("camera"),
+        speaker: readMediaDevicePreference("speaker")
+      };
+      // A CallPanel persists after a call ends. Apply settings changed elsewhere
+      // when the next lobby opens, while preserving manual choices on repeated
+      // enumeration and never applying a rejected active-call refresh.
       setMicrophones(audioDevices);
-      setSelectedMicrophone((current) => current || audioDevices[0]?.deviceId || "");
+      setSelectedMicrophone((current) => deviceSelection(savedPreferences.microphone !== previousPreferences.microphone ? savedPreferences.microphone : current, audioDevices));
       setCameras(videoDevices);
-      setSelectedCamera((current) => current || videoDevices[0]?.deviceId || "");
+      if (kind === "video") setSelectedCamera((current) => deviceSelection(savedPreferences.camera !== previousPreferences.camera ? savedPreferences.camera : current, videoDevices));
       setSpeakers(outputDevices);
-      setSelectedSpeaker((current) => current || outputDevices[0]?.deviceId || "");
+      setSelectedSpeaker((current) => deviceSelection(savedPreferences.speaker !== previousPreferences.speaker ? savedPreferences.speaker : current, outputDevices));
+      appliedPreferencesRef.current = { ...savedPreferences, camera: kind === "video" ? savedPreferences.camera : previousPreferences.camera };
     } catch {
       // Labels can remain unavailable until the user explicitly enables a device.
     }

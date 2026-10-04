@@ -209,7 +209,7 @@ describe("CallPanel calls", () => {
     const minimize = within(activeCall).getByRole("button", { name: "Minimize" });
     await waitFor(() => expect(minimize).toHaveFocus());
     expect(screen.getByRole("navigation", { name: "Call workspace" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Directory" }));
+    await user.click(screen.getByRole("button", { name: "Invite from directory" }));
 
     expect(onNavigate).toHaveBeenCalledWith("/app/directory");
     expect(screen.getByRole("button", { name: "Show call" })).toHaveAttribute(

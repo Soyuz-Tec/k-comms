@@ -141,6 +141,31 @@ defmodule CommsWeb.MemberReadControllerTest do
       |> json_response(422)
 
     assert invalid["error"]["code"] == "invalid_file_scope"
+
+    images =
+      account
+      |> authenticated_conn()
+      |> get("/api/v1/files?category=images")
+      |> json_response(200)
+
+    assert images["data"] == []
+
+    other_files =
+      account
+      |> authenticated_conn()
+      |> get("/api/v1/files?category=non_images&q=file-")
+      |> json_response(200)
+
+    assert [matching_file] = other_files["data"]
+    assert matching_file["id"] == attachment.id
+
+    invalid_category =
+      account
+      |> authenticated_conn()
+      |> get("/api/v1/files?category=documents")
+      |> json_response(422)
+
+    assert invalid_category["error"]["code"] == "invalid_file_category"
   end
 
   test "calls expose truthful room-session facts without provider credentials" do

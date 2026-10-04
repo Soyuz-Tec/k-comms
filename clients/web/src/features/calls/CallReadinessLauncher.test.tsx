@@ -11,10 +11,10 @@ vi.mock("../guest/QrCode", () => ({
 }));
 
 const conversation: Conversation = {
-  id: "conversation-uae-test",
+  id: "conversation-connection-test",
   tenant_id: "tenant-1",
   kind: "group",
-  title: "UAE office call test",
+  title: "Connection test",
   counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
@@ -52,11 +52,11 @@ describe("CallReadinessLauncher", () => {
       </MemoryRouter>
     );
 
-    await user.click(screen.getByText("Office connection test"));
+    await user.click(screen.getByText("Connection test"));
     await user.click(screen.getByRole("button", { name: "Create test link" }));
 
     await waitFor(() => expect(createConversation).toHaveBeenCalledWith({
-      title: "UAE office call test",
+      title: "Connection test",
       kind: "group",
       visibility: "private",
       member_ids: []
@@ -65,7 +65,7 @@ describe("CallReadinessLauncher", () => {
       expires_in_seconds: 600,
       max_uses: 1
     });
-    const url = new URL((screen.getByLabelText("One-use office link") as HTMLInputElement).value);
+    const url = new URL((screen.getByLabelText("One-use test link") as HTMLInputElement).value);
     expect(url.searchParams.get("call")).toBe("audio");
     expect(url.searchParams.get("call_readiness")).toBe("office");
     expect(url.hash).toBe("#guest=fragment-secret");
@@ -84,7 +84,7 @@ describe("CallReadinessLauncher", () => {
       </MemoryRouter>
     );
 
-    await user.click(screen.getByText("Office connection test"));
+    await user.click(screen.getByText("Connection test"));
     expect(screen.getByRole("button", { name: "Create test link" })).toBeDisabled();
     expect(screen.getByText("Audio calling is unavailable.")).toBeVisible();
   });

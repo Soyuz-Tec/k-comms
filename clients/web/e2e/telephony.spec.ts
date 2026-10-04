@@ -46,9 +46,31 @@ test("Phone explains carrier setup and preserves the five mobile destinations", 
   await page.getByRole("link", { name: "Phone", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/calls\/phone$/);
   await expect(page.getByRole("heading", { name: "Phone", exact: true })).toBeVisible();
-  await expect(page.getByText("Phone calling is disabled for this service.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Phone service is off" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Call number" })).toBeDisabled();
-  await expect(page.getByRole("link", { name: "Set up a phone line" })).toHaveAttribute("href", "/admin?section=phone");
+  await expect(page.getByRole("link", { name: "Review phone setup" })).toHaveAttribute("href", "/admin?section=phone");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("personal history loads and refreshes without an assigned line while calling stays unavailable", async ({ page }) => {
+  await installWorkspace(page);
+  await denyMicrophone(page);
+  let reads = 0;
+  let dials = 0;
+  const missed: PhoneCall = { ...incoming, status: "no_answer", can_answer: false, ended_at: "2026-10-03T12:00:30Z" };
+  await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: true, configured: false, provider_ready: true, line_assigned: false, provider: "livekit_sip", number: null, can_manage: false } } }));
+  await page.route("**/api/v1/telephony/calls?**", (route) => { reads += 1; return route.fulfill({ json: phonePage([missed]) }); });
+  await page.route("**/api/v1/telephony/calls", (route) => { dials += 1; return route.fulfill({ status: 503, json: { error: { code: "telephony_unconfigured", detail: "No line assigned" } } }); });
+  await page.goto("/app/calls/phone");
+  await expect(page.getByRole("heading", { name: "No phone line assigned" })).toBeVisible();
+  await expect(page.getByText("Ask your workspace administrator to assign you a phone number and extension.")).toBeVisible();
+  await expect(page.getByText("Incoming · Missed")).toBeVisible();
+  const initialReads = reads;
+  await page.getByRole("button", { name: "Refresh phone calls" }).click();
+  await expect.poll(() => reads).toBeGreaterThan(initialReads);
+  await expect(page.getByRole("button", { name: "Call number" })).toBeDisabled();
+  expect(await microphoneRequests(page)).toBe(0);
+  expect(dials).toBe(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -116,7 +138,7 @@ test("an administrator provisions a phone line only after step-up, preserving th
   let saves = 0;
   let submitted: Record<string, unknown> | null = null;
   let savedNumber: typeof number & { inbound_trunk_id: string; outbound_trunk_id: string } | null = null;
-  const configuration = () => ({ enabled: false, configured: false, provider: "livekit_sip", number: savedNumber, can_manage: true });
+  const configuration = () => ({ enabled: false, configured: false, provider_ready: false, line_assigned: Boolean(savedNumber), provider: "livekit_sip", number: savedNumber, can_manage: true });
   await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: true } } }));
   await page.route("**/api/v1/admin/telephony", (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { data: configuration() } });
@@ -143,7 +165,7 @@ test("an administrator provisions a phone line only after step-up, preserving th
   expect(submitted).toBeNull();
   await page.getByLabel("Current password").fill("synthetic test password");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByText("Phone line saved.")).toBeVisible();
+  await expect(page.getByText("Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.")).toBeVisible();
   expect(saves).toBe(2);
   expect(submitted).toEqual({ phone_number: number.phone_number, extension: number.extension, user_id: userId, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "Synthetic phone pilot" });
   await page.reload();

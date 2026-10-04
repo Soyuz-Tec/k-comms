@@ -6,9 +6,11 @@ import { AppIcon } from "../../components/AppIcon";
 import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatTime } from "../../lib/format";
-import type { InAppNotification } from "../../types";
+import type { Conversation, InAppNotification } from "../../types";
+import { conversationParticipantIdentifier, duplicateDirectConversationNames } from "../../lib/participantIdentity";
+import "./NotificationCenter.css";
 
-export function NotificationCenter() {
+export function NotificationCenter({ conversations = [] }: { conversations?: Conversation[] }) {
   const { api, session } = useSession();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
@@ -109,6 +111,7 @@ export function NotificationCenter() {
       </button>
       {open && createPortal(
         <NotificationPanel
+          conversations={conversations}
           notifications={notifications}
           unreadCount={unreadCount}
           loading={loading}
@@ -156,6 +159,7 @@ export function NotificationCenter() {
 }
 
 function NotificationPanel({
+  conversations,
   notifications,
   unreadCount,
   loading,
@@ -174,6 +178,7 @@ function NotificationPanel({
   onDismiss,
   onReadAll
 }: {
+  conversations: Conversation[];
   notifications: InAppNotification[];
   unreadCount: number;
   loading: boolean;
@@ -193,12 +198,28 @@ function NotificationPanel({
   onReadAll: () => Promise<void>;
 }) {
   const dialogRef = useModalDialog(onClose);
-  const visibleNotifications = filter === "unread" ? notifications.filter((notification) => !notification.read_at) : notifications;
+  const [category, setCategory] = useState("all");
+  const [query, setQuery] = useState("");
+  const [conversationId, setConversationId] = useState("all");
+  const loadedConversationIds = new Set(notifications.map((notification) => notification.conversation_id));
+  const selectedConversation = conversations.find((conversation) => conversation.id === conversationId);
+  const effectiveConversationId = selectedConversation ? conversationId : "all";
+  // Keep the selected authorized name offered when a refreshed page has no
+  // matching updates; never show All while applying a hidden conversation ID.
+  const loadedConversations = conversations.filter((conversation) => loadedConversationIds.has(conversation.id) || conversation.id === effectiveConversationId);
+  const duplicateNames = duplicateDirectConversationNames(loadedConversations);
+  const localFiltersActive = category !== "all" || effectiveConversationId !== "all" || !!query.trim();
+  const visibleNotifications = notifications.filter((notification) =>
+    (filter !== "unread" || !notification.read_at) &&
+    (category === "all" || notification.event_type === category) &&
+    (effectiveConversationId === "all" || notification.conversation_id === effectiveConversationId) &&
+    `${notification.title} ${notification.body}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
+  );
 
   return (
     <>
     <div className="notification-backdrop" aria-hidden="true" />
-    <aside ref={dialogRef} className="notification-panel notification-inbox" role="dialog" aria-modal="true" aria-labelledby="notification-title">
+    <section ref={dialogRef} className="notification-panel notification-inbox" role="dialog" aria-modal="true" aria-labelledby="notification-title">
       <div className="notification-panel-header">
         <header>
           <div><span className="eyebrow">Inbox</span><h2 id="notification-title">Notifications</h2></div>
@@ -215,16 +236,23 @@ function NotificationPanel({
           </div>
           <div className="notification-bulk-actions">
             <span>{unreadCount} unread</span>
-            <button className="text-button" type="button" disabled={unreadCount === 0 || busyId !== null || loading} onClick={() => void onReadAll()}>Mark all read</button>
+            <button className="text-button" type="button" aria-describedby="notification-bulk-scope" disabled={unreadCount === 0 || busyId !== null || loading} onClick={() => void onReadAll()}>Mark all read</button>
           </div>
         </div>
+        <div className="notification-local-filters">
+          <label className="field notification-search">Search loaded notifications<input type="search" value={query} disabled={busyId !== null} onChange={(event) => setQuery(event.target.value)} placeholder="Search titles and descriptions" /></label>
+          <label className="field">Category<select value={category} disabled={busyId !== null} onChange={(event) => setCategory(event.target.value)}><option value="all">All categories</option><option value="mention.created.v1">Mentions</option><option value="message.created.v1">Messages</option></select></label>
+          {conversations.length > 0 && <label className="field">Conversation<select value={effectiveConversationId} disabled={busyId !== null} onChange={(event) => setConversationId(event.target.value)}><option value="all">All loaded conversations</option>{loadedConversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateNames)}</option>)}</select></label>}
+        </div>
+        <p className="notification-filter-scope">Category, conversation and search filters apply to loaded notifications. Load more to check older updates.</p>
+        <p id="notification-bulk-scope" className="sr-only">Marks all notifications read, including updates outside these filters.</p>
       </div>
       {refreshAvailable && <div className="notification-refresh" role="status">Updates may be available. <button type="button" className="text-button" disabled={loading || busyId !== null} onClick={onRefresh}>Refresh notifications</button></div>}
       {error && <div className="form-error" role="alert">{error} <button type="button" className="text-button" disabled={loading || busyId !== null} onClick={onRetry}>Retry notifications</button></div>}
       {actionError && <div className="form-error" role="alert">{actionError}</div>}
       {loading && notifications.length === 0 ? <div className="inline-loading" role="status"><span className="spinner" aria-hidden="true" />Loading notifications…</div> : (
         visibleNotifications.length === 0 && !error
-          ? <p className="empty-copy">{nextCursor ? "More notifications are available below." : filter === "unread" ? "No unread notifications." : "No notifications yet."}</p>
+          ? <p className="empty-copy">{localFiltersActive ? "No loaded notifications match these filters." : nextCursor ? "More notifications are available below." : filter === "unread" ? "No unread notifications." : "No notifications yet."}</p>
           : <ol className="notification-list">
           {visibleNotifications.map((notification) => (
             <li key={notification.id} className={notification.read_at ? "" : "unread"}>
@@ -238,7 +266,7 @@ function NotificationPanel({
         </ol>
       )}
       {nextCursor && <button className="button secondary notification-load-more" type="button" disabled={loading || busyId !== null} onClick={onLoadMore}>{loading ? "Loading more notifications…" : "Load more notifications"}</button>}
-    </aside>
+    </section>
     </>
   );
 }

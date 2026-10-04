@@ -47,6 +47,11 @@
   display: grid;
 }
 
+.prejoin-media-summary {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
 .call-prejoin-dialog .prejoin-consent-grid .checkbox-field,
 .call-prejoin-dialog .prejoin-device-settings > summary,
 .call-prejoin-dialog .call-capture-indicator span,
@@ -76,6 +81,58 @@
 .audio-call-dock.active-call-screen:not(.minimized) .video-placeholder span {
   font-family: var(--font-body);
   font-weight: 600;
+}
+
+.call-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  gap: .35rem;
+  padding: .6rem;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.call-view-controls .button {
+  min-height: 44px;
+  flex: 1;
+}
+
+.call-view-controls .button[aria-pressed="true"] {
+  border-color: var(--accent-solid);
+  background: var(--accent-quiet);
+}
+
+.call-view-controls small {
+  width: 100%;
+  color: var(--text-secondary);
+}
+
+.video-participant-pin {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border-media-control);
+  border-radius: var(--radius-sm);
+  color: var(--text-on-media);
+  background: var(--surface-media-control);
+  font: inherit;
+}
+
+.video-participant-pin[aria-pressed="true"] {
+  border-color: var(--text-on-media);
+}
+
+.audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid.view-speaker > .video-participant-tile:first-child {
+  grid-column: 1 / -1;
+}
+
+.audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid.view-gallery > .video-participant-tile:first-child:not(:has(.video-track-frame.screen-share)) {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links:has(> button:nth-child(4)) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 @media (min-width: 761px) and (min-height: 561px) {

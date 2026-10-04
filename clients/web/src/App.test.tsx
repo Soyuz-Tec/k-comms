@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App, { memberAppTarget } from "./App";
 
@@ -45,6 +45,17 @@ vi.mock("./app/session", () => ({
 vi.mock("./features/guest/GuestAccessPage", () => ({
   GuestAccessPage: () => <main><h1>Guest join route</h1></main>
 }));
+
+vi.mock("./app/ProductShell", async () => {
+  const { Outlet } = await import("react-router");
+  return { ProductShell: () => <Outlet /> };
+});
+vi.mock("./app/workspace-data", () => ({ WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("./app/step-up", () => ({ StepUpProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("./features/files/FilesPage", () => ({ FilesPage: () => <h1>Shared files route</h1> }));
+vi.mock("./features/whiteboard/WhiteboardPage", () => ({ WhiteboardPage: () => <h1>Whiteboard route</h1> }));
+vi.mock("./features/directory/DirectoryPage", () => ({ DirectoryPage: () => <h1>Directory route</h1> }));
+vi.mock("./features/telephony/PhonePage", () => ({ PhonePage: () => <h1>Phone route</h1> }));
 
 vi.mock("./features/instant-room/InstantRoomPage", () => ({
   InstantRoomPage: ({
@@ -120,6 +131,36 @@ describe("application route priority", () => {
     expect(window.location.pathname).toBe("/sign-in");
   });
 
+  it.each([true, false])("preserves explicit workspace setup while respecting bootstrap capability %s", async (enabled) => {
+    appHarness.session = null;
+    appHarness.api.status.mockResolvedValue({ capabilities: { bootstrap: enabled } });
+    window.history.replaceState({}, "", "/app/?setup=workspace&token=unrelated-secret#guest=guest-secret");
+
+    render(<App />);
+
+    if (enabled) {
+      expect(await screen.findByRole("heading", { name: "Create your workspace" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Create workspace" })).toBeVisible();
+    } else {
+      expect(await screen.findByText(/Workspace creation is not available on this deployment\./)).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Create workspace" })).not.toBeInTheDocument();
+    }
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/sign-in?setup=workspace");
+    expect(window.history.state.usr.returnTo).toBe("/app/");
+    expect(document.body).not.toHaveTextContent("unrelated-secret");
+    expect(document.body).not.toHaveTextContent("guest-secret");
+  });
+
+  it.each(["other", "workspace&setup=other", "workspace%20"])("rejects an unvalidated setup selector %s", async (selector) => {
+    appHarness.session = null;
+    window.history.replaceState({}, "", `/app/?setup=${selector}`);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+    expect(window.location.pathname + window.location.search).toBe("/sign-in");
+  });
+
   it("returns a signed-in member to a safe conversation deep link", () => {
     expect(
       memberAppTarget(
@@ -127,6 +168,93 @@ describe("application route priority", () => {
       )
     ).toBe("/app/?conversation=conversation-1&message=message-2");
     expect(memberAppTarget("?invitation_token=secret")).toBe("/app/");
+  });
+
+  it.each([
+    ["/app/files?conversation=room-1&file=file-1", "Shared files route"],
+    ["/app/whiteboard?conversation=room-1&focus_elements=shape-1", "Whiteboard route"],
+    ["/app/directory", "Directory route"],
+    ["/app/calls/phone", "Phone route"]
+  ])("returns to %s after sign-in without placing the target in the sign-in URL", async (target, heading) => {
+    appHarness.session = null;
+    window.history.replaceState({}, "", target);
+    const view = render(<App />);
+    await screen.findByRole("heading", { name: "Sign in to your workspace" });
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/sign-in");
+    appHarness.session = { access_token: "member-access", refresh_token: "member-refresh" };
+    view.rerender(<App />);
+    await screen.findByRole("heading", { name: heading });
+    expect(window.location.pathname + window.location.search).toBe(target);
+  });
+
+  it("preserves a validated workspace hint while returning to the requested file", async () => {
+    appHarness.session = null;
+    window.history.replaceState({}, "", "/app/files?tenant_slug=acme&file=file-1&guest_token=query-secret#guest=fragment-secret");
+    const view = render(<App />);
+
+    await screen.findByRole("heading", { name: "Sign in to your workspace" });
+    expect(screen.getByText("acme")).toBeVisible();
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/sign-in?tenant_slug=acme");
+    expect(window.history.state.usr.returnTo).toBe("/app/files?file=file-1");
+    expect(JSON.stringify(window.history.state)).not.toContain("secret");
+
+    appHarness.session = { access_token: "member-access", refresh_token: "member-refresh" };
+    view.rerender(<App />);
+    await screen.findByRole("heading", { name: "Shared files route" });
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/app/files?file=file-1");
+  });
+
+  it.each(["https%3A%2F%2Foutside.example", "acme%26guest_token%3Dsecret"])("drops invalid workspace hint %s and unrelated gateway credentials", async (slug) => {
+    appHarness.session = null;
+    window.history.replaceState({}, "", `/app/files?tenant_slug=${slug}&file=file-1&guest_token=query-secret#guest=fragment-secret`);
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Sign in to your workspace" });
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/sign-in");
+    expect(window.history.state.usr.returnTo).toBe("/app/files?file=file-1");
+    expect(document.body).not.toHaveTextContent("secret");
+  });
+
+  it("returns guest continuation through navigation state without putting its bearer in the URL", async () => {
+    window.history.replaceState({ usr: { returnTo: "/join", guestToken: "room-secret" }, key: "signin", idx: 0 }, "", "/sign-in");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Guest join route" });
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/join");
+    expect(window.history.state.usr.guestToken).toBe("room-secret");
+  });
+
+  it("retains safe return state while an invitation token is scrubbed", async () => {
+    appHarness.session = null;
+    window.history.replaceState({ usr: { returnTo: "/app/files?file=file-1" }, key: "invite", idx: 0 }, "", "/sign-in#invitation_token=secret");
+    const view = render(<App />);
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    expect(window.history.state.usr).toEqual({ returnTo: "/app/files?file=file-1" });
+    appHarness.session = { access_token: "member-access", refresh_token: "member-refresh" };
+    view.rerender(<App />);
+    await screen.findByRole("heading", { name: "Shared files route" });
+    expect(window.location.pathname + window.location.search).toBe("/app/files?file=file-1");
+  });
+
+  it.each([
+    ["/app/?invitation_token=invitation-secret&tenant_slug=acme&setup=workspace&conversation=room-1&guest_token=query-secret#guest=fragment-secret&token=reset-secret", "/sign-in?tenant_slug=acme&setup=workspace"],
+    ["/app/?guest_token=query-secret&conversation=room-1&setup=workspace&setup=other#invitation_token=invitation-secret&tenant_slug=acme&guest_token=fragment-secret&token=reset-secret", "/sign-in#tenant_slug=acme"]
+  ])("limits invitation gateway selectors and immediately scrubs the token from %s", async (entry, target) => {
+    appHarness.session = null;
+    appHarness.transportPolicyReady = false;
+    window.history.replaceState({}, "", entry);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Join your workspace" })).toBeVisible();
+    await waitFor(() => expect(window.location.pathname + window.location.search + window.location.hash).toBe(target));
+    expect(window.history.state.usr.returnTo).toBe("/app/?conversation=room-1");
+    expect(screen.getByRole("button", { name: "Join workspace" })).toBeDisabled();
+    for (const secret of ["invitation-secret", "query-secret", "fragment-secret", "reset-secret"]) {
+      expect(document.body).not.toHaveTextContent(secret);
+      expect(window.location.href).not.toContain(secret);
+      expect(JSON.stringify(window.history.state)).not.toContain(secret);
+    }
   });
 
   it("canonicalizes a legacy account root before waiting for transport policy", async () => {

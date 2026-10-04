@@ -1,0 +1,11 @@
+.directory-row-copy .directory-action-error {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--danger-text);
+  white-space: normal;
+}
+
+.directory-action-error .button {
+  justify-self: start;
+}

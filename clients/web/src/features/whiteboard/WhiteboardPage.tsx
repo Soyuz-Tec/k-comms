@@ -15,9 +15,8 @@ export function WhiteboardPage() {
     .filter((id) => id.length >= 8 && id.length <= 128)
     .slice(0, 20);
   const activeConversation =
-    conversations.find((conversation) => conversation.id === requested) ??
-    conversations[0] ??
-    null;
+    requested === null ? conversations[0] ?? null :
+      conversations.find((conversation) => conversation.id === requested) ?? null;
 
   if (loading) {
     return (
@@ -48,9 +47,11 @@ export function WhiteboardPage() {
             onChange={(event) => {
               const next = new URLSearchParams(searchParams);
               next.set("conversation", event.target.value);
+              next.delete("focus_elements");
               setSearchParams(next);
             }}
           >
+            {!activeConversation && <option value="" disabled>Choose a conversation</option>}
             {conversations.map((conversation) => (
               <option key={conversation.id} value={conversation.id}>
                 {conversation.title || "Untitled conversation"}
@@ -82,10 +83,10 @@ export function WhiteboardPage() {
           }}
         />
       ) : (
-        <section className="empty-state whiteboard-empty">
+        <section className="empty-state whiteboard-empty" role={requested !== null ? "alert" : undefined}>
           <AppIcon name="messages" />
-          <h2>Create or join a conversation first</h2>
-          <p>Every whiteboard is private to one conversation and its current members.</p>
+          <h2>{requested !== null ? "Board unavailable" : "Create or join a conversation first"}</h2>
+          <p>{requested !== null ? "This conversation is unavailable or your access has changed. Choose another conversation above or return to Inbox." : "Every whiteboard is private to one conversation and its current members."}</p>
           <Link className="button primary" to="/app/">Open Inbox</Link>
         </section>
       )}

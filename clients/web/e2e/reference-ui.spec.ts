@@ -47,7 +47,9 @@ async function verifyScreen(page: Page, info: TestInfo, name: string, axe = true
   const width = page.viewportSize()?.width ?? 1440;
   if (name.endsWith("files")) {
     for (const row of await page.locator(".file-row").all()) {
-      const title = await row.locator(".file-row-title strong").boundingBox();
+      const fileName = row.getByRole("button", { name: /^File details for / });
+      await expect(fileName).toBeVisible();
+      const title = await fileName.boundingBox();
       const actions = await row.locator(".file-row-actions").boundingBox();
       expect(title).not.toBeNull();
       expect(actions).not.toBeNull();
@@ -55,7 +57,7 @@ async function verifyScreen(page: Page, info: TestInfo, name: string, axe = true
       const overlapHeight = Math.min(title!.y + title!.height, actions!.y + actions!.height) - Math.max(title!.y, actions!.y);
       expect(overlapWidth <= 1 || overlapHeight <= 1, "Filename must not overlap its actions").toBeTruthy();
       if (width <= 760) {
-        expect(await row.locator(".file-row-title strong").evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+        expect(await fileName.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
       }
     }
   }
@@ -117,6 +119,11 @@ for (const width of [390, 1440]) {
         ["/app/you", "#profile-settings", "profile"]
       ]) {
         await page.goto(path);
+        if (name === "calls" && width <= 760) {
+          const showLauncher = page.getByRole("button", { name: "Start call", exact: true });
+          await expect(showLauncher).toHaveAttribute("aria-expanded", "false");
+          await showLauncher.click();
+        }
         await expect(page.locator(selector).first()).toBeVisible();
         await verifyScreen(page, info, name);
         if (name === "files" && width === 390) {

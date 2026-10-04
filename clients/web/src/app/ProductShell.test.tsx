@@ -214,6 +214,7 @@ describe("ProductShell", () => {
   });
 
   it("uses an accessible compact dock and lets users pin the expanded navigation", async () => {
+    window.localStorage.setItem("k-comms.workspace-sidebar-collapsed.v1", "false");
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query === "(min-width: 761px) and (min-height: 561px)",
       media: query,
@@ -258,6 +259,7 @@ describe("ProductShell", () => {
   });
 
   it("opens for keyboard focus and hides accessibly on Escape", async () => {
+    window.localStorage.setItem("k-comms.workspace-sidebar-collapsed.v1", "false");
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query === "(min-width: 761px) and (min-height: 561px)",
       media: query,
@@ -286,5 +288,22 @@ describe("ProductShell", () => {
     expect(sidebar).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("button", { name: "Show workspace navigation" })).toBeVisible();
     expect(toggle).not.toHaveFocus();
+  });
+
+  it("keeps labeled navigation visible by default and exposes direct personal settings", async () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)", media: query,
+      onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn()
+    }));
+    const user = userEvent.setup();
+    renderProductShell();
+    const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
+    expect(sidebar).toHaveClass("is-expanded");
+    await user.click(screen.getByRole("heading", { name: "Inbox" }));
+    expect(sidebar).not.toHaveAttribute("inert");
+    await user.click(screen.getByLabelText("Account menu for Taylor Example"));
+    expect(screen.getByRole("link", { name: "Profile & settings" })).toHaveAttribute("href", "/app/you?section=profile");
+    expect(screen.getByRole("link", { name: "Audio & video" })).toHaveAttribute("href", "/app/you?section=audio-video");
   });
 });

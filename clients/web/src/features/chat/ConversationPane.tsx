@@ -412,21 +412,28 @@ export function ConversationPane({
                   disabled={sending}
                   onChange={onMentionedUserIdsChange}
                 />
-                <label
-                  className={`attachment-button composer-icon-button ${
-                    sending ? "disabled" : ""
-                  }`}
-                >
                   <input
                     type="file"
                     multiple
+                    hidden
                     disabled={sending}
                     onChange={(event) => void onFilesSelected(event)}
                     accept="image/*,text/*,application/pdf,application/zip,application/json"
                     aria-label="Attach files"
                   />
+                <button
+                  id="chat-attachment-trigger"
+                  type="button"
+                  aria-label="Choose files to attach"
+                  disabled={sending}
+                  onClick={(event) => {
+                    const input = event.currentTarget.previousElementSibling;
+                    if (input instanceof HTMLInputElement) input.click();
+                  }}
+                  className={`attachment-button composer-icon-button ${sending ? "disabled" : ""}`}
+                >
                   <AppIcon name="paperclip" />
-                </label>
+                </button>
                 <button
                   className="composer-icon-button composer-send send-button"
                   type="submit"

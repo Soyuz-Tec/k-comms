@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import type { FormEvent, InputHTMLAttributes } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import type { BootstrapInput, LoginInput } from "../../api";
 import { Field } from "../../components/Field";
 import { browserName, errorText, stringValue } from "../../lib/format";
@@ -9,6 +9,7 @@ import {
   validWorkspaceSlug
 } from "../../lib/workspacePreference";
 import { useSession } from "../../app/session";
+import { authenticationReturnState } from "../../app/authNavigation";
 
 type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
@@ -21,6 +22,8 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
     accountActionsAllowed
   } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [authenticationState] = useState(() => authenticationReturnState(location.search, location.state));
   const [invitationContext] = useState(readInvitationContext);
   const [bootstrapRequested] = useState(readBootstrapRequest);
   const [invitationToken, setInvitationToken] = useState(invitationContext.token);
@@ -52,8 +55,8 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
     const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
     hash.delete("invitation_token");
     url.hash = hash.toString();
-    navigate(`${url.pathname}${url.search}${url.hash}`, { replace: true });
-  }, [invitationToken, navigate]);
+    navigate(`${url.pathname}${url.search}${url.hash}`, { replace: true, state: authenticationState });
+  }, [authenticationState, invitationToken, navigate]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -345,7 +348,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                   required
                 />
                 <div className="auth-form-help">
-                  <Link to="/forgot-password">Forgot password?</Link>
+                  <Link to="/forgot-password" state={authenticationState}>Forgot password?</Link>
                 </div>
                 <button
                   className="button primary full"

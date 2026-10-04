@@ -183,7 +183,7 @@ describe("CallsPage", () => {
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
   });
 
-  it("keeps the empty-history launcher toggle synchronized with the visible panel", async () => {
+  it("keeps empty mobile history compact and opens the launcher with keyboard focus", async () => {
     harness.calls.mockResolvedValue({
       data: [],
       page: { limit: 25, has_more: false, next_cursor: null }
@@ -191,15 +191,47 @@ describe("CallsPage", () => {
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
 
     await screen.findByText("No active call rooms");
-    expect(document.querySelector(".calls-workspace")).toHaveClass("prioritize-launcher");
+    expect(document.querySelector(".calls-new-call-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("navigation", { name: "Calling destinations" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+    fireEvent.click(screen.getByRole("button", { name: "Start call" }));
+    expect(screen.getByRole("searchbox", { name: "Find a conversation to call" })).toHaveFocus();
     const hideLauncher = screen.getByText("Hide call launcher").closest("button");
     expect(hideLauncher).not.toBeNull();
     expect(hideLauncher).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(hideLauncher as HTMLButtonElement);
-    expect(screen.getByText("Start a new call").closest("button")).toHaveAttribute(
+    expect(document.querySelector(".calls-new-call-toggle")).toHaveAttribute(
       "aria-expanded",
       "false"
     );
+  });
+
+  it("keeps starter attribution when a different member ended the room", async () => {
+    harness.calls.mockResolvedValue({
+      data: [{ ...activeCall, status: "ended", ended_by_user_id: "user-3", ended_at: "2026-07-24T10:05:00Z" }],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    });
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    const row = (await screen.findByRole("button", { name: "Start video call for Execution room" })).closest("li") as HTMLElement;
+    expect(within(row).getByText("Started by Grace Hopper")).toBeVisible();
+    expect(within(row).queryByText("Ended by Grace Hopper")).not.toBeInTheDocument();
+    expect(row.querySelector("time")).toHaveAttribute("dateTime", "2026-07-24T10:05:00Z");
+  });
+
+  it("takes Join active call to current rooms without starting a new call", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await screen.findByText("Active room");
+    await user.click(screen.getByRole("button", { name: "Recent" }));
+    await user.click(screen.getByRole("button", { name: "Join active call" }));
+
+    await waitFor(() => expect(harness.calls).toHaveBeenLastCalledWith({
+      scope: "active", media_kind: undefined, limit: 25, cursor: undefined
+    }));
+    expect(screen.getByRole("region", { name: "Call history" })).toHaveFocus();
+    expect(harness.launchCall).not.toHaveBeenCalled();
   });
 
   it("sends accessible state, modality, and cursor filters to the stable query", async () => {

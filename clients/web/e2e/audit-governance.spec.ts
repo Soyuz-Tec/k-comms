@@ -17,6 +17,7 @@ test("admin exports filtered audit evidence and selects governance targets by na
   const archivedConversation = { ...activeConversation, id: "conversation-archived", title: "Archived project", archived_at: "2026-07-12T10:00:00Z" };
   const activeMessage = { id: "message-active", tenant_id: "tenant-1", conversation_id: activeConversation.id, sender_user_id: activeUser.id, sender_device_id: "device-1", client_message_id: "client-1", conversation_sequence: 7, body: "Release note evidence", metadata: {}, status: "active", inserted_at: "2026-07-12T10:00:00Z", attachments: [], reactions: [] };
   let auditExportBody: unknown;
+  const auditListQueries: Array<Record<string, string>> = [];
   let holdBody: unknown;
   let deletionBody: unknown;
 
@@ -36,7 +37,13 @@ test("admin exports filtered audit evidence and selects governance targets by na
       usage: { active_users: 2, active_conversations: 1, largest_conversation_members: 2, limits, at_capacity: flags, over_limit: flags }
     } } });
   });
-  await page.route("**/api/v1/admin/audit-events?limit=100", (route) => route.fulfill({ json: { data: [{ id: "audit-1", actor_user_id: session.user.id, action: "user.created", resource_type: "user", resource_id: activeUser.id, metadata: {}, request_id: "request-1", inserted_at: "2026-07-12T10:00:00Z" }] } }));
+  await page.route("**/api/v1/admin/audit-events?**", (route) => {
+    auditListQueries.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+    return route.fulfill({ json: {
+      data: [{ id: "audit-1", actor_user_id: session.user.id, action: "user.created", resource_type: "user", resource_id: activeUser.id, metadata: {}, request_id: "request-1", inserted_at: "2026-07-12T10:00:00Z" }],
+      page: { limit: 100, next_cursor: null }
+    } });
+  });
   await page.route("**/api/v1/admin/audit-events/export", async (route) => {
     auditExportBody = route.request().postDataJSON();
     await route.fulfill({
@@ -67,7 +74,9 @@ test("admin exports filtered audit evidence and selects governance targets by na
   await page.evaluate(() => { window.history.pushState({}, "", "/admin"); window.dispatchEvent(new PopStateEvent("popstate")); });
 
   await page.getByRole("button", { name: "Audit" }).click();
-  await page.getByLabel("Filter loaded events").fill("user.created");
+  await page.getByLabel("Search audit events").fill("user.created");
+  await page.getByRole("button", { name: "Apply filters", exact: true }).click();
+  await expect.poll(() => auditListQueries.at(-1)).toEqual({ q: "user.created", limit: "100" });
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export audit CSV" }).click();
   const download = await downloadPromise;

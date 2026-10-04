@@ -47,3 +47,5 @@
 @media (forced-colors: active) {
   .workspace-switcher-option[aria-selected="true"] { outline: 2px solid Highlight; }
 }
+.workspace-switcher-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: .75rem 1rem; border-top: 1px solid var(--border-default); }
+.workspace-switcher-actions .button { min-height: 44px; white-space: normal; }

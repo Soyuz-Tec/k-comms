@@ -37,15 +37,15 @@ describe("sensitive administration reads", () => {
       request_id: "request-1",
       inserted_at: "2026-07-12T10:00:00Z"
     };
-    const auditEvents = vi.fn().mockRejectedValueOnce(stepUpRequired()).mockResolvedValueOnce([event]);
+    const auditEventsPage = vi.fn().mockRejectedValueOnce(stepUpRequired()).mockResolvedValueOnce({ data: [event], page: { limit: 100, next_cursor: null } });
     const user = userEvent.setup();
 
-    render(<StepUpProvider><AuditPanel api={{ auditEvents } as unknown as ApiClient} users={[]} /></StepUpProvider>);
+    render(<StepUpProvider><AuditPanel api={{ auditEventsPage } as unknown as ApiClient} users={[]} /></StepUpProvider>);
     await completeStepUp(user);
 
     expect(stepUp).toHaveBeenCalledWith("correct horse battery staple");
     expect(await screen.findByText("tenant.settings.viewed")).toBeVisible();
-    expect(auditEvents).toHaveBeenCalledTimes(2);
+    expect(auditEventsPage).toHaveBeenCalledTimes(2);
   });
 
   it("cold-loads all governance lists after step-up instead of leaving the panel failed", async () => {

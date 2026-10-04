@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -290,6 +290,80 @@ describe("DirectoryPage", () => {
     await waitFor(() =>
       expect(harness.directoryUsers).toHaveBeenLastCalledWith("Grace", 25)
     );
+  });
+
+  it("uses the directory query from a quick-switcher deep link", async () => {
+    render(<MemoryRouter initialEntries={["/app/directory?q=Grace"]}><DirectoryPage /><LocationProbe /></MemoryRouter>);
+    expect(screen.getByRole("searchbox", { name: "Search people" })).toHaveValue("Grace");
+    await screen.findByRole("list", { name: "People" });
+    expect(harness.directoryUsers).toHaveBeenCalledWith("Grace", 25);
+  });
+
+  it("keeps people visible and retries the failed contact action without reloading search", async () => {
+    const success = await harness.directConversation();
+    harness.directConversation.mockReset().mockRejectedValueOnce(new Error("Message unavailable")).mockResolvedValue(success);
+    const user = userEvent.setup();
+    renderDirectory();
+    await user.click(await screen.findByRole("button", { name: "Message Grace Hopper" }));
+    const list = screen.getByRole("list", { name: "People" });
+    const error = within(list).getByRole("alert");
+    expect(error).toHaveTextContent("Message unavailable");
+    expect(within(list).getByText("Grace Hopper")).toBeVisible();
+    await user.click(within(error).getByRole("button", { name: "Retry action for Grace Hopper" }));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("conversation=direct-1"));
+    expect(harness.directoryUsers).toHaveBeenCalledTimes(1);
+    expect(harness.directConversation).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the public room list and retries a failed join on its row", async () => {
+    const success = await harness.joinPublicChannel();
+    harness.joinPublicChannel.mockReset().mockRejectedValueOnce(new Error("Join unavailable")).mockResolvedValue(success);
+    const user = userEvent.setup();
+    renderDirectory();
+    await screen.findByRole("list", { name: "People" });
+    await user.click(screen.getByRole("button", { name: "Rooms" }));
+    await user.click(await screen.findByRole("button", { name: "Join & open Product launch" }));
+    const list = screen.getByRole("list", { name: "Rooms" });
+    expect(within(list).getByText("Execution room")).toBeVisible();
+    const error = within(list).getByRole("alert");
+    await user.click(within(error).getByRole("button", { name: "Retry action for Product launch" }));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("conversation=room-public"));
+    expect(harness.discoverPublicChannels).toHaveBeenCalledTimes(1);
+    expect(harness.joinPublicChannel).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains loaded people and the cursor when pagination fails", async () => {
+    harness.directoryUsers.mockReset()
+      .mockResolvedValueOnce({ data: [person], page: { next_cursor: "cursor-1" } })
+      .mockRejectedValueOnce(new Error("Next page unavailable"))
+      .mockResolvedValueOnce({ data: [{ id: "user-next", display_name: "Next teammate" }], page: { next_cursor: null } });
+    const user = userEvent.setup();
+    renderDirectory();
+    await screen.findByRole("list", { name: "People" });
+    await user.click(screen.getByRole("button", { name: "Load more people" }));
+    expect(screen.getByRole("list", { name: "People" })).toHaveTextContent("Grace Hopper");
+    await user.click(await screen.findByRole("button", { name: "Retry loading more people" }));
+    await screen.findByText("Next teammate");
+    expect(screen.getByRole("list", { name: "People" })).toHaveTextContent("Grace Hopper");
+    expect(harness.directoryUsers.mock.calls).toEqual([["", 25], ["", 25, "cursor-1"], ["", 25, "cursor-1"]]);
+  });
+
+  it("resets a pending old page when the search changes and ignores its late results", async () => {
+    let finishPage: ((page: { data: DirectoryPerson[]; page: { next_cursor: string | null } }) => void) | undefined;
+    harness.directoryUsers.mockReset()
+      .mockResolvedValueOnce({ data: [person], page: { next_cursor: "old-cursor" } })
+      .mockImplementationOnce(() => new Promise((resolve) => { finishPage = resolve; }))
+      .mockResolvedValue({ data: [{ id: "new-user", display_name: "New match" }], page: { next_cursor: "new-cursor" } });
+    const user = userEvent.setup();
+    renderDirectory();
+    await screen.findByRole("list", { name: "People" });
+    await user.click(screen.getByRole("button", { name: "Load more people" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search people" }), "New");
+    await screen.findByText("New match");
+    expect(screen.getByRole("button", { name: "Load more people" })).toBeEnabled();
+    await act(async () => finishPage?.({ data: [{ id: "stale-user", display_name: "Stale teammate" }], page: { next_cursor: null } }));
+    expect(screen.queryByText("Stale teammate")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more people" })).toBeEnabled();
   });
 
   it("gives an empty-workspace owner a direct first-teammate invite action", async () => {

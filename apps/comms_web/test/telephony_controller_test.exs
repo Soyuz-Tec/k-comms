@@ -73,6 +73,8 @@ defmodule CommsWeb.TelephonyControllerTest do
 
     assert config["data"]["enabled"] == false
     assert config["data"]["configured"] == false
+    assert config["data"]["provider_ready"] == false
+    assert config["data"]["line_assigned"] == false
     assert config["data"]["provider"] == "livekit_sip"
     assert config["data"]["number"] == nil
 
@@ -86,6 +88,81 @@ defmodule CommsWeb.TelephonyControllerTest do
 
     assert response["error"]["code"] == "telephony_disabled"
     assert Repo.aggregate(Call, :count) == 0
+  end
+
+  test "configuration distinguishes missing provider setup from an unassigned personal line", %{
+    account: account,
+    token: token
+  } do
+    Application.put_env(:comms_integrations, :telephony_provider_mode, "livekit")
+
+    unassigned = authenticated(token) |> get("/api/v1/telephony/config") |> json_response(200)
+    assert unassigned["data"]["enabled"]
+    assert unassigned["data"]["provider_ready"]
+    refute unassigned["data"]["line_assigned"]
+    refute unassigned["data"]["configured"]
+
+    Fixtures.step_up(account)
+    assert {:ok, _} = Telephony.provision(number_attrs(account), Fixtures.subject(account))
+    Application.put_env(:comms_integrations, :livekit_api_secret, nil)
+
+    provider_missing =
+      authenticated(token) |> get("/api/v1/telephony/config") |> json_response(200)
+
+    assert provider_missing["data"]["enabled"]
+    refute provider_missing["data"]["provider_ready"]
+    assert provider_missing["data"]["line_assigned"]
+    refute provider_missing["data"]["configured"]
+
+    admin = authenticated(token) |> get("/api/v1/admin/telephony") |> json_response(200)
+    assert admin["data"]["line_assigned"]
+    refute admin["data"]["provider_ready"]
+    assert Repo.aggregate(Call, :count) == 0
+  end
+
+  test "personal history remains readable after line reassignment and service disabling", %{
+    account: account,
+    token: token
+  } do
+    provision(account)
+
+    started =
+      authenticated(token)
+      |> post("/api/v1/telephony/calls", %{
+        destination: "+15550001002",
+        idempotency_key: Ecto.UUID.generate()
+      })
+      |> json_response(201)
+
+    id = started["data"]["id"]
+
+    assert authenticated(token)
+           |> post("/api/v1/telephony/calls/#{id}/end", %{})
+           |> json_response(200)
+
+    %{user: other_user} = Fixtures.user_fixture(account)
+    attrs = Map.put(number_attrs(account), :user_id, other_user.id)
+    assert {:ok, _} = Telephony.provision(attrs, Fixtures.subject(account))
+
+    personal_config =
+      authenticated(token) |> get("/api/v1/telephony/config") |> json_response(200)
+
+    assert personal_config["data"]["provider_ready"]
+    refute personal_config["data"]["line_assigned"]
+    assert personal_config["data"]["number"] == nil
+
+    assigned_elsewhere =
+      authenticated(token) |> get("/api/v1/telephony/calls") |> json_response(200)
+
+    assert [%{"id" => ^id, "status" => "cancelled"}] = assigned_elsewhere["data"]
+
+    Application.put_env(:comms_integrations, :telephony_provider_mode, "disabled")
+
+    disabled_history =
+      authenticated(token) |> get("/api/v1/telephony/calls") |> json_response(200)
+
+    assert disabled_history["data"] == assigned_elsewhere["data"]
+    assert Repo.aggregate(Call, :count) == 1
   end
 
   test "provisioning requires recent step-up and exposes no provider credentials", %{
@@ -382,6 +459,8 @@ defmodule CommsWeb.TelephonyControllerTest do
 
     assert config["data"]["enabled"]
     assert config["data"]["configured"]
+    assert config["data"]["provider_ready"]
+    assert config["data"]["line_assigned"]
     attrs = %{destination: "+15550001002", idempotency_key: Ecto.UUID.generate()}
 
     started =

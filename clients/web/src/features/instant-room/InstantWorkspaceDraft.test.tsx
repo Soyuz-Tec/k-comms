@@ -80,6 +80,7 @@ describe("InstantWorkspaceDraft", () => {
     ).toMatch(/^Guest \d{4}$/);
     expect(screen.getByText("Your name", { exact: false }).closest("li")).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
+    expect(screen.getByText("Join by link")).toBeVisible();
     const firstMessage = screen.getByRole("textbox", {
       name: "Optional first message"
     });

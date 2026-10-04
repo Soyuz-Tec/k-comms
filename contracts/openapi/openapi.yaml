@@ -1810,6 +1810,14 @@ paths:
           in: query
           description: Restrict results to one actively joined conversation
           schema: {type: string, format: uuid}
+        - name: q
+          in: query
+          description: Trimmed literal filename search; case-insensitive and applied before pagination
+          schema: {type: string, minLength: 2, maxLength: 160}
+        - name: category
+          in: query
+          description: MIME category applied before pagination; omit for all files
+          schema: {type: string, enum: [images, non_images]}
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 100, default: 30}
@@ -2516,8 +2524,59 @@ paths:
       tags: [Governance]
       operationId: listAuditEvents
       security: [{bearerAuth: []}]
+      parameters:
+        - name: q
+          in: query
+          description: Trimmed literal text search using the same fields as audit export; text is not copied into audit.read metadata
+          schema: {type: string, maxLength: 200}
+        - name: action
+          in: query
+          schema: {type: string, maxLength: 200}
+        - name: resource_type
+          in: query
+          schema: {type: string, maxLength: 200}
+        - name: actor_user_id
+          in: query
+          schema: {type: string, format: uuid}
+        - name: request_id
+          in: query
+          schema: {type: string, maxLength: 200}
+        - name: after
+          in: query
+          schema: {type: string, format: date-time}
+        - name: before
+          in: query
+          description: Exclusive ISO date-time upper boundary; legacy opaque cursor values are also accepted
+          schema: {type: string}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor; combined with before using the earlier boundary
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
       responses:
-        '200': {description: Redacted tenant privileged audit events}
+        '200':
+          description: Redacted tenant privileged audit events in descending timestamp and ID order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: {type: array, items: {type: object}}
+                  page:
+                    type: object
+                    required: [limit, next_cursor]
+                    properties:
+                      limit: {type: integer, minimum: 1, maximum: 100}
+                      next_cursor:
+                        type: [string, 'null']
+                        description: Null when no further matching page exists
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
   /api/v1/admin/retention-policies:
     get:
       tags: [Governance]
@@ -3069,10 +3128,18 @@ components:
         data:
           type: object
           additionalProperties: false
-          required: [enabled, configured, provider, number, can_manage]
+          required: [enabled, configured, provider_ready, line_assigned, provider, number, can_manage]
           properties:
             enabled: {type: boolean}
-            configured: {type: boolean}
+            configured:
+              type: boolean
+              description: Enabled provider configuration and a visible assigned line are both available
+            provider_ready:
+              type: boolean
+              description: Enabled LiveKit SIP deployment configuration is valid; this is not a network or carrier health probe
+            line_assigned:
+              type: boolean
+              description: A line is visible in this response scope; personal responses include only the current user's assigned line
             provider: {const: livekit_sip}
             number:
               oneOf:

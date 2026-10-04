@@ -41,7 +41,7 @@ export function CallReadinessLauncher({
     setStatus("");
     try {
       const conversation = pendingConversation || await createConversation({
-        title: "UAE office call test",
+        title: "Connection test",
         kind: "group",
         visibility: "private",
         member_ids: []
@@ -57,7 +57,7 @@ export function CallReadinessLauncher({
         guestUrl: callReadinessGuestUrl(link.url)
       });
       setPendingConversation(null);
-      setStatus("One-use office test link ready.");
+      setStatus("One-use test link ready.");
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
@@ -70,7 +70,7 @@ export function CallReadinessLauncher({
     setError("");
     try {
       await copyGuestUrl(created.guestUrl);
-      setStatus("Office test link copied.");
+      setStatus("Test link copied.");
     } catch {
       setError("This browser could not copy the link. Select it and copy it manually.");
     }
@@ -83,9 +83,9 @@ export function CallReadinessLauncher({
       const result = await shareGuestUrl(created.guestUrl);
       setStatus(
         result === "shared"
-          ? "Office test link shared."
+          ? "Test link shared."
           : result === "copied"
-            ? "Office test link copied."
+            ? "Test link copied."
             : "Sharing cancelled."
       );
     } catch {
@@ -97,20 +97,22 @@ export function CallReadinessLauncher({
     <details className="call-readiness-launcher">
       <summary>
         <AppIcon name="lock" />
-        Office connection test
+        Connection test
       </summary>
       <div className="call-readiness-content">
-        <p>Create a private, one-use audio test link. Calls are not recorded.</p>
+        <p>{created
+          ? "Share this link with your test partner, then open your test call. No audio is recorded."
+          : "Create a private, one-use audio test link to check your connection with a test partner. No audio is recorded."}</p>
 
         {created ? (
           <div className="call-readiness-invite">
             <QrCode
               value={created.guestUrl}
-              label="QR code for the UAE office call test"
+              label="QR code for the connection test"
             />
             <div className="call-readiness-invite-copy">
               <label>
-                One-use office link
+                One-use test link
                 <input
                   type="text"
                   value={created.guestUrl}

@@ -131,14 +131,86 @@ defmodule CommsCore.AttachmentsFileListingTest do
              Attachments.list_files(Map.put(subject, :session_id, Ecto.UUID.generate()))
   end
 
-  defp ready_attachment(subject, checksum_character) do
+  test "filters the complete authorized index by filename and image category before pagination" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    older_image =
+      ready_attachment(subject, "4", %{
+        file_name: "Quarterly-report.png",
+        content_type: "image/png"
+      })
+
+    newer_image =
+      ready_attachment(subject, "5", %{
+        file_name: "Quarterly-report.jpg",
+        content_type: "image/jpeg"
+      })
+
+    document = ready_attachment(subject, "6", %{file_name: "Quarterly-report.txt"})
+    literal = ready_attachment(subject, "7", %{file_name: "Quarterly_100%_report.txt"})
+
+    Enum.each(
+      [
+        {older_image, "old-image"},
+        {newer_image, "new-image"},
+        {document, "document"},
+        {literal, "literal-file"}
+      ],
+      fn {file, message_key} ->
+        assert {:ok, _} = send_file(account.conversation.id, subject, file, message_key)
+      end
+    )
+
+    assert {:ok, first} =
+             Attachments.list_files(subject, %{
+               q: "quarterly-report",
+               category: "images",
+               limit: 1
+             })
+
+    assert [%FileView{content_type: type} = image] = first.files
+    assert String.starts_with?(type, "image/")
+    assert first.has_more
+
+    assert {:ok, second} =
+             Attachments.list_files(subject, %{
+               q: "quarterly-report",
+               category: "images",
+               limit: 1,
+               cursor: first.next_cursor
+             })
+
+    assert [other_image] = second.files
+    refute second.has_more
+    assert MapSet.new([image.id, other_image.id]) == MapSet.new([older_image.id, newer_image.id])
+
+    assert {:ok, %{files: [non_image], has_more: false}} =
+             Attachments.list_files(subject, %{
+               q: "quarterly-report",
+               category: "non_images",
+               limit: 1
+             })
+
+    assert non_image.id == document.id
+    assert {:ok, %{files: [literal_match]}} = Attachments.list_files(subject, %{q: "100__"})
+    assert literal_match.id == literal.id
+    assert {:ok, %{files: []}} = Attachments.list_files(subject, %{q: "%%"})
+
+    assert {:error, :invalid_file_category} =
+             Attachments.list_files(subject, %{category: "documents"})
+
+    assert {:error, :invalid_search_query} = Attachments.list_files(subject, %{q: "q"})
+  end
+
+  defp ready_attachment(subject, checksum_character, attrs \\ %{}) do
     checksum = String.duplicate(checksum_character, 64)
 
     assert {:ok, pending} =
              Attachments.create_intent(
                %{
-                 file_name: "file-#{checksum_character}.txt",
-                 content_type: "text/plain",
+                 file_name: Map.get(attrs, :file_name, "file-#{checksum_character}.txt"),
+                 content_type: Map.get(attrs, :content_type, "text/plain"),
                  byte_size: 12,
                  checksum_sha256: checksum
                },

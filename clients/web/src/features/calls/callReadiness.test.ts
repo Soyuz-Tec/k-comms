@@ -99,7 +99,7 @@ describe("call readiness evaluation", () => {
     expect(result.verdict).toBe("fail");
     expect(result.reasons).toEqual(expect.arrayContaining([
       "The selected candidate was not verified as a TCP/TLS relay path.",
-      "No inbound office audio packets were observed.",
+      "No inbound audio packets from your test partner were observed.",
       "Audible speech was not confirmed on this device."
     ]));
   });

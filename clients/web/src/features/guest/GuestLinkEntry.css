@@ -1,0 +1,20 @@
+.guest-link-entry {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin-block: 12px;
+}
+
+.guest-link-entry input {
+  min-width: 0;
+  width: 100%;
+}
+
+.guest-link-entry-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.guest-link-entry-disclosure > summary::-webkit-details-marker {
+  display: none;
+}

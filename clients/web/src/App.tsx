@@ -6,10 +6,12 @@ import { RouteRecoveryBoundary } from "./app/RouteRecoveryBoundary";
 import { SessionProvider, useSession } from "./app/session";
 import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
+import { authenticationReturnTarget, guestContinuationState, safeMemberReturnTarget } from "./app/authNavigation";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
 import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
+import { validWorkspaceSlug } from "./lib/workspacePreference";
 import "./fonts.css";
 import "./theme.css";
 import "./styles.css";
@@ -105,6 +107,11 @@ function ApplicationRoutes() {
   const invitationEntry =
     normalizedPathname === "/app" &&
     hasInvitationToken(location.search, location.hash);
+  const setupValues = new URLSearchParams(location.search).getAll("setup");
+  const workspaceSetupEntry =
+    normalizedPathname === "/app" &&
+    setupValues.length === 1 && setupValues[0] === "workspace";
+  const signInTarget = authenticationGatewayTarget(location.search, location.hash, invitationEntry, workspaceSetupEntry);
 
   if (!transportPolicyReady && !publicAuthRoute && !invitationEntry) {
     return <RouteLoading />;
@@ -127,12 +134,13 @@ function ApplicationRoutes() {
           path="/app/"
           element={
             <Navigate
-              to={`/sign-in${location.search}${location.hash}`}
+              to={signInTarget}
+              state={{ returnTo: safeMemberReturnTarget(`${location.pathname}${location.search}${location.hash}`) || "/app/" }}
               replace
             />
           }
         />
-        <Route path="*" element={<Navigate to="/sign-in" replace />} />
+        <Route path="*" element={<Navigate to={signInTarget} state={{ returnTo: safeMemberReturnTarget(`${location.pathname}${location.search}${location.hash}`) || "/app/" }} replace />} />
       </Routes>
     );
   }
@@ -160,7 +168,8 @@ function ApplicationRoutes() {
                 path="/sign-in"
                 element={
                   <Navigate
-                    to={memberAppTarget(location.search)}
+                    to={memberAppTarget(location.search, location.state)}
+                    state={guestContinuationState(location.state)}
                     replace
                   />
                 }
@@ -181,21 +190,28 @@ function hasInvitationToken(search: string, hash: string): boolean {
   );
 }
 
-export function memberAppTarget(search: string): string {
-  const source = new URLSearchParams(search);
-  const target = new URLSearchParams();
-  for (const name of [
-    "conversation",
-    "message",
-    "search_message",
-    "search_sequence",
-    "call"
-  ]) {
-    const value = source.get(name);
-    if (value) target.set(name, value);
+function authenticationGatewayTarget(search: string, hash: string, invitationEntry: boolean, workspaceSetup: boolean): string {
+  const sourceSearch = new URLSearchParams(search);
+  const sourceHash = new URLSearchParams(hash.replace(/^#/, ""));
+  const safeSearch = new URLSearchParams();
+  const safeHash = new URLSearchParams();
+  if (invitationEntry) {
+    for (const name of ["invitation_token", "tenant_slug"]) {
+      const queryValue = sourceSearch.get(name);
+      const fragmentValue = sourceHash.get(name);
+      if (queryValue !== null) safeSearch.set(name, queryValue);
+      if (fragmentValue !== null) safeHash.set(name, fragmentValue);
+    }
+  } else {
+    const tenantSlug = sourceHash.get("tenant_slug") || sourceSearch.get("tenant_slug") || "";
+    if (validWorkspaceSlug(tenantSlug)) safeSearch.set("tenant_slug", tenantSlug);
   }
-  const query = target.toString();
-  return query ? `/app/?${query}` : "/app/";
+  if (workspaceSetup) safeSearch.set("setup", "workspace");
+  return `/sign-in${safeSearch.size ? `?${safeSearch}` : ""}${safeHash.size ? `#${safeHash}` : ""}`;
+}
+
+export function memberAppTarget(search: string, state?: unknown): string {
+  return authenticationReturnTarget(search, state);
 }
 
 function RouteLoading() {

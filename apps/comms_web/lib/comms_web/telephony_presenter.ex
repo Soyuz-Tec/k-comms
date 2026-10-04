@@ -29,6 +29,8 @@ defmodule CommsWeb.TelephonyPresenter do
     %{
       enabled: config.enabled,
       configured: config.configured,
+      provider_ready: config.provider_ready,
+      line_assigned: config.line_assigned,
       provider: "livekit_sip",
       number: if(config.number, do: Map.take(config.number, fields), else: nil),
       can_manage: config.can_manage

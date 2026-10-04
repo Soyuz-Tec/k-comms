@@ -106,10 +106,14 @@ defmodule CommsWeb.TelephonyController do
   end
 
   defp render_config(conn, config) do
+    provider_ready = CommsIntegrations.Telephony.ready?()
+
     config =
       config
       |> Map.put(:enabled, CommsIntegrations.Telephony.enabled?())
-      |> Map.update!(:configured, &(&1 and CommsIntegrations.Telephony.ready?()))
+      |> Map.put(:provider_ready, provider_ready)
+      |> Map.put(:line_assigned, not is_nil(config.number))
+      |> Map.update!(:configured, &(&1 and provider_ready))
 
     json(conn, %{data: TelephonyPresenter.config(config)})
   end

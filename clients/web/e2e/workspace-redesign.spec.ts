@@ -4,9 +4,13 @@ import type { Session } from "../src/types";
 import { expect, test } from "./fixtures";
 import {
   conversationId,
+  messageId,
+  tenantId,
+  userId,
   expectNoDocumentOverflow,
   installWorkspace
 } from "./mobile-ui-support";
+import type { Message } from "../src/types";
 
 test.beforeEach(async ({ page }, info) => {
   test.skip(!["chromium", "webkit"].includes(info.project.name), "Explicit desktop and phone viewports run once per engine");
@@ -26,6 +30,9 @@ async function capture(page: Page, info: TestInfo, name: string) {
 }
 
 test("workspace switcher remains reachable after navigation hides and restores button focus", async ({ page }, info) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("k-comms.workspace-sidebar-collapsed.v1", "false");
+  });
   const state = await installWorkspace(page);
   await page.clock.install();
   await page.goto("/app/");
@@ -150,7 +157,7 @@ test("password controls remain aligned when field text grows", async ({ page }, 
 test("Ctrl K preserves text inputs and an existing modal", async ({ page }) => {
   const state = await installWorkspace(page);
   await page.goto("/app/");
-  const inboxSearch = page.getByPlaceholder("Search inbox", { exact: true });
+  const inboxSearch = page.getByPlaceholder("Filter conversation titles", { exact: true });
   await inboxSearch.fill("General");
   await inboxSearch.press("Control+k");
   await expect(page.getByRole("dialog", { name: "Go to…", exact: true })).toHaveCount(0);
@@ -212,6 +219,133 @@ for (const width of [320, 390]) {
     }
     await expectNoDocumentOverflow(page);
     await capture(page, info, `administration-content-${width}`);
+    expect(state.unexpectedRequests).toEqual([]);
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`${width}px title filtering stays distinct from global and conversation content search`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await installWorkspace(page);
+    const searches: URL[] = [];
+    await page.route("**/api/v1/search?**", (route) => {
+      searches.push(new URL(route.request().url()));
+      return route.fulfill({ json: { data: [], page: { has_more: false, next_cursor: null } } });
+    });
+    await page.goto("/app/");
+    const sidebar = page.getByRole("complementary", { name: "Conversations", exact: true });
+    await sidebar.getByRole("searchbox", { name: "Filter conversation titles" }).fill("General");
+    expect(searches).toHaveLength(0);
+    await sidebar.getByRole("button", { name: "Search workspace content", exact: true }).click();
+    let search = page.getByRole("dialog", { name: "Search workspace content", exact: true });
+    await expect(search.getByRole("combobox", { name: "Conversation", exact: true })).toHaveValue("all");
+    await search.getByRole("searchbox").fill("roadmap");
+    await search.getByRole("button", { name: "Search", exact: true }).click();
+    await expect.poll(() => searches.length).toBe(1);
+    expect(searches[0]?.searchParams.has("conversation_id")).toBe(false);
+    await search.getByRole("button", { name: "Close search" }).click();
+    await page.goto(`/app/?conversation=${conversationId}`);
+    if (width <= 760) {
+      await page.getByRole("button", { name: "More conversation actions" }).click();
+      await page.getByRole("dialog", { name: "Conversation", exact: true }).getByRole("button", { name: "Search messages", exact: true }).click();
+    } else await page.locator(".conversation-pane").getByRole("button", { name: "Search messages", exact: true }).click();
+    search = page.getByRole("dialog", { name: "Search workspace content", exact: true });
+    await expect(search.getByRole("combobox", { name: "Conversation", exact: true })).toHaveValue(conversationId);
+    await search.getByRole("searchbox").fill("roadmap");
+    await search.getByRole("button", { name: "Search", exact: true }).click();
+    await expect.poll(() => searches.length).toBe(2);
+    expect(searches[1]?.searchParams.get("conversation_id")).toBe(conversationId);
+    await expectNoDocumentOverflow(page);
+    expect(state.unexpectedRequests).toEqual([]);
+  });
+
+  test(`${width}px new conversation keeps people selected across searches`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await installWorkspace(page);
+    const people = [
+      { id: "11111111-1111-4111-8111-111111111111", display_name: "Grace Hopper" },
+      { id: "22222222-2222-4222-8222-222222222222", display_name: "Alan Turing" }
+    ].map((person) => ({ ...person, tenant_id: tenantId, role: "member", status: "active", account_type: "human" }));
+    await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [{ id: userId, tenant_id: tenantId, display_name: "Ada Lovelace", role: "owner", account_type: "human", status: "active" }, ...people] } }));
+    await page.goto("/app/");
+    await page.getByRole("button", { name: "Create conversation", exact: true }).click();
+    const form = page.locator(".create-conversation");
+    await form.getByRole("combobox", { name: "Type", exact: true }).selectOption("group");
+    await form.getByLabel("Title", { exact: true }).fill("Planning");
+    const search = form.getByRole("searchbox", { name: "Find a teammate" });
+    await search.fill("Grace");
+    await form.getByRole("checkbox", { name: "Grace Hopper", exact: true }).check();
+    await search.fill("Alan");
+    await form.getByRole("checkbox", { name: "Alan Turing", exact: true }).check();
+    await expect(form.getByRole("region", { name: "Selected people" })).toContainText("2 people selected");
+    await search.fill("Nobody matches");
+    await expect(form.getByRole("status")).toContainText("Your selections are kept");
+    await form.getByRole("button", { name: "Remove Grace Hopper" }).click();
+    await expect(form.getByRole("region", { name: "Selected people" })).toContainText("1 person selected");
+    await expectNoDocumentOverflow(page);
+    await capture(page, info, `recipient-picker-${width}`);
+    const accessibility = await new AxeBuilder({ page }).include(".create-conversation").analyze();
+    expect(accessibility.violations).toEqual([]);
+    expect(state.unexpectedRequests).toEqual([]);
+  });
+
+  test(`${width}px notification category and search show their loaded-results scope`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await installWorkspace(page);
+    await page.goto("/app/");
+    if (width > 760) await revealNavigation(page);
+    await page.getByRole("button", { name: /^Notifications/ }).click();
+    const panel = page.getByRole("dialog", { name: "Notifications", exact: true });
+    await panel.getByRole("combobox", { name: "Category", exact: true }).selectOption("mention.created.v1");
+    await expect(panel).toContainText("No loaded notifications match these filters.");
+    await panel.getByRole("combobox", { name: "Category", exact: true }).selectOption("message.created.v1");
+    await panel.getByRole("searchbox", { name: "Search loaded notifications" }).fill("Notification body 18");
+    await expect(panel.locator(".notification-list > li")).toHaveCount(1);
+    await expect(panel).toContainText("Mobile notification 18");
+    await expect(panel).toContainText("filters apply to loaded notifications");
+    await expect(panel.getByRole("button", { name: "Mark all read" })).toHaveAccessibleDescription(/including updates outside these filters/);
+    await expectNoDocumentOverflow(page);
+    await capture(page, info, `notification-filters-${width}`);
+    const accessibility = await new AxeBuilder({ page }).include(".notification-inbox").analyze();
+    expect(accessibility.violations).toEqual([]);
+    expect(state.unexpectedRequests).toEqual([]);
+  });
+
+  test(`${width}px thread actions preserve author permissions and denied edit drafts`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const state = await installWorkspace(page);
+    const root: Message = {
+      id: messageId, tenant_id: tenantId, conversation_id: conversationId,
+      sender_user_id: userId, sender_device_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      client_message_id: "thread-root", conversation_sequence: 1, body: "Thread root",
+      metadata: {}, status: "active", inserted_at: "2026-10-04T12:00:00Z",
+      attachments: [], reactions: [], thread_reply_count: 1
+    };
+    const reply = { ...root, id: "22222222-2222-4222-8222-222222222222", sender_user_id: "11111111-1111-4111-8111-111111111111", body: "Teammate reply", conversation_sequence: 2, thread_root_message_id: root.id };
+    await page.route("**/api/v1/conversations/*/messages/*/thread?**", (route) => route.fulfill({ json: { data: { root, replies: [reply] }, page: { has_more: false, next_before_sequence: null } } }));
+    await page.route(`**/api/v1/messages/${messageId}`, (route) => route.fulfill({ status: 403, json: { error: { code: "edit_window_expired", detail: "Message edit window expired" } } }));
+    let reactions = 0;
+    await page.route("**/api/v1/conversations/*/messages/*/reactions", (route) => { reactions += 1; return route.fulfill({ status: 204 }); });
+    await page.goto(`/app/?conversation=${conversationId}`);
+    if (width <= 760) await page.locator(".conversation-pane").getByRole("button", { name: "More message actions" }).click();
+    await page.locator(".conversation-pane .message-actions").getByRole("button", { name: "Start thread" }).click();
+    const thread = page.getByRole("dialog", { name: "Thread", exact: true });
+    const owner = thread.getByRole("list", { name: "Thread root" });
+    await expect(owner.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    await expect(thread.locator(".thread-replies").getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await owner.getByRole("button", { name: "React with 👍" }).click();
+    await expect(owner.getByRole("button", { name: "Remove 👍 reaction; 1 total" })).toHaveAttribute("aria-pressed", "true");
+    expect(reactions).toBe(1);
+    await owner.getByRole("button", { name: "Edit", exact: true }).click();
+    await owner.getByRole("textbox", { name: "Edit message" }).fill("Revised root");
+    await owner.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(owner.getByRole("alert")).toContainText("Message edit window expired");
+    await expect(owner.getByRole("textbox", { name: "Edit message" })).toHaveValue("Revised root");
+    await expect.poll(() => thread.locator(".thread-content").evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    await expectNoDocumentOverflow(page);
+    await capture(page, info, `thread-controls-${width}`);
+    const accessibility = await new AxeBuilder({ page }).include(".thread-drawer").analyze();
+    expect(accessibility.violations).toEqual([]);
     expect(state.unexpectedRequests).toEqual([]);
   });
 }

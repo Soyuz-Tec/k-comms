@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
+import { guestContinuationState } from "../../app/authNavigation";
 import {
   GuestApiClient,
   loadStoredGuestSession,
@@ -47,6 +48,8 @@ export { loadGuestMessageCatchUp } from "./guestMessageCatchUp";
 
 export function GuestAccessPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [continuation] = useState(() => guestContinuationState(location.state));
   const {
     api: accountApi,
     session: accountSession,
@@ -60,15 +63,15 @@ export function GuestAccessPage() {
     transportPolicyReady && accountActionsAllowed;
   const secureMediaActionsAllowed =
     transportPolicyReady && mediaActionsAllowed;
-  const [token] = useState(() => guestTokenFromFragment());
+  const [token, setToken] = useState(() => guestTokenFromFragment() || continuation?.guestToken || null);
   const [initialCallReadinessMode, setInitialCallReadinessMode] = useState(() => {
-    const search = new URLSearchParams(window.location.search);
+    const search = new URLSearchParams(continuation?.guestShareUrl ? new URL(continuation.guestShareUrl).search : window.location.search);
     return search.get("call") === "audio"
       ? safeCallReadinessMode(search.get("call_readiness"))
       : null;
   });
-  const [entryShareUrl] = useState(() =>
-    token ? capturedInstantRoomShareUrl(token) : null
+  const [entryShareUrl, setEntryShareUrl] = useState(() =>
+    token ? capturedInstantRoomShareUrl(token, continuation?.guestShareUrl || window.location.href) : null
   );
   const [accessEnded, setAccessEnded] = useState(false);
   const [guestSession, setGuestSessionState] = useState<GuestSession | null>(
@@ -115,6 +118,13 @@ export function GuestAccessPage() {
     if (token) {
       clearMemberInstantRoomContinuity();
       scrubGuestTokenFragment();
+    }
+    const navigationState = window.history.state;
+    if (navigationState?.usr?.guestToken || navigationState?.usr?.guestShareUrl) {
+      const rest = { ...navigationState.usr };
+      delete rest.guestToken;
+      delete rest.guestShareUrl;
+      window.history.replaceState({ ...navigationState, usr: rest }, "", window.location.href);
     }
   }, [token]);
 
@@ -368,6 +378,22 @@ export function GuestAccessPage() {
         accountActionsAllowed={secureAccountActionsAllowed}
         mediaActionsAllowed={secureMediaActionsAllowed}
         token={token}
+        shareUrl={entryShareUrl}
+        onLinkEntered={(target) => {
+          const url = new URL(target, window.location.origin);
+          const nextToken = guestTokenFromFragment(url as unknown as Location);
+          if (!nextToken) return;
+          storeGuestSession(null);
+          setGuestSessionState(null);
+          setContinuedSession(null);
+          clearMemberInstantRoomContinuity();
+          setMemberContinuity(null);
+          setAccessEnded(false);
+          setEntryShareUrl(capturedInstantRoomShareUrl(nextToken, url.href));
+          setInitialCallReadinessMode(url.searchParams.get("call") === "audio" ? safeCallReadinessMode(url.searchParams.get("call_readiness")) : null);
+          navigate(target, { replace: true });
+          setToken(nextToken);
+        }}
         accessEnded={accessEnded}
         onJoined={(session) => {
           const joinedSession =

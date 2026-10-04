@@ -97,6 +97,34 @@ export interface ModerationCase {
   updated_at: string;
 }
 
+export interface ModerationAction {
+  id: string;
+  moderation_case_id?: string;
+  metadata?: Record<string, unknown>;
+  actor_user_id: string;
+  action_type: string;
+  note?: string | null;
+  inserted_at: string;
+}
+
+export interface ModerationCaseDetail {
+  data: ModerationCase;
+  actions: ModerationAction[];
+}
+
+export interface ModerationCaseQuery {
+  status?: ModerationCase["status"];
+  priority?: ModerationCase["priority"];
+  category?: string;
+  assigned_to_user_id?: string;
+  limit?: number;
+}
+
+export interface AuditPage {
+  data: AuditEvent[];
+  page: { limit: number; next_cursor: string | null };
+}
+
 export interface RetentionPolicy {
   id: string;
   conversation_id?: string | null;
@@ -136,6 +164,9 @@ export interface DeletionRequest {
   status: "pending" | "approved" | "in_progress" | "completed" | "rejected" | "cancelled";
   scheduled_for?: string | null;
   completed_at?: string | null;
+  execution_started_at?: string | null;
+  execution_attempts?: number;
+  execution_error?: string | null;
   evidence: Record<string, unknown>;
   version: number;
   inserted_at: string;

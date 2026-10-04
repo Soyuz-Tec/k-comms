@@ -12,7 +12,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../types";
 import { participantDisambiguator } from "../../lib/participantIdentity";
 import { ChatPage } from "./ChatPage";
@@ -21,6 +21,52 @@ const harness = getChatPageHarness();
 
 describe("ChatPage durable sequence recovery", () => {
   beforeEach(resetChatPageHarness);
+
+  it("offers optional first-run device and notification setup and persists skipping the guide", async () => {
+    const user = userEvent.setup();
+    harness.conversations = [];
+    render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "Check audio & video" })).toHaveAttribute("href", "/app/you?section=audio-video");
+    expect(screen.getByRole("link", { name: "Set up notifications" })).toHaveAttribute("href", "/app/you?section=notifications");
+    await user.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(screen.queryByRole("link", { name: "Check audio & video" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
+  });
+
+  it("opens global content search from the Go To route and clears the hint on close", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/app/?search=content"]}><ChatPage /><LocationProbe /></MemoryRouter>);
+    const dialog = await screen.findByRole("dialog", { name: "Search workspace content" });
+    expect(within(dialog).getByLabelText("Conversation")).toHaveValue("all");
+    await user.click(within(dialog).getByRole("button", { name: "Close search" }));
+    expect(screen.queryByRole("dialog", { name: "Search workspace content" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("location-search")).not.toHaveTextContent("search=content");
+  });
+
+  it("keeps title filtering distinct from global search and scopes the header search to the conversation", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("k-comms:onboarding:tenant-1:user-1", "dismissed");
+    render(<MemoryRouter initialEntries={["/app/?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    expect(screen.getByRole("searchbox", { name: "Filter conversation titles" })).toBeVisible();
+    await user.click(within(screen.getByLabelText("Conversations")).getByRole("button", { name: "Search workspace content" }));
+    expect(within(screen.getByRole("dialog", { name: "Search workspace content" })).getByLabelText("Conversation")).toHaveValue("all");
+    await user.click(screen.getByRole("button", { name: "Close search" }));
+    await user.click(screen.getByRole("button", { name: "Search messages" }));
+    expect(within(screen.getByRole("dialog", { name: "Search workspace content" })).getByLabelText("Conversation")).toHaveValue("conversation-1");
+  });
+
+  it("focuses the attachment control from Files without opening a file picker", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/app/?conversation=conversation-1&compose=attachment"]}><ChatPage /><LocationProbe /></MemoryRouter>);
+    const attachmentInput = screen.getByLabelText("Attach files");
+    const clicked = vi.fn();
+    attachmentInput.addEventListener("click", clicked);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Choose files to attach" })).toHaveFocus());
+    expect(clicked).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByLabelText("location-search")).not.toHaveTextContent("compose=attachment"));
+    await user.keyboard("{Enter}");
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
 
   it("provides usable first actions when the workspace has no conversations", async () => {
     const user = userEvent.setup();
@@ -198,12 +244,12 @@ describe("ChatPage durable sequence recovery", () => {
     const list = screen.getByRole("navigation", { name: "Conversation list" });
     expect(screen.getByLabelText("3 conversations shown")).toHaveTextContent("3");
 
-    await user.type(screen.getByLabelText("Filter conversations by title"), "project");
+    await user.type(screen.getByLabelText("Filter conversation titles"), "project");
     expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /General/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
-    await user.clear(screen.getByLabelText("Filter conversations by title"));
+    await user.clear(screen.getByLabelText("Filter conversation titles"));
     const inboxView = screen.getByRole("group", { name: "Inbox view" });
     await user.click(within(inboxView).getByRole("button", { name: "Direct" }));
     expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();

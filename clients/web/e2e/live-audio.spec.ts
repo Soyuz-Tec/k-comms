@@ -450,7 +450,8 @@ async function joinWithMicrophone(
   await page.getByRole("button", { name: actionName }).click();
   const dialog = page.getByRole("dialog", { name: dialogName });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Join with microphone" }).click();
+  await dialog.getByRole("checkbox", { name: "Use microphone when I join" }).check();
+  await dialog.getByRole("button", { name: "Join audio call" }).click();
   await expect.poll(
     async () => {
       const state = await audioJoinState(page);

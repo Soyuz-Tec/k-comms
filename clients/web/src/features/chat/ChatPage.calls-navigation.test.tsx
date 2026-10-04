@@ -26,6 +26,102 @@ const harness = getChatPageHarness();
 describe("ChatPage durable sequence recovery", () => {
   beforeEach(resetChatPageHarness);
 
+  it("keeps mutations to thread-only history outside the current transcript and its older-page boundary", async () => {
+    const user = userEvent.setup();
+    const rootId = "55555555-5555-4555-8555-555555555555";
+    const historicRoot = { ...message(20), id: rootId, sender_user_id: "user-2", body: "Historic thread root" };
+    const recent = Array.from({ length: 3 }, (_, index) => message(index + 100));
+    harness.conversations = [{ ...harness.conversations[0]!, latest_sequence: 102 }];
+    const messagesApi = vi.fn().mockResolvedValue({ data: recent, page: { has_more: false, next_after_sequence: null, reset_required: false } });
+    harness.api.messages = messagesApi;
+    harness.api.messageThread = vi.fn().mockResolvedValue({ data: { root: historicRoot, replies: [] }, page: { has_more: false, next_before_sequence: null } });
+    harness.api.addReaction = vi.fn().mockResolvedValue(undefined);
+    render(<MemoryRouter initialEntries={[`/app/?conversation=conversation-1&message=${rootId}`]}><ChatPage /></MemoryRouter>);
+    const thread = await screen.findByRole("dialog", { name: "Thread" });
+    await within(thread).findByText("Historic thread root");
+    const transcript = document.querySelector(".message-list")!;
+    expect(within(transcript as HTMLElement).queryByText("Historic thread root")).not.toBeInTheDocument();
+    const scroll = document.querySelector(".message-scroll") as HTMLElement;
+    Object.defineProperties(scroll, { scrollHeight: { configurable: true, value: 3000 }, clientHeight: { configurable: true, value: 500 }, scrollTop: { configurable: true, writable: true, value: 500 } });
+    fireEvent.scroll(scroll);
+    await user.click(within(thread).getByRole("button", { name: "React with 👍" }));
+    await within(thread).findByRole("button", { name: "Remove 👍 reaction; 1 total" });
+    expect(within(transcript as HTMLElement).queryByText("Historic thread root")).not.toBeInTheDocument();
+    await user.click(within(thread).getByRole("button", { name: "Close thread" }));
+    expect(screen.queryByRole("button", { name: /new messages?/ })).not.toBeInTheDocument();
+    const callsBeforeOlder = messagesApi.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Load older messages" }));
+    await waitFor(() => expect(messagesApi.mock.calls.slice(callsBeforeOlder)).toContainEqual(["conversation-1", 0, 200, 100]));
+  });
+
+  it("reconciles a loaded thread root's reaction back into the main transcript", async () => {
+    const user = userEvent.setup();
+    const root = message(1);
+    harness.api.messageThread = vi.fn().mockResolvedValue({ data: { root, replies: [] }, page: { has_more: false, next_before_sequence: null } });
+    harness.api.addReaction = vi.fn().mockResolvedValue(undefined);
+    render(<MemoryRouter initialEntries={["/app/?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByText("Message 1");
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    const thread = await screen.findByRole("dialog", { name: "Thread" });
+    await within(thread).findByText("Message 1");
+    await user.click(within(thread).getByRole("button", { name: "React with 👍" }));
+    await within(thread).findByRole("button", { name: "Remove 👍 reaction; 1 total" });
+    await user.click(within(thread).getByRole("button", { name: "Close thread" }));
+    expect(within(document.getElementById(`message-${root.id}`)!).getByRole("button", { name: "Remove 👍 reaction; 1 total" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it.each([
+    { surface: "thread", status: "deleted" },
+    { surface: "thread", status: "moderated" },
+    { surface: "transcript", status: "deleted" },
+    { surface: "transcript", status: "moderated" }
+  ] as const)("keeps a $status message removed on both surfaces after a delayed $surface edit response", async ({ surface, status }) => {
+    const user = userEvent.setup();
+    const root = message(1);
+    const tombstone: Message = { ...root, status, body: null, deleted_at: "2026-10-04T12:02:00Z" };
+    const edited: Message = { ...root, body: "Earlier active edit response", edited_at: "2026-10-04T12:01:00Z" };
+    let resolveEdit!: (value: Message) => void;
+    const pendingEdit = new Promise<Message>((resolve) => { resolveEdit = resolve; });
+    const editMessage = vi.fn().mockReturnValue(pendingEdit);
+    harness.api.editMessage = editMessage;
+    harness.api.messageThread = vi.fn().mockResolvedValue({ data: { root, replies: [] }, page: { has_more: false, next_before_sequence: null } });
+    render(<MemoryRouter initialEntries={["/app/?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByText("Message 1");
+    const transcriptMessage = document.getElementById(`message-${root.id}`)!;
+    let thread: HTMLElement | null = null;
+    async function openThread() {
+      await user.click(within(transcriptMessage).getByRole("button", { name: "Start thread" }));
+      const dialog = await screen.findByRole("dialog", { name: "Thread" });
+      await within(dialog).findByText("Message 1");
+      return dialog;
+    }
+    if (surface === "thread") thread = await openThread();
+    const editSurface = thread || transcriptMessage;
+    await user.click(within(editSurface).getByRole("button", { name: "Edit" }));
+    await user.clear(within(editSurface).getByRole("textbox", { name: "Edit message" }));
+    await user.type(within(editSurface).getByRole("textbox", { name: "Edit message" }), "Earlier active edit response");
+    await user.click(within(editSurface).getByRole("button", { name: "Save" }));
+    expect(editMessage).toHaveBeenCalledWith(root.id, edited.body);
+    expect(harness.callbacks).not.toBeNull();
+    // A transcript edit begins before the modal opens, using reachable controls.
+    if (!thread) thread = await openThread();
+
+    act(() => harness.callbacks!.onMessages([tombstone]));
+    expect(await within(thread).findByText("Message removed")).toBeVisible();
+    expect(within(transcriptMessage).getByText("Message removed")).toBeInTheDocument();
+    await act(async () => {
+      resolveEdit(edited);
+      await pendingEdit;
+    });
+
+    for (const element of [thread, transcriptMessage]) {
+      expect(within(element).getByText("Message removed")).toBeInTheDocument();
+      expect(within(element).queryByRole("button", { name: /^(Edit|Delete|Report)$/, hidden: true })).not.toBeInTheDocument();
+      expect(within(element).queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText(edited.body!)).not.toBeInTheDocument();
+  });
+
   it("offers distinct audio and video calls from the message header when tenant policy enables them", async () => {
     render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
 
@@ -255,8 +351,8 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
 
-    await user.click(within(screen.getByLabelText("Conversations")).getByRole("button", { name: "Search messages" }));
-    await user.type(screen.getByRole("searchbox", { name: "Search accessible messages" }), "Message 42");
+    await user.click(within(screen.getByLabelText("Conversations")).getByRole("button", { name: "Search workspace content" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search accessible workspace content" }), "Message 42");
     await user.click(screen.getByRole("button", { name: "Search" }));
     await user.click(await screen.findByText("Message 42"));
 

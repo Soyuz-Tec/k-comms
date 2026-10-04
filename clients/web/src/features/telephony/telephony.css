@@ -1,8 +1,16 @@
-.phone-page { overflow-y: auto; }
+.phone-page { overflow-y: auto; container-type: inline-size; container-name: phone-page; }
 .phone-workspace { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
 .phone-dialer, .phone-history, .phone-setup-note, .phone-admin-panel { padding: 1.25rem; border: 1px solid var(--border-default); border-radius: 1rem; background: var(--surface-raised); }
 .phone-line { display: flex; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
 .phone-dialer form, .phone-admin-panel form { display: grid; gap: 1rem; }
+.phone-keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.phone-keypad button { min-height: 44px; font-size: 1.25rem; }
+.phone-help { font-size: .9rem; margin-block: 0; }
+.phone-setup-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.5rem; }
+.phone-setup-steps > li { padding-block-end: 1.25rem; border-block-end: 1px solid var(--border-default); }
+.phone-setup-steps fieldset { display: grid; gap: .75rem; border: 0; padding: 0; margin: 0; min-width: 0; }
+.phone-setup-steps legend { font-size: 1.1rem; font-weight: 600; margin-block-end: .75rem; }
+.phone-step-state { font-weight: 600; }
 .phone-history header, .phone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .phone-history header { justify-content: space-between; }
 .phone-history-list { list-style: none; padding: 0; margin: 1rem 0; }
@@ -12,4 +20,7 @@
 .phone-call-dock p > strong, .phone-call-dock p > span { display: block; overflow-wrap: anywhere; }
 .phone-setup-note { margin-block: 1rem; }
 .phone-admin-panel { max-width: 680px; }
+@container phone-page (max-width: 44rem) {
+  .phone-workspace { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 720px) { .phone-workspace { grid-template-columns: minmax(0, 1fr); } .phone-call-dock { inset-block-end: calc(5rem + env(safe-area-inset-bottom)); } }

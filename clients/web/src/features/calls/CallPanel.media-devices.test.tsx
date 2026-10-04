@@ -479,7 +479,7 @@ describe("CallPanel calls", () => {
     expect(livekit.roomOptions.at(-1)).not.toHaveProperty("rtcConfig");
   });
 
-  it("runs the office preflight and forces relay for a readiness launch", async () => {
+  it("runs the connection preflight and forces relay for a readiness launch", async () => {
     const user = userEvent.setup();
     render(
       <CallPanel
@@ -495,11 +495,11 @@ describe("CallPanel calls", () => {
     );
 
     const dialog = await screen.findByRole("dialog", { name: "Join the audio call" });
-    expect(within(dialog).getByRole("checkbox", { name: /Run secure office network qualification/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: /Run connection test/ })).toBeChecked();
     expect(within(dialog).getByRole("checkbox", { name: "Use microphone when I join" })).toBeDisabled();
     expect(within(dialog).queryByRole("button", { name: "Join muted" })).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole("button", { name: "Run office call test" }));
+    await user.click(within(dialog).getByRole("button", { name: "Run connection test" }));
     expect(await screen.findByText("Connected")).toBeVisible();
 
     expect(livekit.checkWebsocket).toHaveBeenCalledOnce();
@@ -530,13 +530,13 @@ describe("CallPanel calls", () => {
     );
 
     const dialog = await screen.findByRole("dialog", { name: "Join the audio call" });
-    await user.click(within(dialog).getByRole("button", { name: "Run office call test" }));
+    await user.click(within(dialog).getByRole("button", { name: "Run connection test" }));
 
-    expect(await within(dialog).findByText("Office network qualification did not complete."))
+    expect(await within(dialog).findByText("Connection test did not complete."))
       .toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Download privacy-safe report" }))
       .toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "Run office call test" }))
+    expect(within(dialog).getByRole("button", { name: "Run connection test" }))
       .toBeEnabled();
   });
 
@@ -562,6 +562,7 @@ describe("CallPanel calls", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: "Start audio call" }));
+    await user.click(screen.getByText("Advanced connection options"));
     const directCheckbox = within(screen.getByRole("dialog", { name: "Start an audio call" }))
       .getByRole("checkbox", { name: /Prefer a direct connection/ });
     expect(directCheckbox).not.toBeChecked();

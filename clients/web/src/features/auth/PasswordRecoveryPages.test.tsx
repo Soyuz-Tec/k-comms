@@ -30,6 +30,11 @@ function LocationProbe() {
   return <output data-testid="location">{useLocation().pathname}</output>;
 }
 
+function ReturnState() {
+  const location = useLocation();
+  return <output aria-label="Return context">{JSON.stringify(location.state)}</output>;
+}
+
 describe("password recovery pages", () => {
   beforeEach(() => {
     api.requestPasswordRecovery.mockReset();
@@ -55,6 +60,14 @@ describe("password recovery pages", () => {
     expect(screen.getByText(/If an account matches those details/)).toBeVisible();
     expect(screen.queryByText("missing@example.test")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Return to sign in" })).toHaveAttribute("href", "/sign-in");
+  });
+
+  it("preserves the original member task when returning from recovery to sign-in", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={[{ pathname: "/forgot-password", state: { returnTo: "/app/files?file=file-1", unrelated: "secret" } }]}><ForgotPasswordPage /><ReturnState /></MemoryRouter>);
+    await user.click(screen.getByRole("link", { name: "Back to sign in" }));
+    expect(screen.getByLabelText("Return context")).toHaveTextContent('{"returnTo":"/app/files?file=file-1"}');
+    expect(screen.getByLabelText("Return context")).not.toHaveTextContent("secret");
   });
 
   it("does not send recovery credentials over unencrypted non-loopback HTTP", () => {

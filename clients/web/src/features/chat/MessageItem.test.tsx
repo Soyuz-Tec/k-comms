@@ -21,6 +21,27 @@ const message: Message = {
 };
 
 describe("MessageItem", () => {
+  it("replaces open editing and delete confirmation with tombstones when live content is removed", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    const props = { currentUserId: "user-1", seenCount: 0, focused: false, onReaction: vi.fn(), onAttachment: vi.fn(), onReply: vi.fn(), onEdit: vi.fn(), onDelete, onReport: vi.fn() };
+    const view = render(<MessageItem {...props} message={message} />);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.type(screen.getByRole("textbox", { name: "Edit message" }), " revised draft");
+    view.rerender(<MessageItem {...props} message={{ ...message, status: "deleted", body: null }} />);
+    expect(screen.getByText("Message removed")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/revised draft/)).not.toBeInTheDocument();
+    view.rerender(<MessageItem {...props} message={message} />);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("alertdialog", { name: "Delete this message?" })).toBeVisible();
+    view.rerender(<MessageItem {...props} message={{ ...message, status: "moderated", body: null }} />);
+    expect(screen.getByText("Message removed")).toBeVisible();
+    expect(screen.queryByRole("alertdialog", { name: "Delete this message?" })).not.toBeInTheDocument();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
   it("uses the current username as the visible self identifier", () => {
     const { container } = render(
       <MessageItem

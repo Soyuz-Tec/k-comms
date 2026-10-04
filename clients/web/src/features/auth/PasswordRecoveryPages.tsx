@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { ApiError } from "../../api";
 import { useSession } from "../../app/session";
+import { authenticationReturnState } from "../../app/authNavigation";
 import { Field } from "../../components/Field";
 import { stringValue } from "../../lib/format";
 
@@ -10,6 +11,8 @@ const genericRequestMessage =
   "If an account matches those details, password-reset instructions will arrive shortly. For privacy, we cannot confirm whether an account exists.";
 
 export function ForgotPasswordPage() {
+  const location = useLocation();
+  const [returnState] = useState(() => authenticationReturnState(location.search, location.state));
   const {
     api,
     transportPolicyReady,
@@ -51,7 +54,7 @@ export function ForgotPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Check your email</h2>
           <p>{genericRequestMessage}</p>
-          <Link className="button primary full" to="/sign-in">Return to sign in</Link>
+          <Link className="button primary full" to="/sign-in" state={returnState}>Return to sign in</Link>
         </div>
       ) : (
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
@@ -60,7 +63,7 @@ export function ForgotPasswordPage() {
           <Field label="Workspace address" name="tenant_slug" autoComplete="organization" hint="The short address from your invitation, such as acme." autoFocus required />
           <Field label="Email address" name="email" type="email" autoComplete="email" disabled={accountActionsUnavailable} required />
           <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Requesting…" : "Send reset instructions"}</button>
-          <Link className="recovery-back-link" to="/sign-in">Back to sign in</Link>
+          <Link className="recovery-back-link" to="/sign-in" state={returnState}>Back to sign in</Link>
         </form>
       )}
     </RecoveryLayout>
@@ -68,6 +71,8 @@ export function ForgotPasswordPage() {
 }
 
 export function ResetPasswordPage() {
+  const location = useLocation();
+  const [returnState] = useState(() => authenticationReturnState(location.search, location.state));
   const {
     api,
     transportPolicyReady,
@@ -136,13 +141,13 @@ export function ResetPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Password updated</h2>
           <p>Your password has been reset. Sign in again on each device you want to use.</p>
-          <Link className="button primary full" to="/sign-in">Sign in</Link>
+          <Link className="button primary full" to="/sign-in" state={returnState}>Sign in</Link>
         </div>
       ) : !hasToken ? (
         <div className="recovery-result" role="alert">
           <h2>Reset link unavailable</h2>
           <p>{error || "This reset link is invalid or expired. Request a new one."}</p>
-          <Link className="button primary full" to="/forgot-password">Request another link</Link>
+          <Link className="button primary full" to="/forgot-password" state={returnState}>Request another link</Link>
         </div>
       ) : (
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
@@ -151,7 +156,7 @@ export function ResetPasswordPage() {
           <Field label="New password" name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters." autoFocus disabled={accountActionsUnavailable} required />
           <Field label="Confirm new password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" disabled={accountActionsUnavailable} required />
           <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Updating…" : "Update password"}</button>
-          <Link className="recovery-back-link" to="/forgot-password">Request a different reset link</Link>
+          <Link className="recovery-back-link" to="/forgot-password" state={returnState}>Request a different reset link</Link>
         </form>
       )}
     </RecoveryLayout>

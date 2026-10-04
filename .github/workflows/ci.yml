@@ -104,7 +104,9 @@ jobs:
 
   web:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Run the full unit and Chromium/WebKit acceptance suite as it grows.
+    # The prior exact-main suite already required 19m33s of the 20-minute budget.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: clients/web

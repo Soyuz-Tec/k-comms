@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 import { conversationId, expectNoDocumentOverflow, installWorkspace, messageId, userId } from "./mobile-ui-support";
 import type { FileSummary } from "../src/types";
 
-test("filtered files can reach an older image without claiming the whole library is empty", async ({ page }, info) => {
+test("image filters page the complete matching library", async ({ page, isMobile }, info) => {
   await installWorkspace(page);
   const document: FileSummary = {
     id: "new-document", conversation_id: conversationId, message_id: messageId,
@@ -13,24 +13,43 @@ test("filtered files can reach an older image without claiming the whole library
     uploaded_at: "2026-09-01T12:00:00Z", shared_at: "2026-09-01T12:00:00Z",
     inserted_at: "2026-09-01T12:00:00Z", updated_at: "2026-09-01T12:00:00Z"
   };
-  const cursors: Array<string | null> = [];
+  const requests: Array<{ category: string | null; cursor: string | null }> = [];
   await page.route("**/api/v1/files?**", (route) => {
-    const cursor = new URL(route.request().url()).searchParams.get("cursor");
-    cursors.push(cursor);
+    const params = new URL(route.request().url()).searchParams;
+    const cursor = params.get("cursor");
+    const category = params.get("category");
+    requests.push({ category, cursor });
+    const image = { ...document, id: cursor ? "older-image" : "recent-image",
+      file_name: cursor ? "older-plan.png" : "recent-plan.png", content_type: "image/png" };
     return route.fulfill({ json: {
-      data: [cursor ? { ...document, id: "older-image", file_name: "older-plan.png", content_type: "image/png" } : document],
-      page: { limit: 25, has_more: !cursor, next_cursor: cursor ? null : "older-page" }
+      data: [category === "images" ? image : document],
+      page: { limit: 25, has_more: category === "images" && !cursor,
+        next_cursor: category === "images" && !cursor ? "older-page" : null }
     } });
   });
   await page.goto("/app/files");
-  await page.getByRole("button", { name: "Images", exact: true }).click();
-  await expect(page.getByText("No images in loaded files", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Files", exact: true })).toBeVisible();
+  const fileType = page.getByRole("combobox", { name: "File type", exact: true });
+  if (isMobile) {
+    await expect(fileType).toBeVisible();
+    await expect(fileType).toHaveValue("all");
+    await fileType.selectOption("images");
+    await expect(fileType).toHaveValue("images");
+  } else {
+    const images = page.getByRole("button", { name: "Images", exact: true });
+    await expect(images).toBeVisible();
+    await images.click();
+  }
+  await expect(page.getByText("recent-plan.png", { exact: true })).toBeVisible();
+  await expect(page.getByText("plan.pdf", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Load more files" }).click();
   await expect(page.getByText("older-plan.png", { exact: true })).toBeVisible();
-  await expect(page.getByText("No images in loaded files", { exact: true })).toHaveCount(0);
   // StrictMode may repeat the initial fetch; the continuation must use its cursor.
-  expect(cursors[0]).toBeNull();
-  expect(cursors.filter((cursor) => cursor !== null)).toEqual(["older-page"]);
+  expect(requests[0].cursor).toBeNull();
+  expect(requests.some(({ category, cursor }) => category === "images" && cursor === null)).toBe(true);
+  expect(requests.filter(({ cursor }) => cursor !== null)).toEqual([
+    { category: "images", cursor: "older-page" }
+  ]);
   await expectNoDocumentOverflow(page);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
