@@ -10,32 +10,7 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions:
-  - id: individual-telephony-livekit-sip
-    previous_manifest_sha256: baac1554531ff05f7636293ecac76922161134122eb6b1678fe3a621337604bc
-    approved_changes:
-    - context:calls:allowed_dependencies:add:telephony
-    - context:calls:public_facades:add:CommsCore.AudioCalls.LifecycleCoordinator
-    - context:telephony:add:{"allowed_dependencies":["identity_access","tenant_administration","audit","platform_eventing"],"consumes":[],"current_contexts":["Telephony"],"fold_in":[],"internal_namespaces":["CommsCore.Telephony"],"kind":"business","public_contracts":["CommsCore.Telephony.CallView","CommsCore.Telephony.CredentialRequest","CommsCore.Telephony.ProviderCommand","CommsCore.Telephony.ProviderWebhookPort","CommsCore.Telephony.ProviderWebhookPort.Contract","CommsCore.Telephony.VerifiedProviderEvent"],"public_facades":["CommsCore.Telephony"],"publishes":["telephony.call.updated"],"responsibility":"Tenant
-      phone assignment, individual SIP/PSTN call lifecycle, device-exclusive admission, durable provider work, and call records."}
-    - public_facade_api:sha256:969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc->0a7c777ee6aff0979ffb1a757cc931ff73006a53173abac9c841fd7339b87632
-    - runtime_collaborations:identity-call-lifecycle:binding:{"application":"comms_core","key":"identity_call_lifecycle_adapter","module":"CommsCore.AudioCalls"}->{"application":"comms_core","key":"identity_call_lifecycle_adapter","module":"CommsCore.AudioCalls.LifecycleCoordinator"}
-    - runtime_collaborations:identity-call-lifecycle:implementation:"CommsCore.AudioCalls"->"CommsCore.AudioCalls.LifecycleCoordinator"
-    - runtime_collaborations:tenant-call-lifecycle:binding:{"application":"comms_core","key":"tenant_call_lifecycle_adapter","module":"CommsCore.AudioCalls"}->{"application":"comms_core","key":"tenant_call_lifecycle_adapter","module":"CommsCore.AudioCalls.LifecycleCoordinator"}
-    - runtime_collaborations:tenant-call-lifecycle:implementation:"CommsCore.AudioCalls"->"CommsCore.AudioCalls.LifecycleCoordinator"
-    - table:telephony_calls:add:{"canonical_schema":"CommsCore.Telephony.Call","owner":"telephony","role":"source"}
-    - table:telephony_numbers:add:{"canonical_schema":"CommsCore.Telephony.Number","owner":"telephony","role":"source"}
-    - table:telephony_provider_events:add:{"canonical_schema":"CommsCore.Telephony.ProviderEvent","owner":"telephony","role":"source"}
-    - table:telephony_room_tombstones:add:{"canonical_schema":"CommsCore.Telephony.RoomTombstone","owner":"telephony","role":"source"}
-    - technical_interfaces:telephony-provider-webhook-verification:add:{"behaviour":"CommsCore.Telephony.ProviderWebhookPort.Contract","binding":{"application":"comms_core","key":"telephony_callback_adapter","module":"CommsIntegrations.Telephony.LiveKit"},"callers":["CommsCore.Telephony","CommsCore.Telephony.Lifecycle"],"condition":"ADR-0085
-      permits only exact raw-body verification and configured provider identity authorization through the consumer-owned contract;
-      the integration verifies the LiveKit signature/body/issuer and normalizes the event, and the core port returns the Ecto-free
-      verified event and adapter identity. No unverified body, media credential, repository object, arbitrary provider binding,
-      or new operation may cross this interface.","contracts":["CommsCore.Telephony.ProviderWebhookPort","CommsCore.Telephony.ProviderWebhookPort.Contract","CommsCore.Telephony.VerifiedProviderEvent"],"dispatch":"configured","id":"telephony-provider-webhook-verification","implementation":"CommsIntegrations.Telephony.LiveKit","interface":"CommsCore.Telephony.ProviderWebhookPort","operations":[{"arity":2,"name":"verify_webhook"},{"arity":1,"name":"authorized_adapter?"}],"owner":"telephony","transaction":"independent"}
-    - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Lifecycle"
-    adr: docs/02-architecture/adr/0085-add-individual-telephony-through-livekit-sip.md
-    removal_condition: Remove this exact transition after the ADR-0085 Telephony context, lifecycle coordinator, tables, and
-      facade operations are present on the protected branch; it authorizes no later ownership or permission growth.
+  reviewed_manifest_transitions: []
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
