@@ -53,6 +53,7 @@ test("default desktop navigation reserves space and account settings opens the s
   const navigation = page.getByRole("navigation", { name: "Member areas" });
   await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "Files", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
   const rail = await page.locator(".workspace-sidebar").boundingBox();
   const content = await page.locator("#main-content").boundingBox();
   expect(rail).not.toBeNull();
