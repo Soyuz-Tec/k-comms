@@ -29,11 +29,13 @@ metadata and unrelated tenant resources are discarded.
 The configured provider dispatcher and its behaviour live in separate files and
 use exact `status`, `inspect` and `apply` operations. A separate typed authority
 port admits only the configured complete adapter and forwards leased IO through
-the Telephony owner facade. Its exact callers are the owner and that adapter;
-no generic dynamic operation dispatch or public lease-bearing HTTP route exists.
+the Telephony owner facade. Only that adapter calls its typed `authorize_io/3`
+operation. The owner checks configured adapter identity through a separate internal
+predicate module, avoiding a callback dependency through the public facade. No
+generic dynamic operation dispatch or public lease-bearing HTTP route exists.
 The strict manifest transition binds only this Phone contract/interface/table
-delta and exact public-facade hash to immutable FAA parent
-`faa001613486376b5a1d3eb1ff2964534b7a2fb2`. Existing enforcement, baseline,
+delta and exact public-facade hash to immutable Member parent
+`ba228342d830365c8ccf380d8d893bf3c1cd3605`. Existing enforcement, baseline,
 foreign persistence restrictions and identity guards remain required.
 
 Pin official LiveKit protocol `@livekit/protocol@1.52.1`, commit

@@ -8,8 +8,8 @@ defmodule CommsCore.Telephony.Provisioning do
   alias CommsCore.Telephony.{
     Call,
     Number,
+    ProvisioningAdapterAuthority,
     ProvisioningCommand,
-    ProvisioningAuthorityPort,
     ProvisioningPort,
     ProvisioningRequest
   }
@@ -156,7 +156,7 @@ defmodule CommsCore.Telephony.Provisioning do
   # The one effect capability is consumed durably before CreateSIPDispatchRule.
   def authorize_io(%ProvisioningRequest{} = request, mode, caller)
       when mode in [:read, :effect] do
-    if ProvisioningAuthorityPort.authorized_adapter?(caller) do
+    if ProvisioningAdapterAuthority.authorized_adapter?(caller) do
       transaction(fn ->
         preliminary =
           Repo.get_by(ProvisioningCommand, id: request.command_id, tenant_id: request.tenant_id)

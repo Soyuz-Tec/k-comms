@@ -1807,8 +1807,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             {
                 "owner": "telephony",
                 "interface": "CommsCore.Telephony.ProvisioningAuthorityPort",
-                "callers": ["CommsCore.Telephony.Provisioning", "CommsIntegrations.Telephony.ProvisioningLiveKit"],
-                "operations": [{"name": "authorized_adapter?", "arity": 1}, {"name": "authorize_io", "arity": 3}],
+                "callers": ["CommsIntegrations.Telephony.ProvisioningLiveKit"],
+                "operations": [{"name": "authorize_io", "arity": 3}],
                 "dispatch": "direct",
                 "contracts": ["CommsCore.Telephony.ProvisioningAuthorityPort", "CommsCore.Telephony.ProvisioningRequest"],
                 "transaction": "independent",
