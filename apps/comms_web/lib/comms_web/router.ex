@@ -26,6 +26,12 @@ defmodule CommsWeb.Router do
 
   pipeline :calendar_callback do
     plug(:accepts, ["html", "json"])
+
+    plug(:put_secure_browser_headers, %{
+      "content-security-policy" =>
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
+    })
+
     plug(CommsWeb.Plugs.RequireSecureTransport)
     plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
   end
