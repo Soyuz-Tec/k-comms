@@ -79,8 +79,12 @@ defmodule CommsIntegrations.FederationMatrixTest do
           )
     end)
 
-    assert {:error, :encrypted_or_unsafe_matrix_room} = Matrix.perform(request(:send))
+    for operation <- [:send, :invite, :timeline] do
+      assert {:error, :encrypted_or_unsafe_matrix_room} = Matrix.perform(request(operation))
+    end
+
     refute_received {:matrix_request, :put, _, _, _}
+    refute_received {:matrix_request, :post, _, _, _}
   end
 
   test "lost create acknowledgement never permits a second blind create" do
@@ -149,9 +153,11 @@ defmodule CommsIntegrations.FederationMatrixTest do
   test "local observed redaction never becomes a remote deletion receipt" do
     handler(fn
       :get, path, _ ->
-        if String.ends_with?(path, "/account/whoami"),
-          do: ok(%{"user_id" => "@bridge:example.org"}),
-          else: ok(%{"unsigned" => %{"redacted_because" => %{}}})
+        cond do
+          String.ends_with?(path, "/account/whoami") -> ok(%{"user_id" => "@bridge:example.org"})
+          String.ends_with?(path, "/state") -> ok(state())
+          true -> ok(%{"unsigned" => %{"redacted_because" => %{}}})
+        end
 
       :put, _, _ ->
         ok(%{"event_id" => "$redaction"})
@@ -159,7 +165,11 @@ defmodule CommsIntegrations.FederationMatrixTest do
 
     assert {:ok,
             %ProviderReceipt{local_redaction_observed: true, remote_deletion_confirmed: false}} =
-             Matrix.perform(%{request(:redact) | event_id: "$owned-event"})
+             Matrix.perform(%{
+               request(:redact)
+               | event_id: "$owned-event",
+                 effect_mode: :first_attempt
+             })
   end
 
   test "expired total deadlines and wrong bridge identities issue no mutation" do
@@ -188,7 +198,17 @@ defmodule CommsIntegrations.FederationMatrixTest do
   test "unsafe server ACL or permission changes are refused before mutation" do
     for unsafe <- [
           Enum.reject(state(), &(&1["type"] == "m.room.server_acl")),
-          Enum.reject(state(), &(&1["type"] == "m.room.power_levels"))
+          Enum.reject(state(), &(&1["type"] == "m.room.power_levels")),
+          Enum.map(state(), fn event ->
+            if event["type"] == "m.room.power_levels" do
+              put_in(event, ["content", "users"], %{
+                "@bridge:example.org" => 100,
+                "@foreign:example.org" => 100
+              })
+            else
+              event
+            end
+          end)
         ] do
       handler(fn :get, path, _ ->
         if String.ends_with?(path, "/account/whoami"),
@@ -211,6 +231,9 @@ defmodule CommsIntegrations.FederationMatrixTest do
           String.ends_with?(path, "/account/whoami") ->
             ok(%{"user_id" => "@bridge:example.org"})
 
+          String.ends_with?(path, "/state") ->
+            ok(state())
+
           String.contains?(path, "/state/m.room.member/") ->
             ok(%{"membership" => "leave"})
 
@@ -227,13 +250,206 @@ defmodule CommsIntegrations.FederationMatrixTest do
         {:error, :outbound_timeout}
 
       :get, path, _ ->
-        if String.ends_with?(path, "/account/whoami"),
-          do: ok(%{"user_id" => "@bridge:example.org"}),
-          else: ok(%{"membership" => "invite"})
+        cond do
+          String.ends_with?(path, "/account/whoami") -> ok(%{"user_id" => "@bridge:example.org"})
+          String.ends_with?(path, "/state") -> ok(state())
+          true -> ok(%{"membership" => "invite"})
+        end
     end)
 
     assert {:error, :federation_member_absence_unconfirmed} =
              Matrix.perform(%{request(:leave) | principal: "@person:remote.example.org"})
+  end
+
+  test "lost redaction ACK observes immediately and all later attempts are read-only" do
+    Process.put(:redaction_observed, false)
+
+    handler(fn
+      :get, path, _ ->
+        cond do
+          String.ends_with?(path, "/account/whoami") -> ok(%{"user_id" => "@bridge:example.org"})
+          String.ends_with?(path, "/state") -> ok(state())
+          Process.get(:redaction_observed) -> ok(%{"unsigned" => %{"redacted_because" => %{}}})
+          true -> ok(%{"unsigned" => %{}})
+        end
+
+      :put, _, _ ->
+        send(self(), :redaction_put)
+        {:error, :outbound_timeout}
+    end)
+
+    first = %{request(:redact) | event_id: "$owned-event", effect_mode: :first_attempt}
+    assert {:error, :federation_redaction_unconfirmed} = Matrix.perform(first)
+    assert_received :redaction_put
+
+    assert_received {:matrix_request, :get,
+                     "/_matrix/client/v3/rooms/%21synthetic%3Aexample.org/event/%24owned-event",
+                     _, _}
+
+    assert {:error, :federation_redaction_unconfirmed} =
+             Matrix.perform(%{first | effect_mode: :recovery_only})
+
+    refute_received :redaction_put
+    Process.put(:redaction_observed, true)
+
+    assert {:ok,
+            %ProviderReceipt{local_redaction_observed: true, remote_deletion_confirmed: false}} =
+             Matrix.perform(%{first | effect_mode: :recovery_only})
+
+    refute_received :redaction_put
+  end
+
+  test "cleanup rejects changed or missing original control identity before all native HTTP" do
+    handler(fn _, _, _ -> raise "retained control refusal must not call transport" end)
+
+    for operation <- [:redact, :leave, :close], principal <- [nil, "@old-bridge:example.org"] do
+      assert {:error, :federation_provider_identity_changed} =
+               Matrix.perform(%{request(operation) | bridge_user: principal})
+    end
+
+    config = Application.fetch_env!(:comms_integrations, :federation_matrix)
+
+    Application.put_env(:comms_integrations, :federation_matrix, %{
+      config
+      | bridge_user: "@replacement:example.org"
+    })
+
+    for operation <- [:redact, :leave, :close] do
+      assert {:error, :federation_provider_identity_changed} = Matrix.perform(request(operation))
+    end
+
+    refute_received {:matrix_request, _, _, _, _}
+  end
+
+  test "cleanup refuses foreign creation, lineage or control power before a mutation" do
+    states = [
+      Enum.map(state(), fn event ->
+        if event["type"] == "m.room.create",
+          do: Map.put(event, "sender", "@foreign:example.org"),
+          else: event
+      end),
+      Enum.map(state(), fn event ->
+        if event["type"] == "org.kcomms.bridge",
+          do: Map.put(event, "content", %{"lineage" => "foreign"}),
+          else: event
+      end),
+      Enum.map(state(), fn event ->
+        if event["type"] == "org.kcomms.bridge",
+          do: Map.put(event, "sender", "@foreign:example.org"),
+          else: event
+      end),
+      Enum.reject(state(), &(&1["type"] == "m.room.power_levels")),
+      Enum.map(state(), fn event ->
+        if event["type"] == "m.room.power_levels" do
+          put_in(event, ["content", "users"], %{
+            "@bridge:example.org" => 100,
+            "@foreign:example.org" => 100
+          })
+        else
+          event
+        end
+      end)
+    ]
+
+    for unsafe <- states, operation <- [:redact, :leave, :close] do
+      handler(fn :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: ok(unsafe)
+      end)
+
+      assert {:error, :unowned_matrix_cleanup_room} =
+               Matrix.perform(%{request(operation) | effect_mode: :first_attempt})
+    end
+
+    refute_received {:matrix_request, :put, _, _, _}
+    refute_received {:matrix_request, :post, _, _, _}
+  end
+
+  test "original-owner encrypted cleanup only observes metadata and never captures a timeline" do
+    handler(fn
+      :get, path, _ ->
+        cond do
+          String.ends_with?(path, "/account/whoami") ->
+            ok(%{"user_id" => "@bridge:example.org"})
+
+          String.ends_with?(path, "/state") ->
+            ok(
+              state() ++
+                [
+                  %{
+                    "type" => "m.room.encryption",
+                    "content" => %{"algorithm" => "m.megolm.v1.aes-sha2"}
+                  }
+                ]
+            )
+
+          String.contains?(path, "/event/") ->
+            ok(%{"unsigned" => %{"redacted_because" => %{}}})
+
+          true ->
+            raise "cleanup must not request plaintext timeline"
+        end
+    end)
+
+    assert {:ok,
+            %ProviderReceipt{local_redaction_observed: true, remote_deletion_confirmed: false}} =
+             Matrix.perform(%{
+               request(:redact)
+               | event_id: "$owned-event",
+                 effect_mode: :recovery_only
+             })
+
+    refute_received {:matrix_request, :put, _, _, _}
+    refute_received {:matrix_request, :post, _, _, _}
+  end
+
+  test "encrypted timeline events are refused without returning their content" do
+    handler(fn :get, path, _ ->
+      cond do
+        String.ends_with?(path, "/account/whoami") ->
+          ok(%{"user_id" => "@bridge:example.org"})
+
+        String.ends_with?(path, "/state") ->
+          ok(state())
+
+        String.ends_with?(path, "/joined_members") ->
+          ok(%{"joined" => %{"@bridge:example.org" => %{}}})
+
+        String.ends_with?(path, "/messages") ->
+          ok(%{
+            "chunk" => [
+              %{"type" => "m.room.encrypted", "content" => %{"ciphertext" => "synthetic-secret"}}
+            ]
+          })
+      end
+    end)
+
+    assert {:error, :encrypted_matrix_event_refused} = Matrix.perform(request(:timeline))
+  end
+
+  test "uncertain send recovery is bounded read-only and never resends a withdrawn body" do
+    Process.put(:history_pages, 0)
+
+    handler(fn :get, path, _ ->
+      if String.ends_with?(path, "/account/whoami") do
+        ok(%{"user_id" => "@bridge:example.org"})
+      else
+        Process.put(:history_pages, Process.get(:history_pages) + 1)
+        ok(%{"chunk" => [], "end" => "synthetic-next-page"})
+      end
+    end)
+
+    assert {:error, :federation_send_outcome_unconfirmed} =
+             Matrix.perform(%{
+               request(:recover_event)
+               | source_transaction_id: "withdrawn-original",
+                 body: nil
+             })
+
+    assert Process.get(:history_pages) == 3
+    refute_received {:matrix_request, :put, _, _, _}
+    refute_received {:matrix_request, :post, _, _, _}
   end
 
   defp request(op),
@@ -244,6 +460,7 @@ defmodule CommsIntegrations.FederationMatrixTest do
       room_id: "!synthetic:example.org",
       homeserver_origin: "https://matrix.example.org",
       server_name: "example.org",
+      bridge_user: "@bridge:example.org",
       alias_localpart: "kc_fed_synthetic",
       allowed_servers: ["remote.example.org"],
       body: "synthetic text"
@@ -278,6 +495,10 @@ defmodule CommsIntegrations.FederationMatrixTest do
       },
       %{"type" => "m.room.join_rules", "content" => %{"join_rule" => "invite"}},
       %{"type" => "m.room.guest_access", "content" => %{"guest_access" => "forbidden"}},
-      %{"type" => "org.kcomms.bridge", "content" => %{"lineage" => "kc_fed_synthetic"}}
+      %{
+        "type" => "org.kcomms.bridge",
+        "sender" => "@bridge:example.org",
+        "content" => %{"lineage" => "kc_fed_synthetic"}
+      }
     ]
 end

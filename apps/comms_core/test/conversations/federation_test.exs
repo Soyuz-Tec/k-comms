@@ -15,7 +15,13 @@ defmodule CommsCore.Conversations.FederationTest.Provider do
         {:ok, %ProviderReceipt{operation: :create, room_id: "!synthetic:example.org"}}
 
       :redact ->
-        {:ok, %ProviderReceipt{operation: :redact, local_redaction_observed: true}}
+        send(self(), {:federation_redaction_request, request})
+
+        case Process.get(:federation_redaction_outcome, :observed) do
+          :rollback -> CommsCore.Repo.rollback(:synthetic_post_effect_failure)
+          :unconfirmed -> {:error, :federation_redaction_unconfirmed}
+          :observed -> {:ok, %ProviderReceipt{operation: :redact, local_redaction_observed: true}}
+        end
 
       :leave ->
         {:ok, %ProviderReceipt{operation: :leave, local_absence_observed: true}}
@@ -399,6 +405,112 @@ defmodule CommsCore.Conversations.FederationTest do
     refute_received {:federation_effect, _, _}
   end
 
+  test "registered worker retains the first-redaction marker across post-effect rollback and uncertain retries",
+       %{
+         account: account,
+         room: room,
+         subject: subject
+       } do
+    command = send_and_withdraw!(account, room, subject)
+    worker = RuntimePorts.job_worker!(:federation_command)
+    Process.put(:federation_redaction_outcome, :rollback)
+
+    assert {:error, :synthetic_post_effect_failure} =
+             worker.perform(%Oban.Job{args: %{"command_id" => command.id}})
+
+    assert_received {:federation_redaction_request, first}
+    assert first.effect_mode == :first_attempt
+    assert first.bridge_user == room.provider_bridge_user
+    retained = Repo.get!(Command, command.id)
+    assert retained.status == "prepared" and retained.attempts == 1
+    assert is_binary(retained.payload_box)
+
+    Process.put(:federation_redaction_outcome, :unconfirmed)
+
+    assert {:error, :federation_redaction_unconfirmed} =
+             worker.perform(%Oban.Job{args: %{"command_id" => command.id}})
+
+    assert_received {:federation_redaction_request, uncertain}
+    assert uncertain.effect_mode == :recovery_only
+    assert uncertain.transaction_id == first.transaction_id
+    assert Repo.get!(Command, command.id).status == "uncertain"
+
+    Process.put(:federation_redaction_outcome, :observed)
+    assert :ok = worker.perform(%Oban.Job{args: %{"command_id" => command.id}})
+    assert_received {:federation_redaction_request, recovered}
+    assert recovered.effect_mode == :recovery_only
+    assert Repo.get!(Command, command.id).status == "done"
+    assert is_nil(Repo.get!(Command, command.id).payload_box)
+    assert Repo.get!(Room, room.id).remote_cleanup_state == "remote_unconfirmed"
+
+    assert {:ok, true} =
+             Conversations.federation_erasure_pending?(account.tenant.id, :user, account.user.id)
+  end
+
+  test "a hold prevents the prepared redaction effect and preserves its original provider binding",
+       %{
+         account: account,
+         room: room,
+         subject: subject
+       } do
+    command = send_and_withdraw!(account, room, subject)
+    verified = Fixtures.step_up(account)
+
+    assert {:ok, _} =
+             CommsCore.Governance.create_legal_hold(
+               %{
+                 name: "Synthetic redaction hold",
+                 reason: "Preserve synthetic redaction evidence",
+                 scope_type: "user",
+                 subject_user_id: account.user.id,
+                 idempotency_key: "federation-redaction-hold"
+               },
+               verified
+             )
+
+    worker = RuntimePorts.job_worker!(:federation_command)
+
+    assert {:error, :legal_hold_active} =
+             worker.perform(%Oban.Job{args: %{"command_id" => command.id}})
+
+    assert Repo.get!(Command, command.id).status == "prepared"
+    assert Repo.get!(Command, command.id).attempts == 1
+    assert Repo.get!(Room, room.id).provider_bridge_user == "@bridge:example.org"
+    refute_received {:federation_redaction_request, _}
+
+    assert {:ok, true} =
+             Conversations.federation_erasure_pending?(account.tenant.id, :user, account.user.id)
+  end
+
+  defp send_and_withdraw!(account, room, subject) do
+    assert {:ok, queued} =
+             Conversations.send_federation_message(
+               account.conversation.id,
+               %{
+                 version: room.lock_version,
+                 body: "synthetic erasable text",
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               subject
+             )
+
+    assert {:ok, :ok} =
+             Conversations.deliver_federation_command(
+               queued.id,
+               RuntimePorts.job_worker!(:federation_command),
+               :recovery_only
+             )
+
+    assert {:ok, _} =
+             Conversations.federation_consent(
+               account.conversation.id,
+               %{version: room.lock_version, accept: false},
+               subject
+             )
+
+    Repo.get_by!(Command, room_id: room.id, kind: "redact")
+  end
+
   defp room_fixture(account) do
     trust =
       Repo.insert!(
@@ -423,6 +535,7 @@ defmodule CommsCore.Conversations.FederationTest do
           alias_localpart: "kc_fed_" <> String.replace(id, "-", ""),
           provider_issuer: "https://matrix.example.org",
           provider_server_name: "example.org",
+          provider_bridge_user: "@bridge:example.org",
           status: "active",
           provider_room_box:
             SecretBox.seal(account.tenant.id, id, "room", "!synthetic:example.org")

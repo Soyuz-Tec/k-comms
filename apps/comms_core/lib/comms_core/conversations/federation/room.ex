@@ -12,6 +12,7 @@ defmodule CommsCore.Conversations.Federation.Room do
     field(:alias_localpart, :string)
     field(:provider_issuer, :string)
     field(:provider_server_name, :string)
+    field(:provider_bridge_user, :string)
     field(:provider_room_box, :binary)
     field(:status, :string, default: "creating")
     field(:generation, :integer, default: 1)
@@ -33,6 +34,7 @@ defmodule CommsCore.Conversations.Federation.Room do
         :alias_localpart,
         :provider_issuer,
         :provider_server_name,
+        :provider_bridge_user,
         :provider_room_box,
         :status,
         :generation,
@@ -41,5 +43,10 @@ defmodule CommsCore.Conversations.Federation.Room do
         :remote_cleanup_state,
         :local_cleanup_confirmed_at
       ])
-      |> validate_required([:tenant_id, :provider_issuer, :provider_server_name])
+      |> validate_required([
+        :tenant_id,
+        :provider_issuer,
+        :provider_server_name,
+        :provider_bridge_user
+      ])
 end

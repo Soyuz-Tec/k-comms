@@ -35,6 +35,7 @@ defmodule CommsCore.Repo.Migrations.AddFederation do
       add(:alias_localpart, :string, null: false)
       add(:provider_issuer, :string, null: false)
       add(:provider_server_name, :string, null: false)
+      add(:provider_bridge_user, :string, null: false)
       add(:provider_room_box, :binary)
       add(:status, :string, default: "creating", null: false)
       add(:generation, :integer, default: 1, null: false)
