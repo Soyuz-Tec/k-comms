@@ -1,7 +1,7 @@
 defmodule CommsCore.Accounts.MatrixSessions do
   @moduledoc false
   import Ecto.Query
-  alias CommsCore.{Accounts, AdmissionQuotas, Repo}
+  alias CommsCore.{AdmissionQuotas, Repo}
 
   alias CommsCore.Accounts.{
     MatrixBudget,
@@ -316,7 +316,7 @@ defmodule CommsCore.Accounts.MatrixSessions do
       _ -> Repo.rollback(:matrix_identity_withdrawn)
     end
 
-    case Accounts.lock_content_write_grant(subject, deadline) do
+    case CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline) do
       {:ok, %{account_type: :human, access_scope: :workspace} = grant} -> grant
       _ -> Repo.rollback(:forbidden)
     end

@@ -1,7 +1,7 @@
 defmodule CommsCore.Accounts.MatrixParticipants do
   @moduledoc false
   import Ecto.Query
-  alias CommsCore.{Repo, AdmissionQuotas, Administration, Accounts}
+  alias CommsCore.{Repo, AdmissionQuotas, Administration}
   alias CommsCore.Accounts.{MatrixParticipantsLockQuery, MatrixBudget, User}
 
   @spec lock(MatrixParticipantsLockQuery.t(), map() | nil) ::
@@ -46,7 +46,7 @@ defmodule CommsCore.Accounts.MatrixParticipants do
         if is_nil(subject) do
           nil
         else
-          case Accounts.lock_content_write_grant(subject, deadline) do
+          case CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline) do
             {:ok, %{tenant_id: ^tenant, account_type: :human, access_scope: :workspace} = grant} ->
               if grant.user_id not in ids, do: Repo.rollback(:forbidden)
               grant
