@@ -46,6 +46,10 @@ describe("explicit plaintext federation controls", () => {
     await screen.findByText(/previous acknowledgement is uncertain/);
     const original = vi.mocked(api.sendFederationMessage).mock.calls[0]!;
     expect(field).toHaveAttribute("readonly");
+    vi.mocked(api.federationRoom).mockResolvedValue({ ...room, version: 4 });
+    fireEvent.click(screen.getByRole("button", { name: "Reload federation state" }));
+    await waitFor(() => expect(api.federationRoom).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry the same bridge message" })).toBeEnabled());
     fireEvent.change(field, { target: { value: "synthetic attempted replacement" } });
     fireEvent.click(screen.getByRole("button", { name: "Retry the same bridge message" }));
     await waitFor(() => expect(api.sendFederationMessage).toHaveBeenCalledTimes(2));

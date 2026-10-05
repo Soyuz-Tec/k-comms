@@ -39,7 +39,7 @@ enforcement:
       rooms/events are refused; no foreign Messaging persistence or custom federation cryptography.","contracts":["CommsCore.Conversations.Federation.ProviderAdapter","CommsCore.Conversations.Federation.ProviderRequest","CommsCore.Conversations.Federation.ProviderReceipt","CommsCore.Conversations.Federation.ProviderPort"],"dispatch":"configured","id":"federation-matrix-provider","implementation":"CommsIntegrations.Federation.Matrix","interface":"CommsCore.Conversations.Federation.ProviderAdapter","operations":[{"arity":1,"name":"perform"}],"owner":"conversations","transaction":"required"}
     adr: docs/02-architecture/adr/0103-explicit-matrix-workspace-federation.md
     removal_condition: Remove this exact ADR-0103-only transition after protected integration against frozen E2EE dependency
-      433dbe1bfdd968a86ab90acf0416fefa29eb3002. The Member and E2EE transitions remain unchanged in their immutable parent
+      a39fd903aa7b48741da8f5d752520a0b34fc79c6. The Member and E2EE transitions remain unchanged in their immutable parent
       branches, remain unprotected, and cannot authorize this Federation delta or later changes.
   reviewed_baseline_transitions:
   - id: non-media-authorization-tenant-identity-and-notification-boundaries

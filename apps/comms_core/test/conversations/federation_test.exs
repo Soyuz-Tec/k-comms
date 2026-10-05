@@ -38,7 +38,7 @@ end
 defmodule CommsCore.Conversations.FederationTest do
   use CommsCore.DataCase, async: false
   import Ecto.Query
-  alias CommsCore.{Accounts, Conversations, Repo, RuntimePorts}
+  alias CommsCore.{Accounts, Conversations, Governance, Repo, RuntimePorts}
   alias CommsCore.Conversations.Federation.{Command, Participant, Room, SecretBox, Trust}
   alias CommsTestSupport.Fixtures
   @moduletag :integration
@@ -403,6 +403,72 @@ defmodule CommsCore.Conversations.FederationTest do
              Conversations.federation_erasure_pending?(account.tenant.id, :user, account.user.id)
 
     refute_received {:federation_effect, _, _}
+  end
+
+  test "actual registered Governance worker retains its completion barrier after local bridge cleanup",
+       %{account: account, room: room} do
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, %{request: request}} =
+             Governance.create_deletion_request_view(
+               %{
+                 target_type: :conversation,
+                 conversation_id: account.conversation.id,
+                 reason: "Synthetic retained cross-server deletion uncertainty"
+               },
+               subject
+             )
+
+    assert {:ok, _} =
+             Governance.transition_deletion_request_view(
+               request.id,
+               %{
+                 version: request.version,
+                 status: :approved,
+                 transition_reason: "Scoped synthetic request independently verified"
+               },
+               subject
+             )
+
+    deletion_worker = RuntimePorts.job_worker!(:deletion)
+    job = %Oban.Job{args: %{"deletion_request_id" => request.id}}
+    assert {:snooze, 10} = deletion_worker.perform(job)
+
+    assert {:ok, false} =
+             Conversations.private_room_erasure_pending?(
+               account.tenant.id,
+               :conversation,
+               account.conversation.id
+             )
+
+    assert {:ok, true} =
+             Conversations.federation_erasure_pending?(
+               account.tenant.id,
+               :conversation,
+               account.conversation.id
+             )
+
+    assert Repo.get!(Room, room.id).status == "fenced"
+    refute_received {:federation_effect, _, _}
+
+    bridge_worker = RuntimePorts.job_worker!(:federation_command)
+    commands = Repo.all(from(c in Command, where: c.room_id == ^room.id))
+    assert Enum.any?(commands, &(&1.kind == "close"))
+
+    Enum.each(commands, fn command ->
+      assert :ok = bridge_worker.perform(%Oban.Job{args: %{"command_id" => command.id}})
+    end)
+
+    retained = Repo.get!(Room, room.id)
+    assert retained.local_cleanup_confirmed_at
+    assert retained.remote_cleanup_state == "remote_unconfirmed"
+    assert {:snooze, 10} = deletion_worker.perform(job)
+    assert {:ok, requests} = Governance.list_deletion_request_views(%{}, subject)
+    retained_request = Enum.find(requests, &(&1.id == request.id))
+    assert retained_request.status == :in_progress
+    assert is_nil(retained_request.completed_at)
+    assert is_nil(retained_request.evidence[:media_erasure_version])
+    assert is_nil(retained_request.evidence["media_erasure_version"])
   end
 
   test "registered worker retains the first-redaction marker across post-effect rollback and uncertain retries",
