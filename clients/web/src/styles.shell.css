@@ -285,6 +285,7 @@
 .service-account-list > li > div:first-child { overflow: hidden; }
 .secret-reveal small { color: var(--warning-text); line-height: 1.4; }
 .modal-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(8 28 27 / 58%); }
+body > div.modal-backdrop.step-up-backdrop { z-index: 1100; }
 .modal-dialog { width: min(440px, 100%); padding: 1.25rem; border: 1px solid var(--border-default); border-radius: 15px; background: var(--surface-raised); box-shadow: 0 24px 80px rgb(5 25 23 / 35%); }
 .modal-dialog h2 { margin: 0 0 .4rem; font-family: var(--font-display); }
 .modal-dialog p { margin: 0 0 1rem; color: var(--text-secondary); font-size: .78rem; line-height: 1.5; }

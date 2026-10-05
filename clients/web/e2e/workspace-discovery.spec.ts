@@ -106,3 +106,90 @@ test("admin removes TXT from the page before a step-up retry that loses access",
   await expect(page.getByText(/unavailable with your current access/)).toBeVisible();
   expect(challenged).toBe(2); expect(state.unexpectedRequests).toEqual([]);
 });
+
+test("privileged verification paints above its retained action while preserving the proof and CAS", async ({ page }) => {
+  const state = await installWorkspace(page);
+  let current = claim;
+  let verified = false;
+  const writes: unknown[] = [];
+  const proofs: unknown[] = [];
+  await page.route("**/api/v1/admin/workspace-domains**", (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "GET" && path === "/api/v1/admin/workspace-domains") {
+      return route.fulfill({ json: { data: [current], limits: { domains: 8 } } });
+    }
+    if (request.method() === "POST" && path === `/api/v1/admin/workspace-domains/${claim.id}/challenge`) {
+      const input = request.postDataJSON();
+      expect(input).toEqual({ version: 1 });
+      writes.push(input);
+      if (!verified) return route.fulfill({ status: 428, json: { error: { code: "step_up_required", detail: "Confirm it is you" } } });
+      current = { ...claim, version: 2, challenge_value: "k-comms-domain=synthetic-current-after-proof" };
+      return route.fulfill({ json: { data: current } });
+    }
+    state.unexpectedRequests.push(`${request.method()} ${path}`);
+    return route.fulfill({ status: 501 });
+  });
+  await page.route("**/api/v1/me/step-up", (route) => {
+    expect(route.request().method()).toBe("POST");
+    const input = route.request().postDataJSON();
+    expect(input).toEqual({ current_password: "synthetic password" });
+    proofs.push(input);
+    verified = true;
+    return route.fulfill({ json: { data: { step_up_at: "2026-10-05T00:00:00Z" } } });
+  });
+
+  await page.goto("/admin?section=domains");
+  await page.getByText("DNS TXT instructions for team.example.org", { exact: true }).click();
+  await expect(page.getByText(claim.challenge_value!, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New challenge for team.example.org" }).click();
+  await page.getByRole("button", { name: "Create new challenge" }).click();
+  const identity = page.getByRole("dialog", { name: "Confirm it is you", exact: true });
+  const actionBackdrop = page.locator("body > .modal-backdrop[data-action-dialog-backdrop]");
+  await expect(identity).toBeVisible();
+  await expect(actionBackdrop).toHaveCount(1);
+  await expect(actionBackdrop).toHaveAttribute("aria-hidden", "true");
+  expect(await actionBackdrop.evaluate(node => (node as HTMLElement).inert)).toBe(true);
+  await expect(identity.getByLabel("Current password", { exact: true })).toBeFocused();
+  await expect(page.getByText(claim.challenge_value!, { exact: true })).toHaveCount(0);
+  expect(writes).toEqual([{ version: 1 }]);
+  expect(proofs).toEqual([]);
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    const layers = await identity.evaluate(dialog => {
+      const proof = dialog.closest<HTMLElement>(".modal-backdrop");
+      const action = document.querySelector<HTMLElement>("body > .modal-backdrop[data-action-dialog-backdrop]");
+      if (!proof || !action) throw new Error("Both the proof and retained action backdrops must exist");
+      const proofStyle = getComputedStyle(proof);
+      const actionStyle = getComputedStyle(action);
+      return {
+        proofBodyPortal: proof.parentElement === document.body,
+        actionBodyPortal: action.parentElement === document.body,
+        proofPosition: proofStyle.position,
+        actionPosition: actionStyle.position,
+        proofZ: Number(proofStyle.zIndex),
+        actionZ: Number(actionStyle.zIndex),
+        proofInert: proof.inert
+      };
+    });
+    expect(layers.proofBodyPortal).toBe(true);
+    expect(layers.actionBodyPortal).toBe(true);
+    expect(layers.proofPosition).toBe("fixed");
+    expect(layers.actionPosition).toBe("fixed");
+    expect(Number.isFinite(layers.proofZ)).toBe(true);
+    expect(Number.isFinite(layers.actionZ)).toBe(true);
+    expect(layers.proofZ).toBeGreaterThan(layers.actionZ);
+    expect(layers.proofInert).toBe(false);
+    await expectNoDocumentOverflow(page);
+  }
+
+  await identity.getByLabel("Current password", { exact: true }).fill("synthetic password");
+  await identity.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(identity).toHaveCount(0);
+  await expect(actionBackdrop).toHaveCount(0);
+  await expect(page.getByText("Status: Awaiting DNS verification · Version 2.", { exact: true })).toBeVisible();
+  expect(proofs).toEqual([{ current_password: "synthetic password" }]);
+  expect(writes).toEqual([{ version: 1 }, { version: 1 }]);
+  expect(state.unexpectedRequests).toEqual([]);
+});

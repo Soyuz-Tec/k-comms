@@ -392,14 +392,6 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                   <button type="button" className="button secondary full" disabled={busy || accountActionsUnavailable} onClick={() => void corporateSignIn()}>Corporate sign in</button>
                 </div>
               </form>
-              <WorkspaceDiscovery api={api} disabled={busy || accountActionsUnavailable} onSelect={(path, slug) => {
-                setLoginWorkspaceSlug(slug);
-                setEditingWorkspace(false);
-                setLoginFormGeneration((value) => value + 1);
-                setError(null);
-                setNotice("Workspace address selected. Sign in with your own account; discovery does not grant access.");
-                navigate(path, { replace: true, state: authenticationState });
-              }} />
               <div
                 className="auth-entry-options"
                 role="group"
@@ -414,6 +406,14 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                   </button>
                 )}
               </div>
+              <WorkspaceDiscovery api={api} disabled={busy || accountActionsUnavailable} onSelect={(path, slug) => {
+                setLoginWorkspaceSlug(slug);
+                setEditingWorkspace(false);
+                setLoginFormGeneration((value) => value + 1);
+                setError(null);
+                setNotice("Workspace address selected. Sign in with your own account; discovery does not grant access.");
+                navigate(path, { replace: true, state: authenticationState });
+              }} />
             </>
           ) : mode === "invite" ? (
             <>

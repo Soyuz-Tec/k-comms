@@ -192,7 +192,7 @@ function StepUpDialog({
     if (!busy) onCancel();
   });
   return createPortal(
-    <div className="modal-backdrop">
+    <div className="modal-backdrop step-up-backdrop">
       <section ref={dialogRef} className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="step-up-title" aria-describedby="step-up-description">
         <header className="app-dialog-heading">
           <h2 id="step-up-title">Confirm it is you</h2>

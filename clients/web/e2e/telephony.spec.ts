@@ -137,15 +137,19 @@ test("an administrator provisions a phone line only after step-up, preserving th
   let verified = false;
   let saves = 0;
   let submitted: Record<string, unknown> | null = null;
-  let savedNumber: typeof number & { inbound_trunk_id: string; outbound_trunk_id: string } | null = null;
+  let savedNumber: typeof number & { inbound_trunk_id: string; outbound_trunk_id: string; version: number } | null = null;
   const configuration = () => ({ enabled: false, configured: false, provider_ready: false, line_assigned: Boolean(savedNumber), provider: "livekit_sip", number: savedNumber, can_manage: true });
+  await page.route("**/api/v1/admin/telephony/provisioning", (route) => {
+    expect(route.request().method()).toBe("GET");
+    return route.fulfill({ json: { data: { provider: { enabled: false, ready: false, reason: "provider_management_disabled", number_purchase: false, trunk_credentials_edit: false }, assignment_version: savedNumber?.version ?? 0, commands: [] } } });
+  });
   await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: true } } }));
   await page.route("**/api/v1/admin/telephony", (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { data: configuration() } });
     saves += 1;
     if (!verified) return route.fulfill({ status: 403, json: { error: { code: "step_up_required", detail: "Confirm it is you" } } });
     submitted = route.request().postDataJSON() as Record<string, unknown>;
-    savedNumber = { ...number, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" };
+    savedNumber = { ...number, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", version: 1 };
     return route.fulfill({ json: { data: configuration() } });
   });
   await page.route("**/api/v1/me/step-up", (route) => {
@@ -167,7 +171,7 @@ test("an administrator provisions a phone line only after step-up, preserving th
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByText("Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.")).toBeVisible();
   expect(saves).toBe(2);
-  expect(submitted).toEqual({ phone_number: number.phone_number, extension: number.extension, user_id: userId, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "Synthetic phone pilot" });
+  expect(submitted).toEqual({ phone_number: number.phone_number, extension: number.extension, user_id: userId, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "Synthetic phone pilot", version: 0 });
   await page.reload();
   await expect(page.getByLabel("Phone number")).toHaveValue(number.phone_number);
   await expect(page.getByLabel("Extension", { exact: true })).toHaveValue(number.extension);

@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/errors";
 import { StepUpProvider } from "../../app/step-up";
@@ -42,6 +43,51 @@ beforeEach(() => {
 });
 
 describe("Workspace domain administration", () => {
+  it("loads the current inventory after StrictMode replay and ignores the canceled request while that load is pending", async () => {
+    const obsolete = deferred<{ data: WorkspaceDomainClaim[]; limits: { domains: number } }>();
+    const current = deferred<{ data: WorkspaceDomainClaim[]; limits: { domains: number } }>();
+    const api = apiFixture([]);
+    api.workspaceDomains.mockReturnValueOnce(obsolete.promise).mockReturnValueOnce(current.promise);
+    render(<StrictMode><StepUpProvider><WorkspaceDomainsPanel api={api} /></StepUpProvider></StrictMode>);
+
+    await waitFor(() => expect(api.workspaceDomains).toHaveBeenCalledTimes(2));
+    await act(async () => { obsolete.resolve({ data: [claim], limits: { domains: 8 } }); });
+    expect(screen.getByRole("button", { name: "Reload domain inventory" })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: claim.domain })).not.toBeInTheDocument();
+    expect(screen.queryByText(claim.challenge_value!)).not.toBeInTheDocument();
+
+    const fresh = { ...claim, id: "current-claim", domain: "current.example.org", version: 7,
+      challenge_name: "_k-comms.current.example.org.", challenge_value: "k-comms-domain=synthetic-current-challenge" };
+    await act(async () => { current.resolve({ data: [fresh], limits: { domains: 8 } }); });
+    expect(await screen.findByRole("heading", { name: fresh.domain })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reload domain inventory" })).toBeEnabled();
+    await userEvent.click(screen.getByText("DNS TXT instructions for current.example.org"));
+    expect(screen.getByText(fresh.challenge_value)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: claim.domain })).not.toBeInTheDocument();
+    expect(screen.queryByText(claim.challenge_value!)).not.toBeInTheDocument();
+  });
+
+  it("allows an explicit inventory retry after the current StrictMode load fails without restoring a canceled inventory", async () => {
+    const obsolete = deferred<{ data: WorkspaceDomainClaim[]; limits: { domains: number } }>();
+    const api = apiFixture([]);
+    api.workspaceDomains.mockReturnValueOnce(obsolete.promise)
+      .mockRejectedValueOnce(new ApiError(503, "temporarily_unavailable", "temporary failure"))
+      .mockResolvedValueOnce({ data: [], limits: { domains: 8 } });
+    render(<StrictMode><StepUpProvider><WorkspaceDomainsPanel api={api} /></StepUpProvider></StrictMode>);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Domain inventory could not be loaded.");
+    expect(screen.getByRole("button", { name: "Reload domain inventory" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Reload domain inventory" }));
+    expect(await screen.findByText("0 / 8 retained domain claims.")).toBeVisible();
+    expect(api.workspaceDomains).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Add domain claim" })).toBeEnabled();
+
+    await act(async () => { obsolete.resolve({ data: [claim], limits: { domains: 8 } }); });
+    expect(screen.queryByRole("heading", { name: claim.domain })).not.toBeInTheDocument();
+    expect(screen.queryByText(claim.challenge_value!)).not.toBeInTheDocument();
+    expect(screen.getByText("0 / 8 retained domain claims.")).toBeVisible();
+  });
+
   it("defaults creation to discovery off and consumes verified TXT without granting access", async () => {
     const { api } = renderPanel(apiFixture([]));
     await screen.findByText("0 / 8 retained domain claims.");

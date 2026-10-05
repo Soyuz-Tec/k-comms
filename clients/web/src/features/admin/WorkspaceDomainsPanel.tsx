@@ -78,7 +78,13 @@ function DomainsContent({ api }: { api: DomainsApi }) {
     } finally { if (request === generation.current) { setLoading(false); if (!duringMutation) busy.current = false; } }
   }, [api, guard, runWithStepUp]);
 
-  useEffect(() => { void load(); return () => { generation.current += 1; }; }, [load]);
+  useEffect(() => {
+    void load();
+    return () => {
+      generation.current += 1;
+      busy.current = false;
+    };
+  }, [load]);
   useEffect(() => {
     const interval = window.setInterval(() => setClock(Date.now()), 15000);
     const revalidate = () => { if (document.visibilityState !== "hidden" && !busy.current && !denied) void load(); };
