@@ -20,6 +20,7 @@ type PendingAction =
 
 export function ConversationDetails({
   api,
+  authorityGeneration,
   conversation,
   currentUserId,
   users,
@@ -28,6 +29,7 @@ export function ConversationDetails({
   onUpdated
 }: {
   api: ApiClient;
+  authorityGeneration?: string;
   conversation: Conversation;
   currentUserId: string;
   users: User[];
@@ -178,6 +180,7 @@ export function ConversationDetails({
 
   return <ConversationDetailsPanel
     api={api}
+    authorityGeneration={authorityGeneration}
     conversation={conversation}
     members={members}
     currentMembership={currentMembership}
@@ -201,6 +204,7 @@ export function ConversationDetails({
 
 function ConversationDetailsPanel({
   api,
+  authorityGeneration,
   conversation,
   members,
   currentMembership,
@@ -221,6 +225,7 @@ function ConversationDetailsPanel({
   onLeave
 }: {
   api: ApiClient;
+  authorityGeneration?: string;
   conversation: Conversation;
   members: ConversationMembership[];
   currentMembership?: ConversationMembership;
@@ -256,7 +261,7 @@ function ConversationDetailsPanel({
         {error && <div className="form-error" role="alert">{error}</div>}
         {conversation.kind === "channel" && conversation.visibility === "tenant" && currentMembership && <div className="channel-membership-actions"><button className="button danger compact" type="button" data-initial-focus={restoreActionKey === "leave" ? true : undefined} disabled={busyUserId === "self-leave"} onClick={onLeave}>{busyUserId === "self-leave" ? "Leaving…" : "Leave channel"}</button></div>}
         {canManage && conversation.kind !== "direct" && <form className="details-settings" onSubmit={onUpdateConversation}><label className="field">Title<input name="title" defaultValue={conversation.title || ""} maxLength={160} required /></label><label className="field">Visibility<select name="visibility" defaultValue={conversation.visibility}><option value="private">Private</option><option value="tenant">Workspace</option></select></label><div className="form-actions"><button className="button primary compact" type="submit">Save details</button><button className="button danger compact" type="button" data-initial-focus={restoreActionKey === "archive" ? true : undefined} onClick={onArchive}>Archive</button></div></form>}
-        {conversation.kind !== "direct" && <FederationPanel api={api} conversationId={conversation.id} canManage={canManage} />}
+        {conversation.kind !== "direct" && (conversation.content_mode === undefined || conversation.content_mode === "server_readable") && <FederationPanel api={api} authorityGeneration={authorityGeneration} conversationId={conversation.id} canManage={canManage} />}
         <section aria-labelledby="members-title">
           <div className="card-heading"><h3 id="members-title">Members</h3><span className="status-pill neutral">{members.length}</span></div>
           {loading ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading members…</div> : <ul className="member-list">{members.map((member) => {

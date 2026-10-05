@@ -1770,6 +1770,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(interfaces),
             {
+                "federation-matrix-provider",
                 "matrix-device-client-authentication",
                 "matrix-private-room-control",
                 "matrix-private-opaque-events",
@@ -1803,6 +1804,23 @@ class ValidateArchitectureTest(unittest.TestCase):
                 {"name": "record_attempt", "arity": 2},
             ],
         )
+        federation = interfaces["federation-matrix-provider"]
+        self.assertEqual(federation["behaviour"], "CommsCore.Conversations.Federation.ProviderPort")
+        self.assertEqual(federation["interface"], "CommsCore.Conversations.Federation.ProviderAdapter")
+        self.assertEqual(federation["contracts"], [
+            "CommsCore.Conversations.Federation.ProviderAdapter",
+            "CommsCore.Conversations.Federation.ProviderRequest",
+            "CommsCore.Conversations.Federation.ProviderReceipt",
+            "CommsCore.Conversations.Federation.ProviderPort",
+        ])
+        self.assertEqual(federation["callers"], ["CommsCore.Conversations.Federation.Commands"])
+        self.assertEqual(federation["operations"], [{"name": "perform", "arity": 1}])
+        self.assertEqual(federation["binding"], {
+            "application": "comms_core", "key": "federation_provider_adapter",
+            "module": "CommsIntegrations.Federation.Matrix",
+        })
+        self.assertEqual(federation["dispatch"], "configured")
+        self.assertEqual(federation["transaction"], "required")
         availability = interfaces["notification-availability-adapter"]
         self.assertEqual(
             availability["behaviour"],
@@ -1948,6 +1966,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "federation-governance-protection",
                 "matrix-identity-governance-fence",
                 "matrix-participant-eligibility-withdrawal",
                 "private-room-governance-fence",
@@ -1966,6 +1985,18 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-invitation-identity",
             },
         )
+        federation = collaborations["federation-governance-protection"]
+        self.assertEqual(federation["consumer"], "conversations")
+        self.assertEqual(federation["provider"], "trust_governance")
+        self.assertEqual(federation["port"], "CommsCore.Conversations.Federation.ProtectionPort")
+        self.assertEqual(federation["result_contract"], "CommsCore.Conversations.Federation.Protection")
+        self.assertEqual(federation["callers"], ["CommsCore.Conversations.Federation.Commands"])
+        self.assertEqual(federation["operations"], [{"name": "protection", "arity": 3}])
+        self.assertEqual(federation["binding"], {
+            "application": "comms_core", "key": "federation_protection_adapter",
+            "module": "CommsCore.Governance.FederationProtection",
+        })
+        self.assertEqual(federation["transaction"], "required")
         expected_call_collaborations = {
             "identity-call-lifecycle": {
                 "consumer": "identity_access",
@@ -2188,6 +2219,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "federation-governance-protection",
                 "matrix-identity-governance-fence",
                 "matrix-participant-eligibility-withdrawal",
                 "private-room-governance-fence",

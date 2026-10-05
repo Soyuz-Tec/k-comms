@@ -60,12 +60,6 @@ defmodule CommsCore.Accounts do
           {:ok, CommsCore.Accounts.AccessGrant.t()} | {:error, atom()}
   defdelegate lock_federation_actor(query), to: CommsCore.Accounts.FederationGrants, as: :lock
 
-  @spec matrix_identity_view(binary(), binary()) ::
-          {:ok, CommsCore.Accounts.MatrixIdentityView.t()} | {:error, :not_found}
-  defdelegate matrix_identity_view(tenant_id, user_id),
-    to: CommsCore.Accounts.MatrixSessions,
-    as: :identity_view
-
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
           atom()

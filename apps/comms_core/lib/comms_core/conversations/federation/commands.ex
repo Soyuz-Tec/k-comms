@@ -1080,8 +1080,8 @@ defmodule CommsCore.Conversations.Federation.Commands do
               user_id: user_id
             ).principal_hash
 
-      if (command and (is_nil(user_id) or command.user_id == user_id)) or
-           (principal_hash && e.sender_hash == principal_hash) do
+      if (not is_nil(command) and (is_nil(user_id) or command.user_id == user_id)) or
+           (not is_nil(principal_hash) and e.sender_hash == principal_hash) do
         {:ok, event} = open!(e, :provider_event_box, "event")
         enqueue!(room, nil, "redact", %{event_id: event, receipt_id: e.id}, false)
       end

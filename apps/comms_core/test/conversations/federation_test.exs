@@ -134,7 +134,7 @@ defmodule CommsCore.Conversations.FederationTest do
                subject
              )
 
-    assert {:ok, _} = Accounts.revoke_session(account.session.id, account.user.id)
+    assert :ok = Accounts.revoke_session(account.session.id, account.user.id)
     participant = Repo.get_by!(Participant, room_id: room.id, user_id: account.user.id)
     assert participant.consent_status == "accepted" and is_nil(participant.withdrawn_at)
 
