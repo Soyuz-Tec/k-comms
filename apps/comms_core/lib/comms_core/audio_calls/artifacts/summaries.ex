@@ -29,6 +29,7 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
   def request(conversation_id, call_id, attrs, subject) do
     transaction(fn ->
       transcript = snapshot!(value(attrs, :source_artifact_id), subject, conversation_id, call_id)
+      if transcript.kind != :transcript, do: Repo.rollback(:artifact_not_available)
       {root, transcript} = lineage!(transcript)
       {call, _consents, _subjects} = authority!(root, subject, false)
       root = lock!(root.id)
@@ -426,6 +427,14 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
 
   defp authority!(root, subject, withdrawal?) do
     deadline = System.monotonic_time(:millisecond) + 15_000
+
+    # Discover original consent provenance only after its Governance barrier;
+    # the second projection evaluates that fresh user set under the same lock.
+    case ArtifactProtectionPort.protection(root.tenant_id, root.conversation_id, []) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     cs = consents(root)
 
     protection =

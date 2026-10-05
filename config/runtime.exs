@@ -878,6 +878,7 @@ if config_env() == :prod do
         oidc_client_secret,
         telephony_pbx_password,
         telephony_pbx_webhook_secret,
+        artifact_transcription_token,
         livekit_api_secret,
         turn_static_auth_secret
       ],

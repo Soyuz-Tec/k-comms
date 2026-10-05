@@ -32,7 +32,7 @@ def main():
     formats = [lambda value: value, lambda value: value, encode,
                lambda value: "primary:" + encode(value),
                lambda value: json.dumps({"primary": encode(value)}, separators=(",", ":")),
-               lambda value: value]
+               lambda value: value, lambda value: value, encode]
     with tempfile.TemporaryDirectory(prefix="k-comms-history-private-files-") as directory:
         root = Path(directory)
         root.chmod(0o700)

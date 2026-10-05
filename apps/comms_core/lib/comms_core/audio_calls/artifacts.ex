@@ -30,6 +30,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
   }
 
   @capturing [:starting, :recording, :stopping]
+  @read_budget_ms 15_000
+  @search_scan_limit 1_000
 
   @doc false
   @spec rollback_hazard_count() :: non_neg_integer()
@@ -122,6 +124,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   defp search_member(subject, params) do
+    deadline = System.monotonic_time(:millisecond) + @read_budget_ms
+
     with {:ok, grant} <- Accounts.access_grant(subject),
          {:ok, conversation_id} <- optional_uuid(value(params, :conversation_id)) do
       authorization_query = Conversations.active_membership_authorization_query(grant)
@@ -136,7 +140,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
             a.tenant_id == ^grant.tenant_id and a.status == :available and a.expires_at > ^now() and
               is_nil(a.erasure_requested_at),
           order_by: [desc: a.inserted_at, desc: a.id],
-          limit: ^limit
+          limit: @search_scan_limit
         )
 
       query =
@@ -146,30 +150,72 @@ defmodule CommsCore.AudioCalls.Artifacts do
 
       q = value(params, :q)
 
-      query =
-        if is_binary(q) and String.trim(q) != "" do
-          pattern = "%" <> (q |> String.trim() |> String.slice(0, 500) |> escape_like()) <> "%"
+      pattern =
+        if is_binary(q) and String.trim(q) != "",
+          do: "%" <> (q |> String.trim() |> String.slice(0, 500) |> escape_like()) <> "%"
 
-          where(
-            query,
-            [a],
-            ilike(fragment("?::text", a.kind), ^pattern) or
-              exists(
-                from(s in Segment,
-                  where:
-                    s.tenant_id == ^grant.tenant_id and
-                      s.artifact_id == parent_as(:artifact).id and ilike(s.text, ^pattern),
-                  select: 1
-                )
-              )
-          )
-        else
-          query
-        end
+      # Discovery is metadata-only. Each candidate releases its owner locks
+      # before the next call's identities are retained; one absolute deadline
+      # and a 1,000-row scan cap bound the complete search.
+      with {:ok, candidates} <- read_transaction(deadline, fn -> Repo.all(query) end) do
+        {results, _count} =
+          Enum.reduce_while(candidates, {[], 0}, fn candidate, {results, count} ->
+            if count >= limit or System.monotonic_time(:millisecond) >= deadline do
+              {:halt, {results, count}}
+            else
+              result =
+                read_transaction(deadline, fn ->
+                  {call, artifact, root, subjects} =
+                    retained_read!(
+                      candidate.conversation_id,
+                      candidate.call_id,
+                      candidate.id,
+                      subject,
+                      deadline
+                    )
 
-      artifacts = Repo.all(query)
-      {:ok, Enum.map(artifacts, &view(&1, subject, nil))}
+                  # Never consult Restricted segment text before its original
+                  # admission, source and Governance fences are held.
+                  if search_match?(artifact, pattern) do
+                    result = view(artifact, subject, call)
+                    validate_read!(root, artifact, subjects, deadline)
+                    result
+                  end
+                end)
+
+              case result do
+                {:ok, result} when not is_nil(result) ->
+                  {:cont, {[result | results], count + 1}}
+
+                _ ->
+                  {:cont, {results, count}}
+              end
+            end
+          end)
+
+        {:ok, Enum.reverse(results)}
+      end
     end
+  end
+
+  defp search_match?(_artifact, nil), do: true
+
+  defp search_match?(artifact, pattern) do
+    Repo.exists?(
+      from(a in Artifact,
+        where: a.tenant_id == ^artifact.tenant_id and a.id == ^artifact.id,
+        where:
+          ilike(fragment("?::text", a.kind), ^pattern) or
+            exists(
+              from(s in Segment,
+                where:
+                  s.tenant_id == ^artifact.tenant_id and s.artifact_id == ^artifact.id and
+                    ilike(s.text, ^pattern),
+                select: 1
+              )
+            )
+      )
+    )
   end
 
   def request(conversation_id, call_id, attrs, subject) when is_map(attrs) do
@@ -513,18 +559,15 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   def playback(conversation_id, call_id, artifact_id, subject) do
-    transaction(fn ->
-      if guest?(subject), do: Repo.rollback(:forbidden)
-      call = locked_call!(conversation_id, call_id, subject)
-      artifact = locked_artifact!(call, artifact_id)
+    deadline = System.monotonic_time(:millisecond) + @read_budget_ms
 
-      if artifact.kind != :recording or artifact.status != :available or
-           not is_nil(artifact.erasure_requested_at) or
-           DateTime.compare(artifact.expires_at, now()) != :gt,
-         do: Repo.rollback(:artifact_not_available)
+    read_transaction(deadline, fn ->
+      {call, artifact, root, subjects} =
+        retained_read!(conversation_id, call_id, artifact_id, subject, deadline, :recording)
 
       case ArtifactStoragePort.download(storage_object(artifact)) do
         {:ok, download} ->
+          validate_read!(root, artifact, subjects, deadline)
           audit!(artifact, subject, "call.artifact_playback_authorized")
           %{artifact: view(artifact, subject, call), download: download}
 
@@ -535,15 +578,11 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   def transcript(conversation_id, call_id, artifact_id, subject) do
-    transaction(fn ->
-      if guest?(subject), do: Repo.rollback(:forbidden)
-      call = locked_call!(conversation_id, call_id, subject)
-      artifact = locked_artifact!(call, artifact_id)
+    deadline = System.monotonic_time(:millisecond) + @read_budget_ms
 
-      if artifact.kind != :transcript or artifact.status != :available or
-           not is_nil(artifact.erasure_requested_at) or
-           DateTime.compare(artifact.expires_at, now()) != :gt,
-         do: Repo.rollback(:artifact_not_available)
+    read_transaction(deadline, fn ->
+      {call, artifact, root, subjects} =
+        retained_read!(conversation_id, call_id, artifact_id, subject, deadline, :transcript)
 
       segments =
         Repo.all(
@@ -562,6 +601,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
           }
         )
 
+      validate_read!(root, artifact, subjects, deadline)
       audit!(artifact, subject, "call.transcript_read")
       %{artifact: view(artifact, subject, call), segments: segments}
     end)
@@ -1424,6 +1464,162 @@ defmodule CommsCore.AudioCalls.Artifacts do
           {:error, :not_found}
       end
     end
+  end
+
+  defp retained_read!(conversation_id, call_id, id, subject, deadline, kind \\ nil) do
+    if guest?(subject), do: Repo.rollback(:forbidden)
+
+    if not Enum.all?([conversation_id, call_id, id, value(subject, :tenant_id)], &valid_uuid?/1),
+      do: Repo.rollback(:not_found)
+
+    # Preserve the current reader's existing forbidden response before scoped
+    # metadata discovery. This check retains no locks; the complete authority
+    # is retained again below, after the Governance barrier.
+    case AuthorizationPolicy.authorize(:read_call, subject, %{conversation_id: conversation_id}) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
+    snapshot =
+      Repo.get_by(Artifact,
+        tenant_id: value(subject, :tenant_id),
+        conversation_id: conversation_id,
+        call_id: call_id,
+        id: id
+      ) || Repo.rollback(:not_found)
+
+    if kind && snapshot.kind != kind, do: Repo.rollback(:artifact_not_available)
+    lineage = read_lineage!(snapshot)
+    root = hd(lineage)
+
+    requester =
+      Map.new([:tenant_id, :user_id, :device_id, :session_id], &{&1, value(subject, &1)})
+
+    # Acquire the barrier before discovering the original consent users, so a
+    # participant added while waiting cannot be omitted from erasure protection.
+    read_budget!(deadline)
+    protection!(root.tenant_id, root.conversation_id, [])
+
+    consent_users =
+      Repo.all(
+        from(c in Consent,
+          where: c.tenant_id == ^root.tenant_id and c.artifact_id == ^root.id,
+          select: c.user_id
+        )
+      )
+
+    # Governance precedes every retained identity parent. Consent participants
+    # always refer to the original admissions, never a reader's fresh session.
+    read_budget!(deadline)
+
+    protection =
+      protection!(
+        root.tenant_id,
+        root.conversation_id,
+        Enum.uniq([requester.user_id | consent_users])
+      )
+
+    if protection.capture_blocked, do: Repo.rollback(:artifact_erasure_pending)
+    {_consents, original_subjects} = DerivedAuthority.lock!(root, requester, deadline)
+    read_budget!(deadline)
+    call = locked_call!(conversation_id, call_id, subject)
+
+    locked =
+      Enum.map(lineage, fn candidate ->
+        read_budget!(deadline)
+        locked_artifact!(call, candidate.id)
+      end)
+
+    root = hd(locked)
+    artifact = List.last(locked)
+    subjects = [requester | original_subjects]
+    Enum.each(locked, &read_available!/1)
+    validate_read!(root, artifact, subjects, deadline)
+    {call, artifact, root, subjects}
+  end
+
+  defp read_lineage!(%Artifact{kind: :recording} = recording), do: [recording]
+
+  defp read_lineage!(%Artifact{kind: kind} = artifact) when kind in [:transcript, :summary] do
+    expected = if kind == :transcript, do: :recording, else: :transcript
+
+    source =
+      Repo.get_by(Artifact,
+        id: artifact.source_artifact_id,
+        tenant_id: artifact.tenant_id,
+        conversation_id: artifact.conversation_id,
+        call_id: artifact.call_id,
+        kind: expected
+      ) || Repo.rollback(:artifact_not_available)
+
+    read_lineage!(source) ++ [artifact]
+  end
+
+  defp read_lineage!(_), do: Repo.rollback(:artifact_not_available)
+
+  defp validate_read!(root, artifact, subjects, deadline) do
+    read_budget!(deadline)
+    read_available!(root)
+    read_available!(artifact)
+
+    consents =
+      Repo.all(
+        from(c in Consent, where: c.tenant_id == ^root.tenant_id and c.artifact_id == ^root.id)
+      )
+
+    if consents == [] or Enum.any?(consents, &(!&1.accepted)),
+      do: Repo.rollback(:recording_consent_required)
+
+    if artifact.kind == :summary and
+         (not root.summary_requested or
+            Enum.any?(
+              consents,
+              &(!&1.summary_accepted or &1.summary_policy_version != Summaries.policy_version())
+            )),
+       do: Repo.rollback(:summary_consent_required)
+
+    if not DerivedAuthority.current?(subjects, root.conversation_id),
+      do: Repo.rollback(:forbidden)
+  end
+
+  defp read_available!(artifact) do
+    if artifact.status != :available or not is_nil(artifact.erasure_requested_at) or
+         DateTime.compare(artifact.expires_at, now()) != :gt,
+       do: Repo.rollback(:artifact_not_available)
+  end
+
+  defp read_budget!(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    if remaining <= 0, do: Repo.rollback(:forbidden)
+    timeout = Integer.to_string(remaining) <> "ms"
+
+    Repo.query!(
+      "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $1, true)",
+      [timeout]
+    )
+  end
+
+  defp read_transaction(deadline, fun) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      {:error, :forbidden}
+    else
+      transaction(
+        fn ->
+          read_budget!(deadline)
+          result = fun.()
+          read_budget!(deadline)
+          result
+        end,
+        timeout: remaining
+      )
+    end
+  rescue
+    error in Postgrex.Error ->
+      if error.postgres[:code] in [:lock_not_available, :query_canceled],
+        do: {:error, :forbidden},
+        else: reraise(error, __STACKTRACE__)
   end
 
   defp locked_call!(conversation_id, call_id, subject) do
