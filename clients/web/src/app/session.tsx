@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { ApiClient, loadStoredSession, storeSession } from "../api";
+import { subscribeDesktopIdentityChange } from "../desktop/session";
 import { clearDrafts } from "../lib/drafts";
 import { isInsecureNonLoopbackOrigin } from "../lib/transportSecurity";
 import { rememberWorkspaceSlug } from "../lib/workspacePreference";
@@ -84,6 +85,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   if (!apiRef.current) apiRef.current = new ApiClient(apiBase, session, setSession);
   const api = apiRef.current;
   api.setSession(session);
+
+  useEffect(() => subscribeDesktopIdentityChange(() => {
+    const next = loadStoredSession();
+    const previous = retainedSessionRef.current;
+    if (previous && (previous.user.id !== next?.user.id || previous.tenant.id !== next?.tenant.id)) clearDrafts(previous.tenant.id, previous.user.id);
+    retainedSessionRef.current = next;
+    // Cancel the old transport generation before React/socket effects run.
+    api.setSession(transportPolicyRef.current.accountActionsAllowed ? next : null);
+    updateRetainedSession(next);
+  }), [api]);
 
   useEffect(() => {
     if (insecureNetworkOrigin) return;

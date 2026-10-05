@@ -96,5 +96,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0090 | Enterprise authentication, provisioning and persistent availability | Accepted |
 | 0091 | Durable rich content and authorized unified retrieval | Accepted |
 | 0092 | Compose full UC through exact owner contracts | Accepted |
+| 0105 | Package the existing UC interface in a constrained Electron client | Accepted for implementation; unsigned evaluation and native qualification pending |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

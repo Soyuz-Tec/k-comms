@@ -10,9 +10,16 @@ afterEach(() => {
   resetPwaRegistrationForTests();
   vi.unstubAllEnvs();
   Reflect.deleteProperty(navigator, "serviceWorker");
+  Reflect.deleteProperty(window, "kCommsDesktop");
 });
 
 describe("PWA service-worker registration", () => {
+  it("does not register a worker or make a mutable web update path in the packaged desktop", async () => {
+    const register = vi.fn();
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register } });
+    Object.defineProperty(window, "kCommsDesktop", { configurable: true, value: { version: 1 } });
+    await expect(ensurePwaRegistration()).resolves.toBeNull(); expect(register).not.toHaveBeenCalled();
+  });
   it("registers eagerly with a revisioned URL without requesting notification permission", async () => {
     vi.stubEnv("VITE_K_COMMS_RELEASE_REVISION", "release/a b");
     const registration = {} as ServiceWorkerRegistration;
