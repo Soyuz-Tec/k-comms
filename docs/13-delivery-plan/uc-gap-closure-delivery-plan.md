@@ -8,8 +8,17 @@ The first delivery increment implements scheduled meetings, advanced phone contr
 voicemail, consented meeting artifacts, enterprise identity and availability, and
 rich content. Local backend qualification passed all 1,273 tests with 80.35%
 coverage. Final native runtime qualification passed on an unchanged source and helper
-snapshot. Protected
-review/CI, artifact publication, staging and production acceptance remain pending.
+snapshot. [PR #236](https://github.com/Soyuz-Tec/k-comms/pull/236) merged normally
+at main `4dd01c79f3fe53a71bcb7219ef4bd3644a2fe82e`; exact-main CI passed on its
+second attempt. The minimal future-authentication fixture correction and retirement
+of the fulfilled architecture transition merged in
+[PR #237](https://github.com/Soyuz-Tec/k-comms/pull/237), at
+`734c9e1daf48f2280789a13f977d220f250b9890`.
+The attested first-increment image is
+`ghcr.io/soyuz-tec/k-comms@sha256:6f40740d2bdbcab0e64c610bc24b182dc574a5b60533092e97bd9e01647f910e`.
+Staging upload stopped before remote deployment. The user confirmed staging VM
+101 is intentionally offline, so manual retries are paused. Staging and production
+acceptance remain pending.
 Real carrier, IdP, PBX, capture and storage qualification are separate from local
 synthetic fixtures and are not claimed complete.
 
@@ -111,6 +120,11 @@ role-policy repair is already included.
 
 ## Remaining source increments
 
+The current implementation and executed-test status is recorded in the
+[remaining full-UC roadmap](full-uc-remaining-roadmap.md). The table below preserves
+the original increment scope; its early source statuses are superseded by that
+dated evidence snapshot.
+
 | Increment | Current state | Required completion |
 |---|---|---|
 | Synchronized setup and contacts/groups | Isolated owner-backed source and interface implemented | Rebase onto this candidate, integrate private member erasure and rollback hazards, qualify current-identity/CAS/privacy flows |
@@ -144,7 +158,9 @@ Optional drive and an application catalog remain product decisions.
 - [ADR-0091](../02-architecture/adr/0091-durable-rich-content-and-authorized-unified-retrieval.md)
   and [rich content](../14-operations/rich-content-runbook.md).
 - [ADR-0092](../02-architecture/adr/0092-compose-full-uc-owner-contracts.md)
-  binds 93 exact semantic additions to the original protected main manifest.
+  records 93 exact semantic additions to the original protected main manifest.
+  Its review transition was retired after PR #236 landed normally; the original
+  decision and exact owner contracts remain retained.
   Public facade SHA256:
   `e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e`.
 
