@@ -7,6 +7,14 @@
 .member-setup-guide li span { color: var(--text-muted); font-size: .85rem; }
 .member-workspace-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .member-workspace-actions button, .private-contacts button, .private-contacts input, .private-contacts select { min-height: 44px; }
+.private-contacts button:not(.button) {
+  appearance: none;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 8px);
+  padding: var(--space-2) var(--space-3);
+}
 .private-contacts { min-width: 0; display: grid; gap: 16px; }
 .private-contact-group-list { display: grid; gap: 12px; padding: 0; list-style: none; }
 .private-contact-group { border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; display: grid; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
