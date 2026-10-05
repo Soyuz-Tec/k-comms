@@ -22,6 +22,12 @@ defmodule CommsCore.Telephony do
   @spec rollback_control_hazard_count() :: non_neg_integer()
   defdelegate rollback_control_hazard_count(), to: CommsCore.Telephony.Controls
 
+  @doc false
+  @spec release_tenant_fingerprint_fragment(module(), String.t()) :: %{atom() => [String.t()]}
+  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id),
+    to: CommsCore.Telephony.ReleaseInventory,
+    as: :tenant_fingerprint_fragment
+
   @spec config(map()) :: response()
   defdelegate config(subject), to: Lifecycle
   @spec admin_config(map()) :: response()
@@ -221,9 +227,14 @@ defmodule CommsCore.Telephony do
           {:ok, CommsCore.Telephony.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
   defdelegate usage_projection(query, subject), to: CommsCore.Telephony.UsageReports, as: :project
-  @spec ivr_config(map()) :: response()
+
+  @spec ivr_config(map()) ::
+          {:ok, CommsCore.Telephony.IvrConfigView.t()} | {:error, atom()}
   defdelegate ivr_config(subject), to: CommsCore.Telephony.Ivr, as: :config
-  @spec save_ivr(map(), map()) :: response()
+
+  @spec save_ivr(map(), map()) ::
+          {:ok, CommsCore.Telephony.IvrMenuView.t()}
+          | {:error, atom() | CommsCore.ValidationError.t()}
   defdelegate save_ivr(attrs, subject), to: CommsCore.Telephony.Ivr, as: :save
   @spec handle_ivr_webhook(binary(), binary()) :: {:ok, atom()} | {:error, atom()}
   defdelegate handle_ivr_webhook(body, authorization),
@@ -243,14 +254,19 @@ defmodule CommsCore.Telephony do
   defdelegate execute_ivr_claim(claim, caller), to: CommsCore.Telephony.Ivr, as: :execute_claim
   @spec rollback_ivr_hazard_count() :: non_neg_integer()
   defdelegate rollback_ivr_hazard_count(), to: CommsCore.Telephony.Ivr, as: :rollback_hazard_count
-  @spec agent_queue_state(map()) :: response()
+
+  @spec agent_queue_state(map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
   defdelegate agent_queue_state(subject), to: CommsCore.Telephony.ContactCenter, as: :agent_state
-  @spec set_agent_queue_state(map(), map()) :: response()
+
+  @spec set_agent_queue_state(map(), map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
   defdelegate set_agent_queue_state(attrs, subject),
     to: CommsCore.Telephony.ContactCenter,
     as: :set_agent_state
 
-  @spec queue_supervisor_snapshot(map()) :: response()
+  @spec queue_supervisor_snapshot(map()) ::
+          {:ok, CommsCore.Telephony.QueueSupervisorSnapshot.t()} | {:error, atom()}
   defdelegate queue_supervisor_snapshot(subject),
     to: CommsCore.Telephony.ContactCenter,
     as: :queue_snapshot

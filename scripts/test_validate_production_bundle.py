@@ -321,6 +321,22 @@ class ValidateProductionBundleTest(unittest.TestCase):
         environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] += ",invented_capability_v1"
         self.assertTrue(any("target capabilities" in error for error in validate_documents(documents)))
 
+    def test_known_member_history_target_requires_current_image_preflight(self) -> None:
+        documents = valid_documents()
+        operation = guest_rollback_operation()
+        environment = {
+            item["name"]: item
+            for item in operation["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        capabilities = COMMUNICATION_ROLLBACK_CAPABILITIES.removesuffix(",ivr_routing_v1")
+        self.assertEqual(len(capabilities.split(",")), 14)
+        environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = capabilities
+        documents.append(operation)
+        self.assertEqual(validate_documents(documents), [])
+        environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "false"
+        self.assertTrue(any("WRITES_QUIESCED must be true" in error
+                            for error in validate_documents(documents)))
+
     def test_rollback_preflight_cannot_inherit_activated_media_admission(self) -> None:
         documents = valid_documents()
         operation = guest_rollback_operation()

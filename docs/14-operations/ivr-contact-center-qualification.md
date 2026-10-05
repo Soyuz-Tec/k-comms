@@ -1,7 +1,8 @@
 # IVR and current queue qualification
 
-Status: parent-integrated source; full source qualification and real provider
-qualification are pending. Do not enable admission from this document.
+Status: source candidate against Member/History parent `610b6a`; backend,
+browser, runtime and real provider qualification are pending. Do not enable
+admission from this document.
 
 This increment uses one existing tenant Number, one existing Route and one
 optional mailbox. It adds one bounded menu and current aggregate queue totals.
@@ -83,4 +84,16 @@ Rollback preserves state and protected cleanup credentials. Disable new
 admission, drain the exact frozen resources, keep history and immutable
 capability receipts, and use the protected same-digest deployment chain. An older
 image cannot run against retained IVR/agent state without the exact capability.
-The destructive migration down is a disposable empty-database drill only.
+The current candidate declares exactly fifteen immutable capabilities: the
+existing fourteen plus `ivr_routing_v1`. The known M1 twelve- and Member/History
+fourteen-capability targets retain their original declarations. Current-image
+preflight refuses both when any IVR menu, Run, receipt, agent disposition or
+IVR-marked Call remains, or when an exact IVR job is available, scheduled,
+executing or retryable. Completed Runs and expired dispositions still count.
+An orphan active job also blocks rollback. Shared parsers reject malformed,
+duplicate or unknown names; selected-image provenance remains mandatory.
+
+The tenant fingerprint composes Telephony-owned Calls and all four IVR table
+identities without exposing them in operator output. The destructive migration
+down is a disposable empty-database drill only; retained state or an active IVR
+job refuses it before any table/index mutation.

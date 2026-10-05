@@ -22,6 +22,7 @@ from validate_contracts import (
     validate_telephony_contract,
     validate_enterprise_identity_contract,
     validate_member_workflow_contract,
+    validate_ivr_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -1196,6 +1197,26 @@ class InstantRoomRealtimeContractValidationTests(unittest.TestCase):
             ValueError, "durable instant-room lifecycle evidence"
         ):
             validate_instant_room_realtime_contract(asyncapi)
+
+
+class BoundedIvrContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        self.schemas = {
+            "telephony-ivr.v1.json": json.loads(
+                (CONTRACTS / "json-schema/telephony-ivr.v1.json").read_text()
+            )
+        }
+
+    def test_digit_name_must_constrain_object_keys_and_match_both_contracts(self) -> None:
+        self.openapi["components"]["schemas"]["IvrMenu"]["properties"]["choices"]["propertyNames"] = None
+        with self.assertRaisesRegex(ValueError, "IVR OpenAPI and JSON Schema differ"):
+            validate_ivr_contract(self.openapi, self.schemas)
+
+    def test_provider_event_cannot_be_advertised_as_human_bearer_authority(self) -> None:
+        self.openapi["paths"]["/api/v1/telephony/ivr/webhook"]["post"]["security"] = [{"bearerAuth": []}]
+        with self.assertRaisesRegex(ValueError, "IVR caller/human authority differs"):
+            validate_ivr_contract(self.openapi, self.schemas)
 
 
 if __name__ == "__main__":

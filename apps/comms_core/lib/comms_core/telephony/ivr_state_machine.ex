@@ -49,7 +49,7 @@ defmodule CommsCore.Telephony.IvrStateMachine do
     do: playback(run, %{playback_id: playback_id, media_uri: media_uri}, now)
 
   @doc "Returns persistence attributes; the owner applies them under exact call/run locks."
-  def apply(run, event, now) do
+  def transition(run, event, now) do
     cond do
       terminal?(run.phase) -> {:ignored, %{}}
       DateTime.compare(run.expires_at, now) != :gt -> deadline_failure()

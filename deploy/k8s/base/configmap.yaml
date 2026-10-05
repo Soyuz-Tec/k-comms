@@ -31,6 +31,8 @@ data:
   CSP_CONNECT_SOURCES: "'self' wss://k-comms.example.invalid https://k-comms.example.invalid https://objects.example.invalid"
   # Compatibility-named provider settings govern both audio and video calls.
   # The portable base deliberately carries no SFU or TURN workload.
+  TELEPHONY_IVR_QUALIFIED: "false"
+  TELEPHONY_IVR_PROMPT_ALLOWLIST: ""
   AUDIO_PROVIDER_MODE: disabled
   LIVEKIT_SERVER_URL: ""
   LIVEKIT_API_URL: ""

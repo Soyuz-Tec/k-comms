@@ -1,6 +1,7 @@
 # ADR-0099: Add bounded caller IVR and current queue supervision
 
-- **Status:** Proposed; parent-integrated source, qualification pending
+- **Status:** Accepted
+- **Qualification:** Source candidate against Member/History parent `610b6acd6bd2cd20a8607481cedc1e35fc1cd956`; backend, browser, runtime and provider qualification pending
 - **Date:** 2026-10-05
 - **Owners:** Telephony, Identity, Security, Operations
 - **Related decisions:** ADR-0085, ADR-0088, ADR-0089, ADR-0092
@@ -99,9 +100,15 @@ whisper, barge, call quality, historical SLA, billable seconds or invoice.
 ## Migration, rollback and qualification
 
 The additive migration retains menus, Runs, receipts and agent dispositions.
-Its down operation refuses any retained state or IVR Call. Register the exact
-new immutable `ivr_routing_v1` release capability and owner hazard counts
-before rollout. Older images must not ignore retained enabled menus or agent
+Its down operation refuses any retained state, IVR Call or active exact IVR job before table/index mutation. The current source candidate declares exactly fifteen immutable release
+capabilities: the Member/History fourteen plus `ivr_routing_v1`. Docker image
+labels, Kubernetes edge/worker annotations, Proxmox candidate checks and shared
+strict parsers agree. Current-image rollback preflight retains the exact known
+M1 twelve- and Member/History fourteen-capability operator targets, but blocks
+them for any retained IVR menu, Run, receipt, agent-state or IVR-marked Call,
+or any available, scheduled, executing or retryable IVR job. Completed Runs and
+expired agent dispositions remain hazards. Tenant fingerprints compose the
+Telephony owner fragment for telephone Calls and all four retained IVR tables. Older images must not ignore retained enabled menus or agent
 dispositions. Application rollback disables new admission, drains and reconciles
 the exact paid resources, and preserves history and protected cleanup credentials.
 Do not weaken a capability, backup, erasure, hold or cleanup gate.
