@@ -180,5 +180,4 @@ defmodule CommsCore.Messaging do
           {:ok, CommsCore.Messaging.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
   defdelegate usage_projection(query, subject), to: CommsCore.Messaging.UsageReports, as: :project
-
 end

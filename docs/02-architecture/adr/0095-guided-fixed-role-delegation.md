@@ -1,6 +1,7 @@
 # ADR-0095: Guided fixed-role delegation
 
-Status: Proposed implementation, qualification pending  
+Status: Accepted
+Qualification: source boundary decision accepted; execution and protected delivery pending.
 Date: 2026-10-05  
 Owners: IdentityAccess; Governance; TenantAdministration; Web
 
@@ -73,6 +74,21 @@ budget and 20-second repository transaction cap bound all waits. Current actor
 authority and proof are rechecked before disclosure. A pending preview whose
 actor is revoked before admission returns no role facts. No preview state is
 stored, so this feature adds no retained erasure state or binary capability.
+
+## Accepted boundary registry
+
+The exact ADR-0093 composition transition publishes only IdentityAccess's
+`RoleCapabilityView`, `FixedRolePermissionView`, and
+`UserRoleChangePreviewView`, with public operations
+`Accounts.list_fixed_role_permissions/1` and `preview_user_role_change/3`.
+`CommsWeb.RolePermissionController` is their direct delivery consumer.
+`RolePermissions`, `RolePreviews`, the shared lifecycle policy, and their
+persistence remain owner-internal. This contract introduces no custom grants,
+new table, repository exception, foreign schema access, or additional runtime
+collaboration. SCIM and governed erasure use the same active human workspace
+owner eligibility for target protection and remaining-owner counts; unusable
+legacy limited owners cannot justify removal of the last eligible owner and
+cannot block safe cleanup of their own identity.
 
 ## Qualification
 

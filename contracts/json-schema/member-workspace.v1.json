@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/member-workspace.v1.json",
+  "title": "member-workspace.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MemberWorkspaceResponse"
+    },
+    {
+      "$ref": "#/$defs/ReplaceMemberWorkspaceRequest"
+    },
+    {
+      "$ref": "#/$defs/UpdateMemberOnboardingRequest"
+    }
+  ],
+  "$defs": {
+    "PrivateContact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "PrivateContactGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "member_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Normalized trimmed group name; groups grant no workspace or conversation access."
+        },
+        "member_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 50,
+          "uniqueItems": true
+        }
+      }
+    },
+    "MemberWorkspaceOnboarding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dismissed_at",
+        "profile_reviewed_at",
+        "active_devices",
+        "has_teammates"
+      ],
+      "properties": {
+        "dismissed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "profile_reviewed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "active_devices": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "has_teammates": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MemberWorkspaceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contacts",
+        "groups",
+        "members_per_group"
+      ],
+      "properties": {
+        "contacts": {
+          "const": 500
+        },
+        "groups": {
+          "const": 20
+        },
+        "members_per_group": {
+          "const": 50
+        }
+      }
+    },
+    "MemberWorkspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "contacts",
+        "groups",
+        "onboarding",
+        "limits",
+        "observed_at"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PrivateContact"
+          },
+          "minItems": 0,
+          "maxItems": 500
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PrivateContactGroup"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        },
+        "onboarding": {
+          "$ref": "#/$defs/MemberWorkspaceOnboarding"
+        },
+        "limits": {
+          "$ref": "#/$defs/MemberWorkspaceLimits"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Current actor private organization. Version zero means no persisted record. Contacts are current eligible workspace humans; unavailable IDs are omitted and private groups grant no authority."
+    },
+    "ReplaceMemberWorkspaceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "contact_ids",
+        "groups"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 500,
+          "uniqueItems": true
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PrivateContactGroup"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "description": "Complete replacement with the observed version, including zero for initial creation. Group IDs must be unique and every group member must occur in contact_ids. Unavailable or foreign people cause contact_unavailable; stale versions conflict."
+    },
+    "UpdateMemberOnboardingRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "action"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "dismiss",
+            "resume",
+            "reset"
+          ]
+        }
+      },
+      "description": "Dismiss or resume the guide, or reset both dismissed_at and profile_reviewed_at. Profile review is marked only by a successful profile update, not by this action."
+    },
+    "MemberWorkspaceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MemberWorkspace"
+        }
+      }
+    }
+  }
+}

@@ -16,8 +16,10 @@ defmodule CommsWeb.UsageReports do
   @spec range(map()) :: {:ok, date_range()} | {:error, :invalid_usage_query}
   def range(params) when is_map(params) do
     with true <- Enum.all?(Map.keys(params), &(&1 in ["from", "through"])),
-         {:ok, through} <- parse_date(Map.get(params, "through", Date.to_iso8601(Date.utc_today()))),
-         {:ok, from} <- parse_date(Map.get(params, "from", Date.to_iso8601(Date.add(through, -29)))),
+         {:ok, through} <-
+           parse_date(Map.get(params, "through", Date.to_iso8601(Date.utc_today()))),
+         {:ok, from} <-
+           parse_date(Map.get(params, "from", Date.to_iso8601(Date.add(through, -29)))),
          true <- Date.diff(through, from) in 0..30,
          true <- Date.compare(through, Date.utc_today()) != :gt do
       {:ok, %{from: from, through: through}}
@@ -50,7 +52,8 @@ defmodule CommsWeb.UsageReports do
       disclose(subject, fn -> {:ok, Jason.encode!(%{data: report})} end)
     end
   rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :usage_report_unavailable}
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :usage_report_unavailable}
   end
 
   @spec export(map(), map()) :: {:ok, binary(), map()} | {:error, atom()}
@@ -67,7 +70,8 @@ defmodule CommsWeb.UsageReports do
        }}
     end
   rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :usage_report_unavailable}
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :usage_report_unavailable}
   end
 
   @spec csv(map()) :: {:ok, binary()} | {:error, :usage_report_too_large}
@@ -163,7 +167,8 @@ defmodule CommsWeb.UsageReports do
 
   defp authorize(subject) do
     case Accounts.access_grant(subject) do
-      {:ok, %{account_type: :human, access_scope: :workspace, role: role, step_up_recent?: recent}}
+      {:ok,
+       %{account_type: :human, access_scope: :workspace, role: role, step_up_recent?: recent}}
       when role in [:owner, :admin] ->
         if recent, do: :ok, else: {:error, :step_up_required}
 
@@ -225,7 +230,8 @@ defmodule CommsWeb.UsageReports do
   defp disclose(subject, encoder) do
     Accounts.with_usage_report_disclosure(subject, encoder)
   rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :usage_report_unavailable}
+    _error in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :usage_report_unavailable}
   end
 
   defp parse_date(value) when is_binary(value) do

@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/role-permissions.v1.json",
+  "title": "role-permissions.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/FixedRolePermissionResponse"
+    },
+    {
+      "$ref": "#/$defs/PreviewUserRoleRequest"
+    },
+    {
+      "$ref": "#/$defs/UserRoleChangePreviewResponse"
+    }
+  ],
+  "$defs": {
+    "FixedTenantRole": {
+      "type": "string",
+      "enum": [
+        "member",
+        "moderator",
+        "admin",
+        "compliance_admin",
+        "security_admin",
+        "owner"
+      ]
+    },
+    "RoleCapabilityFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "scope",
+        "conditions"
+      ],
+      "properties": {
+        "capability": {
+          "type": "string",
+          "enum": [
+            "administer_users",
+            "manage_user_lifecycle",
+            "manage_sessions",
+            "manage_tenant_settings",
+            "manage_invitations",
+            "audit_tenant",
+            "govern_tenant"
+          ]
+        },
+        "scope": {
+          "const": "tenant"
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "active_tenant",
+              "active_identity",
+              "current_session",
+              "recent_step_up",
+              "workspace_access"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "allOf": [
+            {
+              "contains": {
+                "const": "active_tenant"
+              }
+            },
+            {
+              "contains": {
+                "const": "active_identity"
+              }
+            },
+            {
+              "contains": {
+                "const": "current_session"
+              }
+            },
+            {
+              "contains": {
+                "const": "workspace_access"
+              }
+            }
+          ]
+        }
+      },
+      "description": "Fixed-role eligibility, not a resource grant. Actual owner operations still require each listed current condition; no platform role is included."
+    },
+    "FixedRolePermission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "capabilities"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FixedTenantRole"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoleCapabilityFact"
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        }
+      }
+    },
+    "FixedRolePermissionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FixedRolePermission"
+          },
+          "minItems": 6,
+          "maxItems": 6,
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "member"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "moderator"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "admin"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "compliance_admin"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "security_admin"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "const": "owner"
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
+        }
+      }
+    },
+    "PreviewUserRoleRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "version"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FixedTenantRole"
+        },
+        "version": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^\\+?0*[1-9][0-9]*$"
+            }
+          ],
+          "description": "Current positive target version. The owner also accepts a complete positive decimal string."
+        }
+      }
+    },
+    "UserRoleChangePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_id",
+        "current_role",
+        "requested_role",
+        "current_version",
+        "target_status",
+        "target_access_scope",
+        "role_policy_allows",
+        "blockers",
+        "added",
+        "removed",
+        "advisory",
+        "scope",
+        "governance_review_required"
+      ],
+      "properties": {
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "current_role": {
+          "$ref": "#/$defs/FixedTenantRole"
+        },
+        "requested_role": {
+          "$ref": "#/$defs/FixedTenantRole"
+        },
+        "current_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "suspended"
+          ]
+        },
+        "target_access_scope": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "conversation_only"
+          ]
+        },
+        "role_policy_allows": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "forbidden",
+              "last_owner_required"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoleCapabilityFact"
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RoleCapabilityFact"
+          },
+          "minItems": 0,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "advisory": {
+          "const": true
+        },
+        "scope": {
+          "const": "tenant"
+        },
+        "governance_review_required": {
+          "const": true
+        }
+      },
+      "description": "Read-only advisory snapshot. A successful preview neither changes a role nor reserves permission; the governed user mutation must independently revalidate the current version, actor policy, eligible last owner, access scope and recent proof."
+    },
+    "UserRoleChangePreviewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/UserRoleChangePreview"
+        }
+      }
+    }
+  }
+}

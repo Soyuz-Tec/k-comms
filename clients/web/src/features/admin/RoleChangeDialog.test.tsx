@@ -197,7 +197,7 @@ describe("role change review", () => {
     await userEvent.type(within(verification).getByLabelText("Current password"), "current-password");
     await userEvent.click(within(verification).getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Manage people's sign-in sessions")).toBeVisible();
-    expect(sessionApi.stepUp).toHaveBeenCalledWith("current-password");
+    expect(sessionApi.stepUp).toHaveBeenCalledWith("current-password", undefined);
     expect(api).toHaveBeenCalledTimes(2);
     expect(onConfirm).not.toHaveBeenCalled();
   });

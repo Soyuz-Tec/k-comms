@@ -137,6 +137,7 @@ defmodule CommsCore.Attachments do
   @spec usage_projection(CommsCore.Attachments.UsageQuery.t(), map()) ::
           {:ok, CommsCore.Attachments.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
-  defdelegate usage_projection(query, subject), to: CommsCore.Attachments.UsageReports, as: :project
-
+  defdelegate usage_projection(query, subject),
+    to: CommsCore.Attachments.UsageReports,
+    as: :project
 end

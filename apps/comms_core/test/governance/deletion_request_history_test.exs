@@ -385,7 +385,7 @@ defmodule CommsCore.Governance.DeletionRequestHistoryTest do
 
   test "fresh role and step-up remain required for every snapshot page and export", ctx do
     assert {:ok, first} = Governance.deletion_request_timeline(ctx.request.id, %{}, ctx.subject)
-    assert {:ok, _revoked} = Accounts.revoke_session(ctx.account.session.id, ctx.account.user.id)
+    assert :ok = Accounts.revoke_session(ctx.account.session.id, ctx.account.user.id)
 
     assert {:error, :forbidden} =
              Governance.deletion_request_timeline(

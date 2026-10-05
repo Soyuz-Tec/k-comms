@@ -850,6 +850,27 @@ if config_env() == :prod do
       end
     )
 
+  # File-backed credentials are resolved after the environment-only check.
+  # Compare actual decoded keyrings and provider secrets too; file paths cannot
+  # establish that their loaded material is independent from history signing.
+  if governance_history_cursor_key do
+    history_materials =
+      case Base.decode64(governance_history_cursor_key) do
+        {:ok, decoded} -> MapSet.new([governance_history_cursor_key, decoded])
+        _ -> MapSet.new([governance_history_cursor_key])
+      end
+
+    other_materials =
+      Enum.reduce(
+        [identity_materials, webhook_materials, push_materials],
+        shared_secret_materials,
+        &MapSet.union/2
+      )
+
+    unless MapSet.disjoint?(history_materials, other_materials),
+      do: raise("GOV_HISTORY_CURSOR_KEY must use dedicated secret material")
+  end
+
   for {name, materials} <- [
         {"identity", identity_materials},
         {"webhook", webhook_materials},

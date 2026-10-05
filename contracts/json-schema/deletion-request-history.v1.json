@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/deletion-request-history.v1.json",
+  "title": "deletion-request-history.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DeletionRequestTimelineResponse"
+    }
+  ],
+  "$defs": {
+    "DeletionHistoryProofVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "derived_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "media_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "meeting_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "writer_fence_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DeletionHistoryCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "messages_tombstoned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "attachments_deleted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "deleted_object_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DeletionHistoryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "derived_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "media_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "meeting_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "writer_fence_erasure_version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "messages_tombstoned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "attachments_deleted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "deleted_object_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DeletionHistoryActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "user_id",
+        "display_name"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "user",
+            "system",
+            "unavailable"
+          ]
+        },
+        "user_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "user"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "user_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "display_name": {
+                "type": "string"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "user_id": {
+                "type": "null"
+              },
+              "display_name": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "DeletionHistoryEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "actor",
+        "inserted_at",
+        "action",
+        "status",
+        "attempt",
+        "error_code",
+        "version",
+        "proof_versions",
+        "counts"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor": {
+          "$ref": "#/$defs/DeletionHistoryActor"
+        },
+        "inserted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "deletion_request.create",
+            "deletion_request.approved",
+            "deletion_request.rejected",
+            "deletion_request.cancelled",
+            "deletion_request.claim",
+            "deletion_request.failure",
+            "deletion_request.writer_fence_repair_queued",
+            "deletion_request.completed",
+            "deletion_request.derived_content_repaired"
+          ]
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "in_progress",
+            "completed",
+            "rejected",
+            "cancelled",
+            null
+          ]
+        },
+        "attempt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "error_code": {
+          "enum": [
+            "provider_failure",
+            "verification_pending",
+            "unavailable",
+            null
+          ]
+        },
+        "version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "proof_versions": {
+          "$ref": "#/$defs/DeletionHistoryProofVersions"
+        },
+        "counts": {
+          "$ref": "#/$defs/DeletionHistoryCounts"
+        }
+      }
+    },
+    "DeletionHistoryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "requested_by_user_id",
+        "subject_user_id",
+        "conversation_id",
+        "message_id",
+        "target_type",
+        "reason",
+        "status",
+        "scheduled_for",
+        "completed_at",
+        "execution_started_at",
+        "execution_attempts",
+        "execution_error",
+        "evidence",
+        "version",
+        "inserted_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "requested_by_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "subject_user_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "message_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "conversation",
+            "message"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 4000
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "in_progress",
+            "completed",
+            "rejected",
+            "cancelled"
+          ]
+        },
+        "scheduled_for": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "execution_started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "execution_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "execution_error": {
+          "enum": [
+            "provider_failure",
+            "verification_pending",
+            "unavailable",
+            null
+          ]
+        },
+        "evidence": {
+          "$ref": "#/$defs/DeletionHistoryEvidence"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inserted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "DeletionHistoryCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "retained_only",
+        "version_lineage",
+        "origin_present",
+        "earliest_at",
+        "snapshot_truncated",
+        "captured_count",
+        "retained_count",
+        "maximum_events"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "available",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "retained_only": {
+          "const": true
+        },
+        "version_lineage": {
+          "const": "unproven"
+        },
+        "origin_present": {
+          "type": "boolean"
+        },
+        "earliest_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "snapshot_truncated": {
+          "type": "boolean"
+        },
+        "captured_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
+        "retained_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
+        "maximum_events": {
+          "const": 5000
+        }
+      }
+    },
+    "DeletionRequestTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "events",
+        "limit",
+        "next_cursor",
+        "snapshot",
+        "observed_at",
+        "snapshot_observed_at",
+        "coverage"
+      ],
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/DeletionHistoryRequest"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeletionHistoryEvent"
+          },
+          "minItems": 0,
+          "maxItems": 50
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 12000,
+          "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{43}$",
+          "description": "Opaque one-hour signed position bound to the current tenant, exact deletion request and retained Audit snapshot. A snapshot is not a cursor; neither grants access."
+        },
+        "snapshot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12000,
+          "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{43}$",
+          "description": "Opaque one-hour signed position bound to the current tenant, exact deletion request and retained Audit snapshot. A snapshot is not a cursor; neither grants access."
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "snapshot_observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coverage": {
+          "$ref": "#/$defs/DeletionHistoryCoverage"
+        }
+      },
+      "description": "Chronological retained lifecycle facts ordered by timestamp then event UUID. Coverage describes captured/retained sources, not proof of complete transition lineage. Request state and actor labels are current authorized projections; arbitrary Audit metadata, worker errors and raw evidence are excluded."
+    },
+    "DeletionRequestTimelineResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DeletionRequestTimeline"
+        }
+      }
+    }
+  }
+}

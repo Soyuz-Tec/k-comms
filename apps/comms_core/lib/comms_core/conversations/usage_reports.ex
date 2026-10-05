@@ -75,7 +75,10 @@ defmodule CommsCore.Conversations.UsageReports do
 
     earliest =
       Repo.one(
-        from(row in Conversation, where: row.tenant_id == ^tenant_id, select: min(row.inserted_at))
+        from(row in Conversation,
+          where: row.tenant_id == ^tenant_id,
+          select: min(row.inserted_at)
+        )
       )
 
     budget!(deadline)
@@ -83,7 +86,9 @@ defmodule CommsCore.Conversations.UsageReports do
     current = %{
       active_conversations:
         Repo.aggregate(
-          from(row in Conversation, where: row.tenant_id == ^tenant_id and is_nil(row.archived_at)),
+          from(row in Conversation,
+            where: row.tenant_id == ^tenant_id and is_nil(row.archived_at)
+          ),
           :count
         )
     }

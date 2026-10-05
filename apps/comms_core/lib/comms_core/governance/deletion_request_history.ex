@@ -222,7 +222,7 @@ defmodule CommsCore.Governance.DeletionRequestHistory do
 
   defp parse_limit(nil, default, _maximum), do: {:ok, default}
 
-  defp parse_limit(value, _default, maximum) when is_integer(value) and value in 1..maximum,
+  defp parse_limit(value, _default, maximum) when is_integer(value) and value in 1..maximum//1,
     do: {:ok, value}
 
   defp parse_limit(value, default, maximum) when is_binary(value) do

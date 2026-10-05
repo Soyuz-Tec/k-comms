@@ -1,6 +1,7 @@
 # ADR-0096: Bounded owner-projected usage reports
 
-Status: Proposed implementation, qualification pending  
+Status: Accepted
+Qualification: source boundary decision accepted; execution and protected delivery pending.
 Date: 2026-10-05  
 Owners: IdentityAccess; Conversations; ConversationContent; Calls; Telephony; Web
 
@@ -114,7 +115,25 @@ the disclosure callback is `CommsWeb.UsageReports`. The five non-identity
 implementation uses owner-internal helpers. All twelve named query/projection
 DTOs remain owned by their corresponding context. These additions require an
 exact approved facade/contract transition after rebasing the qualified prior
-milestone; the immutable empty architecture baseline remains unchanged.
+milestone; ADR-0093 records that immutable-parent-bound composition. The frozen
+inventory classifies only each exact `usage_projection/2` and
+`Accounts.with_usage_report_disclosure/2` as public delivery operations. The
+query/projection pairs are `CommsCore.Accounts.UsageQuery/UsageProjection`,
+`CommsCore.Conversations.UsageQuery/UsageProjection`,
+`CommsCore.Messaging.UsageQuery/UsageProjection`,
+`CommsCore.Attachments.UsageQuery/UsageProjection`,
+`CommsCore.AudioCalls.UsageQuery/UsageProjection`, and
+`CommsCore.Telephony.UsageQuery/UsageProjection`.
+
+The only direct projection and disclosure consumer is
+`CommsWeb.UsageReports`; its controller consumes that Web composer rather than
+foreign persistence. The five non-identity implementation callers of the
+existing IdentityAccess grant operations are exactly
+`CommsCore.Conversations.UsageReports`, `CommsCore.Messaging.UsageReports`,
+`CommsCore.Attachments.UsageReports`, `CommsCore.AudioCalls.UsageReports`, and
+`CommsCore.Telephony.UsageReports`. No ownership or allowed-dependency edge is
+widened, no implementation module is published, and no persistence exception
+is added. The immutable empty architecture baseline remains unchanged.
 
 ## Qualification
 

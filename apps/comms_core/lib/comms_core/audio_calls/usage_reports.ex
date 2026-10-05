@@ -101,7 +101,8 @@ defmodule CommsCore.AudioCalls.UsageReports do
       Repo.all(
         from(row in AudioCall,
           where:
-            row.tenant_id == ^tenant_id and row.started_at >= ^start_at and row.started_at < ^end_at,
+            row.tenant_id == ^tenant_id and row.started_at >= ^start_at and
+              row.started_at < ^end_at,
           group_by: [fragment("?::date", row.started_at), row.status, row.media_kind],
           select: {fragment("?::date", row.started_at), row.status, row.media_kind, count(row.id)}
         )

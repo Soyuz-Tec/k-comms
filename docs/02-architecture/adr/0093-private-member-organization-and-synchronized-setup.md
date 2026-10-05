@@ -1,6 +1,7 @@
 # ADR-0093: Private member organization and synchronized setup
 
-Status: Proposed implementation, qualification pending  
+Status: Accepted
+Qualification: source boundary decision accepted; execution and protected delivery pending.
 Date: 2026-10-05  
 Owners: IdentityAccess; Web
 
@@ -45,6 +46,43 @@ It increments affected versions so a stale client cannot restore erased
 references. The `member_workspace_v1` immutable binary capability is required
 while any retained member workspace exists. Migration down refuses retained
 private state; production rollback cannot discard it to admit an old binary.
+
+## Accepted boundary registry
+
+This decision composes the accepted boundaries in ADR-0093 through ADR-0096
+against qualified immutable first parent
+`e7d85225b875a83d071f10c27a5e3e7f2675540e`. The manifest transition is bound to
+that parent's exact manifest hash and the resulting frozen facade inventory.
+Its 26 sorted semantic tokens add only the named Member, Role, Usage and History
+DTOs, two canonical owner-only tables, and the updated operation inventory.
+The first parent's ownership, namespace rules, dependencies, ports, operations,
+strict enforcement and empty violation baseline remain in force. This review
+adds no persistence exception or repository interface.
+
+IdentityAccess publishes `MemberContactView` with only current `id` and
+`display_name`, and the private aggregate `MemberWorkspaceView`.
+`CommsWeb.MemberWorkspaceController` consumes exactly
+`Accounts.member_workspace_view/1`, `replace_member_workspace/2`, and
+`update_member_onboarding/2`; it imports neither the `MemberWorkspace` schema
+nor its implementation. The `member_workspaces` canonical table belongs to
+`CommsCore.Accounts.MemberWorkspace`, with persistence access restricted to the
+Accounts namespace. Governed finalization calls the private owner erasure helper
+after drain validation and before strong identity-key anonymization under the
+existing complete canonical User fence.
+
+Release consumes only `Accounts.rollback_member_workspace_hazard_count/0` and
+the existing owner fingerprint fragment. Every persisted aggregate remains a
+hazard, including empty state and state retained for inactive or limited
+identities. The public fragment includes aggregate IDs for fingerprint hashing;
+formatted release receipts expose counts and a hash. No runtime flag grants
+`member_workspace_v1` to an older binary.
+
+ADR-0094 defines Audit/Governance history ownership and purge delivery,
+ADR-0095 defines the IdentityAccess role DTOs and advisory operations, and
+ADR-0096 defines the six independent owner projections and Web composition.
+Acceptance here concerns these exact architectural contracts. Database,
+application, browser, provider and protected delivery evidence remains a
+separate qualification requirement.
 
 ## Scope and qualification
 

@@ -165,7 +165,7 @@ describe("retained deletion-history review", () => {
     await user.type(within(dialog).getByLabelText("Current password"), "synthetic-current-password");
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));
     await screen.findByText(/Deletion history is unavailable with your current access/);
-    expect(harness.api.stepUp).toHaveBeenCalledWith("synthetic-current-password");
+    expect(harness.api.stepUp).toHaveBeenCalledWith("synthetic-current-password", undefined);
     expect(harness.api.deletionHistory.mock.calls.slice(1)).toEqual([
       ["deletion-1", { cursor: "synthetic-stepup-cursor" }], ["deletion-1", { cursor: "synthetic-stepup-cursor" }]
     ]);

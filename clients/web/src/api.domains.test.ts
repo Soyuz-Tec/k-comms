@@ -303,10 +303,29 @@ describe("governance and audit evidence API", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://comms.test/api/v1/admin/audit-events/export");
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ q: "user.created", limit: 5_000 }));
-    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeUndefined();
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
     expect(headers.get("Accept")).toBe("text/csv");
     expect(headers.get("Authorization")).toBe("Bearer access-token");
+  });
+
+  it("cancels a stalled authenticated CSV response at the API deadline without returning an export", async () => {
+    vi.useFakeTimers();
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { bodyController = controller; } });
+    const fetchMock = vi.fn<typeof fetch>(async (_input, options) => {
+      options?.signal?.addEventListener("abort", () => bodyController.error(options.signal?.reason), { once: true });
+      return new Response(body, { status: 200, headers: { "content-type": "text/csv" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+    const pending = api.exportAuditEvents({ limit: 5_000 });
+    const failure = expect(pending).rejects.toMatchObject({ status: 408, code: "request_timeout" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await failure;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 
   it.each(["account switch", "logout"] as const)(
