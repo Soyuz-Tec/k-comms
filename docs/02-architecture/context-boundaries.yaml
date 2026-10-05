@@ -20,10 +20,10 @@ enforcement:
     - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningRequest
     - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->5816db0a640d4e69aac1beb92992b5219dfcc3c2963eb76559b7c11e62deaacf
     - table:telephony_provisioning_commands:add:{"canonical_schema":"CommsCore.Telephony.ProvisioningCommand","owner":"telephony","role":"source"}
-    - technical_interfaces:telephony-provider-provisioning-authority:add:{"callers":["CommsCore.Telephony.Provisioning","CommsIntegrations.Telephony.ProvisioningLiveKit"],"condition":"ADR-0107
+    - technical_interfaces:telephony-provider-provisioning-authority:add:{"callers":["CommsIntegrations.Telephony.ProvisioningLiveKit"],"condition":"ADR-0107
       admits only the configured adapter module and exact typed leased command. Telephony rechecks current owner, persisted
       step-up, eligible assignee, DID binding and CAS before every read and durably consumes the one effect before provider
-      Create. No request may bypass the owner facade or repeat a consumed effect.","contracts":["CommsCore.Telephony.ProvisioningAuthorityPort","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"direct","id":"telephony-provider-provisioning-authority","interface":"CommsCore.Telephony.ProvisioningAuthorityPort","operations":[{"arity":1,"name":"authorized_adapter?"},{"arity":3,"name":"authorize_io"}],"owner":"telephony","transaction":"independent"}
+      Create. No request may bypass the owner facade or repeat a consumed effect.","contracts":["CommsCore.Telephony.ProvisioningAuthorityPort","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"direct","id":"telephony-provider-provisioning-authority","interface":"CommsCore.Telephony.ProvisioningAuthorityPort","operations":[{"arity":3,"name":"authorize_io"}],"owner":"telephony","transaction":"independent"}
     - technical_interfaces:telephony-provider-provisioning:add:{"behaviour":"CommsCore.Telephony.ProvisioningPort.Contract","binding":{"application":"comms_core","key":"telephony_provisioning_adapter","module":"CommsIntegrations.Telephony.ProvisioningLiveKit"},"callers":["CommsCore.Telephony.Provisioning","CommsWeb.PhoneProvisioningController"],"condition":"ADR-0107
       permits only bounded secret-free inspection and a one-shot dispatch-rule create for operator-bound existing tenant trunks
       and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible assignment and CAS before each read/effect;
@@ -1101,9 +1101,8 @@ technical_interfaces:
   - id: telephony-provider-provisioning-authority
     owner: telephony
     interface: CommsCore.Telephony.ProvisioningAuthorityPort
-    callers: [CommsCore.Telephony.Provisioning, CommsIntegrations.Telephony.ProvisioningLiveKit]
+    callers: [CommsIntegrations.Telephony.ProvisioningLiveKit]
     operations:
-      - {name: "authorized_adapter?", arity: 1}
       - {name: authorize_io, arity: 3}
     dispatch: direct
     contracts: [CommsCore.Telephony.ProvisioningAuthorityPort, CommsCore.Telephony.ProvisioningRequest]
