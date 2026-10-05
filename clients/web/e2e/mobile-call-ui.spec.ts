@@ -16,7 +16,7 @@ async function loadCallStyles(page: Page) {
   await page.getByRole("button", { name: "Start video call" }).click();
   await expect(page.getByRole("dialog", { name: "Start a video call" })).toBeVisible();
   // Include the lazy-loaded call presentation CSS, not only the sign-in shell.
-  return page.evaluate(() =>
+  const css = await page.evaluate(() =>
     Array.from(document.styleSheets)
       .flatMap((sheet) => {
         try {
@@ -27,6 +27,10 @@ async function loadCallStyles(page: Page) {
       })
       .join("\n")
   );
+  // Discard the mounted application's async prejoin updates before replacing
+  // its document with the explicit call-layout CSS fixture.
+  await page.goto("about:blank");
+  return css;
 }
 
 test.describe("mobile call acceptance", () => {
