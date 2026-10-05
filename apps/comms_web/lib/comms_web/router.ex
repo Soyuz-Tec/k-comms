@@ -233,6 +233,12 @@ defmodule CommsWeb.Router do
       :consent
     )
 
+    post(
+      "/conversation/calls/:call_id/artifacts/:id/summary-consent",
+      GuestCallArtifactController,
+      :summary_consent
+    )
+
     post("/conversation/calls", GuestCommunicationController, :create_call)
     post("/conversation/calls/:call_id/join", GuestCommunicationController, :join_call)
     post("/conversation/calls/:call_id/end", GuestCommunicationController, :end_call)
@@ -367,6 +373,18 @@ defmodule CommsWeb.Router do
       "/conversations/:conversation_id/calls/:call_id/artifacts/:id/playback",
       CallArtifactController,
       :playback
+    )
+
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/summary-consent",
+      CallArtifactController,
+      :summary_consent
+    )
+
+    get(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/summary",
+      CallArtifactController,
+      :summary
     )
 
     get(

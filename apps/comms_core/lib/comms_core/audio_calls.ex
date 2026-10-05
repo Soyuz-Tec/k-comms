@@ -35,6 +35,7 @@ defmodule CommsCore.AudioCalls do
           | CommsCore.AudioCalls.ActivityView.t()
           | CommsCore.AudioCalls.ArtifactErasurePlan.t()
           | CommsCore.AudioCalls.ArtifactView.t()
+          | CommsCore.AudioCalls.ArtifactSummaryView.t()
           | CommsCore.AudioCalls.CallParticipantView.t()
           | CommsCore.AudioCalls.CallSessionView.t()
           | CommsCore.AudioCalls.CallView.t()
@@ -184,6 +185,27 @@ defmodule CommsCore.AudioCalls do
   defdelegate consent_artifact(conversation_id, call_id, id, accepted, subject),
     to: Artifacts,
     as: :consent
+
+  @spec consent_artifact_summary(binary(), binary(), binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate consent_artifact_summary(conversation_id, call_id, id, attrs, subject),
+    to: Artifacts,
+    as: :summary_consent
+
+  @spec artifact_summary(binary(), binary(), binary(), public_map()) ::
+          {:ok,
+           %{
+             artifact: CommsCore.AudioCalls.ArtifactView.t(),
+             summary: CommsCore.AudioCalls.ArtifactSummaryView.t()
+           }}
+          | {:error, public_error()}
+  defdelegate artifact_summary(conversation_id, call_id, id, subject), to: Artifacts, as: :summary
+
+  @doc false
+  @spec rollback_recognition_summary_hazard_count() :: non_neg_integer()
+  defdelegate rollback_recognition_summary_hazard_count(),
+    to: Artifacts,
+    as: :rollback_summary_hazard_count
 
   @spec start_artifact(binary(), binary(), binary(), public_map()) ::
           {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}

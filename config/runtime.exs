@@ -545,10 +545,56 @@ if config_env() == :prod do
            Regex.match?(~r/^[a-z]{2,3}$/, artifact_transcription_language),
          do: raise("ARTIFACT_TRANSCRIPTION_LANGUAGE must be a two or three letter language code")
 
+  artifact_transcription_token = optional_secret.("ARTIFACT_TRANSCRIPTION_BEARER_TOKEN")
+  artifact_transcription_model_sha256 = System.get_env("ARTIFACT_TRANSCRIPTION_MODEL_SHA256")
+
+  if not is_nil(artifact_transcription_token) and
+       (byte_size(artifact_transcription_token) not in 32..4_096 or
+          Regex.match?(~r/[\x00-\x20\x7F]/, artifact_transcription_token)),
+     do: raise("ARTIFACT_TRANSCRIPTION_BEARER_TOKEN must be a protected bounded bearer secret")
+
+  if not is_nil(artifact_transcription_model_sha256) and
+       (not Regex.match?(~r/^[a-f0-9]{64}$/, artifact_transcription_model_sha256) or
+          is_nil(artifact_transcription_token)),
+     do:
+       raise(
+         "Pinned recognition requires ARTIFACT_TRANSCRIPTION_MODEL_SHA256 and bearer authentication"
+       )
+
+  summary_privacy_approved? =
+    parse_boolean.(
+      System.get_env("MEETING_SUMMARY_PRIVACY_APPROVED", "false"),
+      "MEETING_SUMMARY_PRIVACY_APPROVED"
+    )
+
+  summaries_enabled? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_SUMMARIES_ENABLED", "false"),
+      "ARTIFACT_SUMMARIES_ENABLED"
+    )
+
+  summaries_qualified? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_SUMMARIES_QUALIFIED", "false"),
+      "ARTIFACT_SUMMARIES_QUALIFIED"
+    )
+
+  if summaries_enabled? and
+       not (summary_privacy_approved? and summaries_qualified? and
+              artifact_privacy_approved? and artifact_provider_qualified? and
+              artifact_tenant_ids != [] and
+              artifact_transcription_enabled?),
+     do:
+       raise(
+         "Selected-quote summaries require separate privacy approval, qualification and retained transcript processing"
+       )
+
   artifact_transcription = [
     enabled: artifact_transcription_enabled?,
     qualified: artifact_transcription_qualified?,
     origin: artifact_transcription_origin,
+    bearer_token: artifact_transcription_token,
+    model_sha256: artifact_transcription_model_sha256,
     max_media_bytes:
       parse_bounded_integer.(
         System.get_env("ARTIFACT_TRANSCRIPTION_MAX_MEDIA_BYTES", "26214400"),
@@ -1105,6 +1151,7 @@ if config_env() == :prod do
       :crypto.mac(:hmac, :sha256, secret_key_base, "k-comms-telephony-controls-v1"),
     direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
     meeting_artifact_policy: [
+      summary_privacy_approved: summary_privacy_approved?,
       privacy_approved: artifact_privacy_approved?,
       provider_qualified: artifact_provider_qualified?,
       enabled_tenant_ids: artifact_tenant_ids
@@ -1314,6 +1361,7 @@ if config_env() == :prod do
     meeting_artifacts_enabled: meeting_artifacts_enabled?,
     egress_enabled: egress_enabled?,
     artifact_transcription: artifact_transcription,
+    artifact_summarization: [enabled: summaries_enabled?, qualified: summaries_qualified?],
     telephony_ring_timeout_seconds: telephony_ring_timeout_seconds,
     telephony_max_duration_seconds: telephony_max_duration_seconds,
     livekit_server_url: livekit_server_url,

@@ -30,6 +30,10 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :outbox_events,
     :calls,
     :call_participants,
+    :call_artifacts,
+    :call_artifact_consents,
+    :call_artifact_segments,
+    :call_artifact_summaries,
     :member_workspaces,
     :audit_history_snapshots
   ]

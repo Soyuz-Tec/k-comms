@@ -75,6 +75,7 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "uc_recognition_summaries_v1": ("call_artifact_summaries", "call_artifacts.summary_requested/recognition_provider_id", "call_artifact_consents.summary_policy_version", "CommsWorkers.CallSummaryWorker"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -1014,11 +1015,12 @@ def validate_guest_rollback_preflight(
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
+        m1_capabilities + ",member_workspace_v1,governance_history_v1",
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target, the known M1 set, or the exact communication-compatible capability set"
+            "empty for a legacy target, the known M1 twelve / Member fourteen sets, or the exact communication-compatible capability set"
         )
 
 

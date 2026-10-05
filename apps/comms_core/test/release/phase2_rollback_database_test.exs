@@ -318,7 +318,9 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :rich_whiteboards,
         :member_workspaces,
         :governance_history_snapshots,
-        :active_history_purge_jobs
+        :active_history_purge_jobs,
+        :recognition_summary_state,
+        :active_summary_jobs
       ],
       &{&1, 0}
     )

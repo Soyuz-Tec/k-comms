@@ -23,6 +23,10 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :outbox_events,
     :calls,
     :call_participants,
+    :call_artifacts,
+    :call_artifact_consents,
+    :call_artifact_segments,
+    :call_artifact_summaries,
     :member_workspaces,
     :audit_history_snapshots
   ]
@@ -49,6 +53,10 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "outbox_events" => "outbox-internal-id",
             "audio_calls" => "call-internal-id",
             "audio_call_participants" => "participant-internal-id",
+            "call_artifacts" => "artifact-internal-id",
+            "call_artifact_consents" => "consent-internal-id",
+            "call_artifact_segments" => "segment-internal-id",
+            "call_artifact_summaries" => "summary-internal-id",
             "member_workspaces" => "private-workspace-internal-id",
             "audit_resource_history_snapshots" => "history-snapshot-internal-id"
           },

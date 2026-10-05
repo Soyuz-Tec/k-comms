@@ -1767,6 +1767,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "call-artifact-provider",
                 "call-artifact-storage",
                 "call-artifact-transcription",
+                "call-artifact-summarization",
                 "notification-availability-adapter",
                 "telephony-provider-controls",
                 "telephony-voicemail-provider",

@@ -22,6 +22,16 @@ defmodule CommsIntegrations.MeetingArtifacts.TranscriptionConfig do
          language <- Keyword.get(options, :language),
          true <-
            is_nil(language) or (is_binary(language) and Regex.match?(~r/^[a-z]{2,3}$/, language)),
+         token <- Keyword.get(options, :bearer_token),
+         model_sha256 <- Keyword.get(options, :model_sha256),
+         true <-
+           is_nil(token) or
+             (is_binary(token) and byte_size(token) in 32..4_096 and
+                not Regex.match?(~r/[\x00-\x20\x7F]/, token)),
+         true <-
+           is_nil(model_sha256) or
+             (is_binary(model_sha256) and Regex.match?(~r/^[a-f0-9]{64}$/, model_sha256) and
+                is_binary(token)),
          {:ok, _} <- Config.storage_configuration() do
       {:ok,
        %{
@@ -30,7 +40,9 @@ defmodule CommsIntegrations.MeetingArtifacts.TranscriptionConfig do
          max_response_bytes: max_response_bytes,
          timeout_ms: timeout_ms,
          model: model,
-         language: language
+         language: language,
+         bearer_token: token,
+         model_sha256: model_sha256
        }}
     else
       _ -> {:error, :artifact_transcription_unavailable}
