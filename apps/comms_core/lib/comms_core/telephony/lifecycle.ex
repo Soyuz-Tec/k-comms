@@ -1,7 +1,18 @@
 defmodule CommsCore.Telephony.Lifecycle do
   @moduledoc false
   import Ecto.Query
-  alias CommsCore.{Accounts, Administration, Audit, Outbox, Repo, RuntimePorts, ValidationError}
+
+  alias CommsCore.{
+    Accounts,
+    Administration,
+    AdmissionQuotas,
+    Audit,
+    Outbox,
+    Repo,
+    RuntimePorts,
+    ValidationError
+  }
+
   alias CommsCore.Accounts.AccessGrant
 
   alias CommsCore.Telephony.{
@@ -9,6 +20,7 @@ defmodule CommsCore.Telephony.Lifecycle do
     CallView,
     CallMonitor,
     CredentialRequest,
+    Ivr,
     Number,
     Mailboxes,
     ProviderCommand,
@@ -97,7 +109,8 @@ defmodule CommsCore.Telephony.Lifecycle do
       query =
         from(c in Call,
           where:
-            c.tenant_id == ^grant.tenant_id and c.routing_status not in ["waiting", "voicemail"] and
+            c.tenant_id == ^grant.tenant_id and
+              c.routing_status not in ["waiting", "voicemail", "ivr", "ivr_destination"] and
               (c.user_id == ^grant.user_id or
                  (c.status == :ringing and c.routing_status == "offered" and
                     ^grant.user_id in c.offered_user_ids))
@@ -501,8 +514,9 @@ defmodule CommsCore.Telephony.Lifecycle do
           not due?(call) ->
             {:not_due, max(DateTime.diff(expiry_deadline(call), now(), :second), 1)}
 
-          (call.routing_status == "waiting" and call.route_expires_at) &&
-              DateTime.diff(now(), call.route_expires_at, :second) <= 15 ->
+          ((call.routing_status == "waiting" and call.route_expires_at) &&
+             DateTime.diff(now(), call.route_expires_at, :second) <= 15) and
+              is_nil(Ivr.original_deadline(call.id)) ->
             Routing.enqueue_waiting(call)
             {:not_due, 5}
 
@@ -703,7 +717,7 @@ defmodule CommsCore.Telephony.Lifecycle do
            from(c in Call,
              where:
                c.id == ^id and c.tenant_id == ^grant.tenant_id and
-                 c.routing_status not in ["waiting", "voicemail"] and
+                 c.routing_status not in ["waiting", "voicemail", "ivr", "ivr_destination"] and
                  (c.user_id == ^grant.user_id or
                     (c.status == :ringing and c.routing_status == "offered" and
                        ^grant.user_id in c.offered_user_ids)),
@@ -734,6 +748,7 @@ defmodule CommsCore.Telephony.Lifecycle do
 
     number = Repo.get_by(Number, phone_number: event.to_number, inbound_trunk_id: event.trunk_id)
     if is_nil(number), do: Repo.rollback(:unrelated_provider_event)
+    :ok = AdmissionQuotas.lock_tenant(number.tenant_id)
     lock_key!("assignment:" <> number.tenant_id)
     number = Repo.get_by(Number, phone_number: event.to_number, inbound_trunk_id: event.trunk_id)
     if is_nil(number), do: Repo.rollback(:unrelated_provider_event)
@@ -742,16 +757,43 @@ defmodule CommsCore.Telephony.Lifecycle do
       with {:ok, %{allow_audio_calls: true}} <- Administration.lock_call_policy(number.tenant_id),
            do: true
 
-    routing = Routing.admission(number)
+    ivr = Ivr.admission(number)
+
+    routing =
+      case ivr do
+        :none ->
+          Routing.admission(number)
+
+        result ->
+          %{
+            user_id: number.user_id,
+            route_id: nil,
+            routing_status: "ivr",
+            offered_user_ids: [],
+            route_expires_at: nil,
+            eligible: match?({:ok, _}, result)
+          }
+      end
+
+    active_callers =
+      Repo.aggregate(
+        from(c in Call,
+          where:
+            c.tenant_id == ^number.tenant_id and c.direction == :inbound and c.status in ^@active
+        ),
+        :count
+      )
 
     eligible? =
-      eligible? == true and routing.eligible and value(event, :admission_enabled) != false
+      eligible? == true and routing.eligible and active_callers < 100 and
+        value(event, :admission_enabled) != false
 
     lock_key!("user:" <> number.tenant_id <> ":" <> routing.user_id)
     timestamp = now()
 
     busy? =
-      routing.routing_status != "waiting" and active_user_call?(number.tenant_id, routing.user_id)
+      routing.routing_status not in ["waiting", "ivr"] and
+        active_user_call?(number.tenant_id, routing.user_id)
 
     status =
       cond do
@@ -791,7 +833,13 @@ defmodule CommsCore.Telephony.Lifecycle do
           )
       })
 
-    Routing.enqueue_waiting(call)
+    if status == :ringing do
+      case ivr do
+        {:ok, menu} -> Ivr.reserve!(call, menu)
+        _ -> Routing.enqueue_waiting(call)
+      end
+    end
+
     enqueue!(:telephony_expiry, call.id, call.expires_at)
     if terminal?, do: enqueue!(:telephony_cleanup, call.id)
     publish!(call)
@@ -1006,6 +1054,7 @@ defmodule CommsCore.Telephony.Lifecycle do
             DateTime.add(timestamp, maximum_seconds(), :second),
             grant.effective_expires_at
           )
+          |> earliest_expiry(Ivr.original_deadline(call.id))
       })
 
     enqueue!(:telephony_expiry, call.id, call.expires_at)
@@ -1015,6 +1064,7 @@ defmodule CommsCore.Telephony.Lifecycle do
 
   defp finish!(call, status, reason) do
     call = update!(call, %{status: status, ended_at: now(), end_reason: reason})
+    Ivr.cancel_calls!([call.id])
     enqueue!(:telephony_cleanup, call.id)
     publish!(call)
     call
@@ -1329,7 +1379,7 @@ defmodule CommsCore.Telephony.Lifecycle do
         from(c in Call,
           where:
             c.tenant_id == ^tenant_id and c.user_id == ^user_id and c.status in ^@active and
-              c.routing_status not in ["waiting", "voicemail"]
+              c.routing_status not in ["waiting", "voicemail", "ivr", "ivr_destination"]
         )
       )
 

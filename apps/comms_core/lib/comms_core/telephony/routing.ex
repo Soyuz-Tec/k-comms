@@ -1,8 +1,19 @@
 defmodule CommsCore.Telephony.Routing do
   @moduledoc false
   import Ecto.Query
-  alias CommsCore.{Accounts, Administration, Audit, Outbox, Repo, RuntimePorts, ValidationError}
-  alias CommsCore.Telephony.{Call, Number, ProviderControlPort, Route}
+
+  alias CommsCore.{
+    Accounts,
+    Administration,
+    AdmissionQuotas,
+    Audit,
+    Outbox,
+    Repo,
+    RuntimePorts,
+    ValidationError
+  }
+
+  alias CommsCore.Telephony.{Call, ContactCenter, Number, ProviderControlPort, Route}
   alias CommsCore.Accounts.AccessGrant
 
   def list(subject) do
@@ -27,6 +38,8 @@ defmodule CommsCore.Telephony.Routing do
            Enum.all?(ids, &match?({:ok, _}, Ecto.UUID.cast(&1))) and
              length(Enum.uniq(ids)) == length(ids) do
       Repo.transaction(fn ->
+        :ok = AdmissionQuotas.lock_tenant(initial.tenant_id)
+
         with {:ok, _} <- Administration.lock_call_policy(initial.tenant_id),
              {:ok, users} <- Accounts.lock_active_human_directory_users(initial.tenant_id, ids),
              true <- length(users) == length(ids),
@@ -188,15 +201,19 @@ defmodule CommsCore.Telephony.Routing do
         match?(
           {:ok, %{allowed: true}},
           Accounts.delivery_availability(call.tenant_id, grant.user_id, :call)
-        )
+        ) and ContactCenter.ready?(call.tenant_id, grant.user_id)
 
-      if is_nil(call.route_id) do
-        available
+      if call.routing_status in ["ivr", "ivr_destination", "waiting", "voicemail"] do
+        false
       else
-        route = Repo.get(Route, call.route_id)
+        if is_nil(call.route_id) do
+          available
+        else
+          route = Repo.get(Route, call.route_id)
 
-        route && route.enabled && grant.user_id in route.member_ids &&
-          grant.user_id in call.offered_user_ids && available
+          route && route.enabled && grant.user_id in route.member_ids &&
+            grant.user_id in call.offered_user_ids && available
+        end
       end
     end
   end
@@ -212,6 +229,9 @@ defmodule CommsCore.Telephony.Routing do
 
   def eligible_recipient?(call, grant) do
     cond do
+      call.routing_status in ["ivr", "ivr_destination", "waiting", "voicemail"] ->
+        false
+
       is_nil(call.route_id) ->
         available?(call.tenant_id, grant.user_id)
 
@@ -247,6 +267,10 @@ defmodule CommsCore.Telephony.Routing do
         fn ->
           snapshot = Repo.get(Call, id)
           if is_nil(snapshot), do: Repo.rollback(:not_found)
+          # Agent-state writers retain User before Route. The common owner
+          # admission fence must precede this Route-first candidate evaluation
+          # so a new offer cannot invert that lock order or miss a state commit.
+          :ok = AdmissionQuotas.lock_tenant(snapshot.tenant_id)
           number = Repo.get!(Number, snapshot.number_id)
           {:ok, policy} = Administration.lock_call_policy(snapshot.tenant_id)
 
@@ -386,7 +410,8 @@ defmodule CommsCore.Telephony.Routing do
           from(c in Call,
             where:
               c.tenant_id == ^route.tenant_id and c.user_id == ^id and
-                c.status in [:ringing, :answered] and c.routing_status != "waiting"
+                c.status in [:ringing, :answered] and
+                c.routing_status not in ["waiting", "voicemail", "ivr", "ivr_destination"]
           )
         )
     end)
@@ -394,7 +419,8 @@ defmodule CommsCore.Telephony.Routing do
 
   defp available?(tenant_id, id) do
     with {:ok, [_]} <- Accounts.lock_active_human_directory_users(tenant_id, [id]),
-         {:ok, %{allowed: true}} <- Accounts.delivery_availability(tenant_id, id, :call) do
+         {:ok, %{allowed: true}} <- Accounts.delivery_availability(tenant_id, id, :call),
+         true <- ContactCenter.ready?(tenant_id, id) do
       true
     else
       _ -> false

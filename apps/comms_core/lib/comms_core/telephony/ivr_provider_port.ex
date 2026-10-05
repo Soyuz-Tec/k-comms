@@ -12,9 +12,11 @@ defmodule CommsCore.Telephony.IvrProviderPort do
 
   @spec prepare(IvrProviderRequest.t()) :: {:ok, map()} | {:error, atom()}
   def prepare(request), do: dispatch(:prepare, request)
-  @spec play(IvrProviderRequest.t()) :: {:ok, :pending | :completed} | {:error, atom()}
+  @spec play(IvrProviderRequest.t()) :: {:ok, :pending} | {:error, atom()}
   def play(request), do: dispatch(:play, request)
-  @spec destination(IvrProviderRequest.t()) :: {:ok, :pending | :ready | :connected} | {:error, atom()}
+
+  @spec destination(IvrProviderRequest.t()) ::
+          {:ok, :pending | :ready | :connected} | {:error, atom()}
   def destination(request), do: dispatch(:destination, request)
 
   @spec verify_event(binary(), binary()) :: {:ok, IvrEvent.t()} | {:error, atom()}
@@ -29,8 +31,11 @@ defmodule CommsCore.Telephony.IvrProviderPort do
   defp adapter do
     with {:ok, module} <- Application.fetch_env(:comms_core, :telephony_ivr_adapter),
          true <- is_atom(module) and Code.ensure_loaded?(module),
-         true <- Enum.all?([ready?: 0, prepare: 1, play: 1, destination: 1, verify_event: 2],
-                           fn {operation, arity} -> function_exported?(module, operation, arity) end) do
+         true <-
+           Enum.all?(
+             [ready?: 0, prepare: 1, play: 1, destination: 1, verify_event: 2],
+             fn {operation, arity} -> function_exported?(module, operation, arity) end
+           ) do
       {:ok, module}
     else
       _ -> {:error, :telephony_ivr_unavailable}

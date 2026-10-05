@@ -18,7 +18,11 @@ defmodule CommsCore.Telephony.IvrEventReceipt do
     |> validate_required([:tenant_id, :run_id, :event_id, :body_fingerprint, :step, :event_type])
     |> validate_format(:event_id, ~r/^[0-9a-f]{64}$/)
     |> validate_format(:body_fingerprint, ~r/^[0-9a-f]{64}$/)
-    |> validate_inclusion(:event_type, ["PlaybackFinished", "ChannelDtmfReceived"])
+    |> validate_inclusion(:event_type, [
+      "PlaybackFinished",
+      "ChannelDtmfReceived",
+      "ChannelDestroyed"
+    ])
     |> unique_constraint(:event_id)
   end
 end

@@ -3,7 +3,7 @@
 
 The channelvars list in ari.conf must expose the exact KC bindings below. SIP
 input supplies a menu choice; it never supplies application identity or consent.
-The separately configured voicemail relay remains responsible for notice proof.
+The combined relay also forwards voicemail notice proof on this same stream.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def ivr_event(raw: bytes, now: datetime | None = None) -> bytes | None:
         raise ValueError("event exceeds bound")
     value = json.loads(raw)
     if not isinstance(value, dict) or value.get("type") not in (
-        "ChannelDtmfReceived", "PlaybackFinished"
+        "ChannelDtmfReceived", "PlaybackFinished", "ChannelDestroyed"
     ):
         return None
     try:
@@ -56,7 +56,7 @@ def ivr_event(raw: bytes, now: datetime | None = None) -> bytes | None:
         # retries. No received digit or enumerable digit hash is an event ID.
         "event_id": secrets.token_hex(32),
     }
-    if value["type"] == "ChannelDtmfReceived":
+    if value["type"] in ("ChannelDtmfReceived", "ChannelDestroyed"):
         channel = value.get("channel")
         variables = channel.get("channelvars") if isinstance(channel, dict) else None
         if not isinstance(variables, dict) or variables.get("KC_ROLE") != "external":
@@ -75,9 +75,10 @@ def ivr_event(raw: bytes, now: datetime | None = None) -> bytes | None:
             "KC_LIVEKIT_ROOM", "KC_SIP_IDENTITY"
         )):
             return None
-        if value.get("digit") not in tuple("0123456789*#ABCD"):
+        if value["type"] == "ChannelDtmfReceived" and value.get("digit") not in tuple("0123456789*#ABCD"):
             return None
-        event["digit"] = value["digit"]
+        if value["type"] == "ChannelDtmfReceived":
+            event["digit"] = value["digit"]
         event["channel"] = {
             "id": channel["id"],
             "channelvars": {name: variables[name] for name in BINDINGS},
@@ -110,6 +111,12 @@ def expire_spool(directory: Path, now: datetime | None = None) -> int:
         if len(body) > MAX_BODY:
             raise OSError("relay spool record exceeds bound")
         value = json.loads(body)
+        # The combined durable spool also retains voicemail notice receipts.
+        # Those use their existing delivery lifetime and have no IVR timestamp.
+        if value.get("type") not in ("ChannelDtmfReceived", "ChannelDestroyed", "PlaybackFinished"):
+            continue
+        if value["type"] == "PlaybackFinished" and not PLAYBACK.fullmatch(str(value.get("playback", {}).get("id", ""))):
+            continue
         stamp = event_timestamp(value["timestamp"])
         if (now - stamp).total_seconds() > MAX_EVENT_AGE:
             filename.unlink()

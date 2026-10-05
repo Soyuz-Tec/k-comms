@@ -1,6 +1,6 @@
 # ADR-0099: Add bounded caller IVR and current queue supervision
 
-- **Status:** Proposed; source prototype, integration and qualification pending
+- **Status:** Proposed; parent-integrated source, qualification pending
 - **Date:** 2026-10-05
 - **Owners:** Telephony, Identity, Security, Operations
 - **Related decisions:** ADR-0085, ADR-0088, ADR-0089, ADR-0092
@@ -30,8 +30,9 @@ and cleans up; it never initiates an expensive fallback after authority expires.
 An IVR caller consumes bounded Number/tenant admission but does not reserve an
 agent's active-call slot or receive browser credentials. The existing Route must
 atomically choose an eligible agent before any app answer or media credential.
-The final owner integration must prove the common admission lock and caller cap
-across IVR, routed and individual admissions; the prototype alone is not proof.
+The owner uses the common tenant admission lock and caller cap across IVR,
+routed and individual admissions. Real concurrent qualification must still
+prove that lock schedule and its retained-capacity boundaries.
 
 Only the selected qualified ARI implementation supports this feature. The new
 port defaults unavailable. Provider configuration, current tenant policy,
@@ -56,8 +57,9 @@ network transaction. Worker crash, lost response, timeout or commit failure
 permits exact read-only reconciliation. It cannot republish a prompt, redial a
 destination or repeat an uncertain connection. Each retry has a new deterministic
 Run/step playback ID. Submission never means the caller heard a prompt.
-Actual matching PlaybackFinished or exact retained ARI playback state supplies
-completion evidence before digit selection is admitted.
+Actual matching signed PlaybackFinished supplies the original provider timestamp
+before digit selection is admitted. An exact retained ARI playback read can
+establish pending state, but cannot invent a completion timestamp.
 
 External destinations use the existing deterministic `kc_consult_<call>` role
 and fixed caller lifetime. Origination is one claim. Read-only observation of
@@ -98,7 +100,7 @@ whisper, barge, call quality, historical SLA, billable seconds or invoice.
 
 The additive migration retains menus, Runs, receipts and agent dispositions.
 Its down operation refuses any retained state or IVR Call. Register the exact
-new immutable `ivr_contact_center_v1` release capability and owner hazard counts
+new immutable `ivr_routing_v1` release capability and owner hazard counts
 before rollout. Older images must not ignore retained enabled menus or agent
 dispositions. Application rollback disables new admission, drains and reconciles
 the exact paid resources, and preserves history and protected cleanup credentials.
