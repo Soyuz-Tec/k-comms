@@ -5,7 +5,7 @@ import type { ApiClient } from "../../api";
 import { ApiError } from "../../api/errors";
 import type { User, UserRole } from "../../types";
 import type { RoleCapability, RoleCapabilityCondition, RoleCapabilityFact, UserRoleChangePreview } from "../../types/rolePermissions";
-import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
+import { StepUpCancelledError, stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { useSession } from "../../app/session";
 import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
@@ -84,7 +84,19 @@ export function RoleChangeDialog({ api, user, identifier, requestedRole, busy, e
       setLoading(false);
       return () => { current = false; };
     }
-    runWithStepUp(() => api.previewAdminUserRole(user.id, { role: requestedRole, version: user.version! }))
+    runWithStepUp(async () => {
+      if (!current) throw new StepUpCancelledError();
+      try {
+        const value = await api.previewAdminUserRole(user.id, { role: requestedRole, version: user.version! });
+        if (!current) throw new StepUpCancelledError();
+        return value;
+      } catch (failure: unknown) {
+        // StrictMode's obsolete request can finish after the active request's
+        // 428. It must neither replace the proof gate nor retry the old review.
+        if (!current) throw new StepUpCancelledError();
+        throw failure;
+      }
+    })
       .then((value) => {
         if (!current) return;
         if (!matchesChange(value, user, requestedRole)) {

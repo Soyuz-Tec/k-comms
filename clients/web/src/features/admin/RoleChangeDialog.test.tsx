@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api";
 import { StepUpProvider } from "../../app/step-up";
@@ -34,8 +35,9 @@ function preview(overrides: Partial<UserRoleChangePreview> = {}): UserRoleChange
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function setup(previewAdminUserRole = vi.fn().mockResolvedValue(preview()), user = person) {
@@ -199,6 +201,25 @@ describe("role change review", () => {
     expect(await screen.findByText("Manage people's sign-in sessions")).toBeVisible();
     expect(sessionApi.stepUp).toHaveBeenCalledWith("current-password", undefined);
     expect(api).toHaveBeenCalledTimes(2);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("retries only the current StrictMode review after reverse-order duplicate 428 responses", async () => {
+    const old = deferred<UserRoleChangePreview>(); const current = deferred<UserRoleChangePreview>();
+    const api = { previewAdminUserRole: vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise).mockResolvedValue(preview()) };
+    const onConfirm = vi.fn();
+    render(<StrictMode><StepUpProvider><RoleChangeDialog api={api} user={person} identifier={person.display_name} requestedRole="security_admin"
+      busy={false} error={null} onCancel={vi.fn()} onReviewAgain={vi.fn()} onConfirm={onConfirm} /></StepUpProvider></StrictMode>);
+    expect(api.previewAdminUserRole).toHaveBeenCalledTimes(2);
+    await act(async () => { current.reject(new ApiError(428, "step_up_required", "Verify again")); });
+    await act(async () => { old.reject(new ApiError(428, "step_up_required", "Verify again")); });
+    const verification = screen.getByRole("dialog", { name: "Confirm it is you" });
+    await userEvent.type(within(verification).getByLabelText("Current password"), "current-password");
+    await userEvent.click(within(verification).getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Manage people's sign-in sessions")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm change" })).toBeEnabled();
+    expect(screen.queryByText("Loading current permissions…")).not.toBeInTheDocument();
+    expect(api.previewAdminUserRole).toHaveBeenCalledTimes(3); expect(sessionApi.stepUp).toHaveBeenCalledTimes(1);
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
