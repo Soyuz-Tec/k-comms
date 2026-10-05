@@ -11,5 +11,5 @@
   "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "signAndEditExecutable": false },
   "nsis": { "oneClick": false, "perMachine": false, "allowElevation": false, "allowToChangeInstallationDirectory": false },
   "mac": { "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }], "identity": null, "hardenedRuntime": true, "entitlements": "entitlements.mac.plist", "entitlementsInherit": "entitlements.mac.plist", "extendInfo": { "NSCameraUsageDescription": "Use the camera only when you enable video in a K-Comms call.", "NSMicrophoneUsageDescription": "Use the microphone only when you enable audio in a K-Comms call." } },
-  "linux": { "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }], "category": "Network", "maintainer": "K-Comms contributors" }
+  "linux": { "executableName": "k-comms-evaluation", "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }], "category": "Network", "maintainer": "K-Comms contributors" }
 }
