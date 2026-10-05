@@ -12,7 +12,7 @@ enforcement:
   reject_new_violations: true
   reviewed_manifest_transitions:
   - id: compose-opt-in-workspace-discovery-owner-contracts
-    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
+    previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.DiscoveryView
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainClaimView
@@ -33,8 +33,7 @@ enforcement:
       requires the exact retained current workspace human owner/admin and recent-proof identity grant on the caller transaction
       before domain resources; no DNS proof creates identity or enrollment authority.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"identity_access_to_tenant_administration","control_flow":"tenant_administration_to_identity_access","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-retained-identity","implementation":"CommsCore.Accounts","operations":[{"arity":1,"name":"authorize_workspace_domain"}],"port":"CommsCore.Administration.WorkspaceDomainIdentityPort","provider":"identity_access","result_contract":"CommsCore.Administration.IdentityGrant","transaction":"required"}
     - table:workspace_domain_claims:add:{"access":"owner_only","access_namespaces":["CommsCore.Administration"],"canonical_schema":"CommsCore.Administration.WorkspaceDomainClaim","owner":"tenant_administration","role":"source"}
-    removal_condition: Applies only to exact committed 610b6acd6bd2cd20a8607481cedc1e35fc1cd956 source; later semantic widening
-      requires a new exact accepted ADR-reviewed transition.
+    removal_condition: Remove this exact ADR-0097 transition reviewed against Member parent ba228342d830365c8ccf380d8d893bf3c1cd3605 after Workspace Discovery reaches the protected branch; Member protection remains pending. Later semantic widening requires a new exact accepted ADR-reviewed transition.
     adr: docs/02-architecture/adr/0097-verify-opt-in-workspace-domain-discovery.md
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
