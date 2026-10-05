@@ -35,13 +35,13 @@ Declared runtime control flow (consumer -> provider).
 | Source | Targets |
 |---|---|
 | `calls` | `trust_governance` |
-| `collaboration` | `conversation_content` |
+| `collaboration` | `conversation_content`, `trust_governance` |
 | `conversations` | `calls`, `collaboration` |
 | `identity_access` | `calls`, `conversations`, `notification_delivery` |
 | `telephony` | `trust_governance` |
 | `tenant_administration` | `calls`, `identity_access` |
 
-Edges: **10**. Strongly connected components: **0**.
+Edges: **11**. Strongly connected components: **0**.
 
 ### Combined graph
 
@@ -50,7 +50,7 @@ Union of compiled references and runtime control flow.
 | Source | Targets |
 |---|---|
 | `calls` | `audit`, `conversations`, `identity_access`, `platform_eventing`, `telephony`, `tenant_administration`, `trust_governance` |
-| `collaboration` | `conversation_content`, `conversations`, `identity_access` |
+| `collaboration` | `conversation_content`, `conversations`, `identity_access`, `trust_governance` |
 | `conversation_content` | `audit`, `collaboration`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
 | `conversations` | `audit`, `calls`, `collaboration`, `identity_access`, `platform_eventing`, `tenant_administration` |
 | `identity_access` | `audit`, `calls`, `conversations`, `notification_delivery`, `tenant_administration` |
@@ -61,6 +61,6 @@ Union of compiled references and runtime control flow.
 | `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `platform_eventing`, `telephony`, `tenant_administration`, `webhook_management` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **59**. Strongly connected components: **1**.
+Edges: **60**. Strongly connected components: **1**.
 
 - `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `telephony`, `tenant_administration`, `trust_governance`, `webhook_management`

@@ -269,6 +269,13 @@ defmodule CommsWeb.Router do
     )
 
     get("/conversations/:conversation_id/whiteboard/export", WhiteboardLibraryController, :export)
+    get("/conversations/:conversation_id/documents", SharedDocumentController, :index)
+    post("/conversations/:conversation_id/documents", SharedDocumentController, :create)
+    get("/documents/:document_id", SharedDocumentController, :show)
+    post("/documents/:document_id/copies", SharedDocumentController, :copy)
+    post("/documents/:document_id/operations", SharedDocumentController, :operation)
+    get("/documents/:document_id/operations", SharedDocumentController, :replay)
+    get("/documents/:document_id/export", SharedDocumentController, :export)
 
     post(
       "/conversations/:conversation_id/whiteboard/assets",

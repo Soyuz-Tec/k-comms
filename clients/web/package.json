@@ -18,6 +18,10 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
     "@excalidraw/excalidraw": "0.18.1",
     "livekit-client": "2.22.0",
     "lucide-react": "1.31.0",

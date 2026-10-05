@@ -6927,6 +6927,889 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/conversations/{conversationId}/documents:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: listSharedDocuments
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    maxItems: 40
+                    items:
+                      $ref: '#/components/schemas/SharedDocumentSummary'
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+          maxLength: 160
+    post:
+      operationId: createSharedDocument
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '201':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SharedDocumentSnapshot'
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharedDocumentCreation'
+  /api/v1/documents/{documentId}:
+    parameters:
+    - name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getSharedDocument
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SharedDocumentSnapshot'
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+  /api/v1/documents/{documentId}/copies:
+    parameters:
+    - name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: copySharedDocument
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '201':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SharedDocumentSnapshot'
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharedDocumentCreation'
+  /api/v1/documents/{documentId}/operations:
+    parameters:
+    - name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: replaySharedDocumentOperations
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedDocumentReplay'
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+      parameters:
+      - name: generation
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+      - name: after_version
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+    post:
+      operationId: applySharedDocumentOperation
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SharedDocumentOperation'
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '201':
+          description: Current authorized retained document projection
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SharedDocumentOperation'
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SharedDocumentEdit'
+  /api/v1/documents/{documentId}/export:
+    parameters:
+    - name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: exportSharedDocumentText
+      tags:
+      - Shared documents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Fresh authorized plaintext export. Original author erasure removes
+            the entire derived document.
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+            X-Document-Version:
+              required: true
+              schema:
+                type: integer
+                minimum: 0
+            X-Document-Generation:
+              required: true
+              schema:
+                type: integer
+                minimum: 1
+            Content-Disposition:
+              required: true
+              schema:
+                const: attachment; filename="k-comms-document.txt"
+          content:
+            text/plain:
+              schema:
+                type: string
+                maxLength: 16162
+                x-max-utf8-bytes: 66178
+        '401':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '403':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '404':
+          description: Current authentication and conversation authority required
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '409':
+          description: Idempotency conflict, stale title version/generation, or retained
+            document capacity exhausted
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '422':
+          description: Malformed operation, unknown atom, invalid scalar or bounded
+            input violation
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
+        '503':
+          description: Protection unavailable or unproven original-author lineage
+          headers:
+            Cache-Control:
+              description: Always no-store
+              required: true
+              schema:
+                const: no-store
+            Pragma:
+              description: Always no-cache
+              required: true
+              schema:
+                const: no-cache
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -12726,3 +13609,336 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+    SharedDocumentAtom:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - after_id
+      - text
+      - deleted
+      - order
+      properties:
+        id:
+          type: string
+          pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+          minLength: 38
+          maxLength: 45
+        after_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1
+          pattern: ^[^\u0000]$
+        deleted:
+          type: boolean
+        order:
+          type: integer
+          minimum: 0
+    SharedDocumentChange:
+      type: object
+      additionalProperties: false
+      required:
+      - after_id
+      - delete_ids
+      - insert
+      properties:
+        after_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        delete_ids:
+          type: array
+          items:
+            type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          maxItems: 4096
+          uniqueItems: true
+        insert:
+          type: string
+          maxLength: 2048
+          x-max-utf8-bytes: 8192
+    SharedDocumentCreation:
+      type: object
+      additionalProperties: false
+      required:
+      - client_document_id
+      - title
+      properties:
+        client_document_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+          x-max-utf8-bytes: 640
+    SharedDocumentEdit:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - client_operation_id
+        - generation
+        - base_version
+        - kind
+        - changes
+        properties:
+          client_operation_id:
+            type: string
+            format: uuid
+          generation:
+            type: integer
+            minimum: 1
+          base_version:
+            type: integer
+            minimum: 0
+          kind:
+            const: edit
+          changes:
+            type: array
+            minItems: 1
+            maxItems: 32
+            items:
+              $ref: '#/components/schemas/SharedDocumentChange'
+      - type: object
+        additionalProperties: false
+        required:
+        - client_operation_id
+        - generation
+        - base_version
+        - kind
+        - title
+        properties:
+          client_operation_id:
+            type: string
+            format: uuid
+          generation:
+            type: integer
+            minimum: 1
+          base_version:
+            type: integer
+            minimum: 0
+          kind:
+            const: rename
+          title:
+            type: string
+            minLength: 1
+            maxLength: 160
+            x-max-utf8-bytes: 640
+      description: Exact document generation; edits use server-validated RGA anchors,
+        title changes require current version CAS. Total inserted scalars <=2048 and selected
+        IDs <=4096; arbitrary client lineage and opaque graphs are rejected.
+    SharedDocumentSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - title
+      - excerpt
+      - generation
+      - version
+      - updated_at
+      - readonly
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 160
+        excerpt:
+          type: string
+          maxLength: 240
+        generation:
+          type: integer
+          minimum: 1
+        version:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        readonly:
+          type: boolean
+    SharedDocumentSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - title
+      - content
+      - atoms
+      - generation
+      - version
+      - updated_at
+      - readonly
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 160
+        content:
+          type: string
+          maxLength: 16000
+          x-max-utf8-bytes: 65536
+        atoms:
+          type: array
+          maxItems: 32000
+          items:
+            $ref: '#/components/schemas/SharedDocumentAtom'
+        generation:
+          type: integer
+          minimum: 1
+        version:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        readonly:
+          type: boolean
+    SharedDocumentOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - document_id
+      - conversation_id
+      - client_operation_id
+      - generation
+      - version
+      - kind
+      - title
+      - inserted_atoms
+      - deleted_atom_ids
+      - inserted_at
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        client_operation_id:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        version:
+          type: integer
+          minimum: 1
+        kind:
+          enum:
+          - create
+          - copy
+          - edit
+          - rename
+        title:
+          type:
+          - string
+          - 'null'
+          maxLength: 160
+        inserted_atoms:
+          type: array
+          maxItems: 16000
+          items:
+            $ref: '#/components/schemas/SharedDocumentAtom'
+        deleted_atom_ids:
+          type: array
+          maxItems: 4096
+          uniqueItems: true
+          items:
+            type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+        inserted_at:
+          type: string
+          format: date-time
+    SharedDocumentReplay:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - page
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/SharedDocumentOperation'
+        page:
+          type: object
+          additionalProperties: false
+          required:
+          - generation
+          - through_version
+          - next_after_version
+          - has_more
+          properties:
+            generation:
+              type: integer
+              minimum: 1
+            through_version:
+              type: integer
+              minimum: 0
+            next_after_version:
+              type: integer
+              minimum: 0
+            has_more:
+              type: boolean
+    SharedDocumentPresence:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - device_id
+      - generation
+      - anchor_id
+      - head_id
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        anchor_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        head_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'

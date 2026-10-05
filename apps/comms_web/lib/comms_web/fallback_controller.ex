@@ -25,6 +25,16 @@ defmodule CommsWeb.FallbackController do
        when reason in [:invalid_credentials, :invalid_refresh_token, :invalid_access_token],
        do: {401, "unauthenticated", "Authentication failed"}
 
+  defp error(reason) when reason in [:invalid_document_operation, :unknown_document_atom],
+    do: {422, Atom.to_string(reason), "The document edit is invalid; reload its current text"}
+
+  defp error(reason) when reason in [:document_capacity_exceeded, :stale_document_generation],
+    do: {409, Atom.to_string(reason), "This document changed or reached its collaboration limit"}
+
+  defp error(reason) when reason in [:document_lineage_unknown, :document_protection_unavailable],
+    do:
+      {503, Atom.to_string(reason), "Document protection verification is temporarily unavailable"}
+
   defp error(:forbidden), do: {403, "forbidden", "This operation is not permitted"}
 
   defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],

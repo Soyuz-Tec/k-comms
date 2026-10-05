@@ -157,6 +157,7 @@ export function ConversationWorkspaceHeader({
           <AppIcon name="message" />
           Chat
         </Link>
+        <Link to={`/app/documents?conversation=${encodeURIComponent(conversation.id)}`}><AppIcon name="file" />Documents</Link>
         <Link to={canvasHref}>
           <AppIcon name="whiteboard" />
           Canvas
