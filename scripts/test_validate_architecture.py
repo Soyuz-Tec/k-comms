@@ -1865,6 +1865,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.Artifacts.ProviderEvent",
             "CommsCore.AudioCalls.Artifacts.Segment",
             "CommsCore.AudioCalls.Artifacts.DerivedAuthority",
+            "CommsCore.AudioCalls.Artifacts.Metadata",
             "CommsCore.AudioCalls.Artifacts.Summaries",
             "CommsCore.AudioCalls.Artifacts.Summary",
             "CommsCore.AudioCalls.Meeting",

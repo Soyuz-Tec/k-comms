@@ -53,7 +53,7 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
            ) do
         %Artifact{kind: :summary, source_artifact_id: source_id} = existing
         when source_id == transcript.id ->
-          CommsCore.AudioCalls.Artifacts.summary_metadata(existing, subject, call)
+          CommsCore.AudioCalls.Artifacts.Metadata.view(existing, subject, call, policy_version())
 
         %Artifact{} ->
           Repo.rollback(:idempotency_conflict)
@@ -65,7 +65,12 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
                  kind: :summary
                ) do
             %Artifact{} = existing ->
-              CommsCore.AudioCalls.Artifacts.summary_metadata(existing, subject, call)
+              CommsCore.AudioCalls.Artifacts.Metadata.view(
+                existing,
+                subject,
+                call,
+                policy_version()
+              )
 
             nil ->
               id = Ecto.UUID.generate()
@@ -112,7 +117,13 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
 
               enqueue!(artifact)
               audit!(artifact, subject, "call.summary_requested")
-              CommsCore.AudioCalls.Artifacts.summary_metadata(artifact, subject, call)
+
+              CommsCore.AudioCalls.Artifacts.Metadata.view(
+                artifact,
+                subject,
+                call,
+                policy_version()
+              )
           end
       end
     end)
@@ -168,7 +179,12 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
         if(accepted, do: "call.summary_consent_accepted", else: "call.summary_consent_withdrawn")
       )
 
-      CommsCore.AudioCalls.Artifacts.summary_metadata(Repo.get!(Artifact, root.id), subject, call)
+      CommsCore.AudioCalls.Artifacts.Metadata.view(
+        Repo.get!(Artifact, root.id),
+        subject,
+        call,
+        policy_version()
+      )
     end)
   end
 
@@ -209,7 +225,8 @@ defmodule CommsCore.AudioCalls.Artifacts.Summaries do
       audit!(artifact, subject, "call.summary_read")
 
       %{
-        artifact: CommsCore.AudioCalls.Artifacts.summary_metadata(artifact, subject, call),
+        artifact:
+          CommsCore.AudioCalls.Artifacts.Metadata.view(artifact, subject, call, policy_version()),
         summary: %ArtifactSummaryView{
           source_artifact_id: transcript.id,
           source_sha256: digest,
