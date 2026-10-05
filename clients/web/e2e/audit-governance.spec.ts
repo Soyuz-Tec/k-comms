@@ -86,6 +86,8 @@ test("admin exports filtered audit evidence and selects governance targets by na
 
   await page.getByRole("button", { name: "Governance" }).click();
   const holdCard = page.getByRole("heading", { name: "Legal holds" }).locator("xpath=ancestor::section[1]");
+  await expect(holdCard.getByLabel("Hold scope")).toBeHidden();
+  await holdCard.getByText("New legal hold", { exact: true }).click();
   await holdCard.getByLabel("Hold scope").selectOption("conversation");
   await expect(holdCard.getByLabel("Hold conversation").getByRole("option", { name: "Release planning" })).toHaveCount(1);
   await expect(holdCard.getByLabel("Hold conversation").getByRole("option", { name: "Archived project" })).toHaveCount(0);
@@ -96,6 +98,7 @@ test("admin exports filtered audit evidence and selects governance targets by na
   expect(holdBody).toEqual({ name: "Channel evidence", reason: "Regulatory request", scope_type: "conversation", conversation_id: activeConversation.id });
 
   const deletionCard = page.getByRole("heading", { name: "Deletion requests" }).locator("xpath=ancestor::section[1]");
+  await deletionCard.getByText("New deletion request", { exact: true }).click();
   await expect(deletionCard.getByLabel("Deletion user").getByRole("option", { name: "Dana Deleted" })).toHaveCount(0);
   await deletionCard.getByLabel("Target type").selectOption("message");
   await deletionCard.getByLabel("Message conversation").selectOption(activeConversation.id);

@@ -211,7 +211,7 @@ for (const width of [320, 390]) {
     const sections = page.getByRole("navigation", { name: "Administration sections" }).getByRole("button");
     await expect(sections).toHaveCount(9);
     await expect(sections).toHaveText([
-      "Workspace", "Domains", "Phone", "People", "Safety", "Governance", "Integrations", "Audit", "Usage"
+      "Workspace", "Domains", "People", "Integrations", "Phone", "Safety", "Governance", "Audit", "Usage"
     ]);
     for (const section of await sections.all()) {
       await expect(section).toBeVisible();

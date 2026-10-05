@@ -90,7 +90,7 @@ export function IvrAdminPanel() {
   }
   const unusedDigit = "123456789".split("").find(digit => !draft.choices[digit]);
   return <section className="phone-ivr-panel" aria-labelledby="phone-ivr-heading">
-    <h2 id="phone-ivr-heading">Caller menu</h2>
+    <h3 id="phone-ivr-heading">Caller menu</h3>
     <p>Play one reviewed prompt, then route a caller’s digit to an enabled queue, voicemail mailbox, or phone number. Calls keep their original 45-second admission budget.</p>
     {loading && <p role="status">Loading caller menu…</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -111,7 +111,7 @@ export function IvrAdminPanel() {
         <TargetEditor label="Fallback" value={draft.fallback} onChange={fallback => setDraft({ ...draft, fallback })} routes={routes} mailbox={mailbox} />
         <label className="field">Seconds to enter a digit<input type="number" min={5} max={30} value={draft.digit_timeout_seconds} onChange={event => setDraft({ ...draft, digit_timeout_seconds: Number(event.currentTarget.value) })} required /></label>
         <label className="field">Prompt retries<input type="number" min={0} max={2} value={draft.max_retries} onChange={event => setDraft({ ...draft, max_retries: Number(event.currentTarget.value) })} required /></label>
-        <label><input type="checkbox" checked={draft.enabled} disabled={!configuration.available && !draft.enabled} onChange={event => setDraft({ ...draft, enabled: event.currentTarget.checked })} /> Enable caller menu</label>
+        <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} disabled={!configuration.available && !draft.enabled} onChange={event => setDraft({ ...draft, enabled: event.currentTarget.checked })} /> Enable caller menu</label>
         <label className="field">Caller menu change reason<textarea value={draft.reason} onChange={event => setDraft({ ...draft, reason: event.currentTarget.value })} minLength={3} maxLength={500} required /></label>
         <button className="button primary" type="submit" disabled={stale}>{busy ? "Saving caller menu…" : "Save caller menu"}</button>
       </fieldset>

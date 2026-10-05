@@ -193,7 +193,9 @@ describe("CallsPage", () => {
     await screen.findByText("No active call rooms");
     expect(document.querySelector(".calls-new-call-toggle")).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("navigation", { name: "Calling destinations" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Conversation calls" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/app/meetings");
+    expect(screen.getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
     expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
     fireEvent.click(screen.getByRole("button", { name: "Start call" }));
     expect(screen.getByRole("searchbox", { name: "Find a conversation to call" })).toHaveFocus();

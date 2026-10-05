@@ -5,7 +5,9 @@ import { ApiError } from "../../api";
 import { useSession } from "../../app/session";
 import { authenticationReturnState } from "../../app/authNavigation";
 import { Field } from "../../components/Field";
+import { AppIcon } from "../../components/AppIcon";
 import { stringValue } from "../../lib/format";
+import "./AuthScreen.css";
 
 const genericRequestMessage =
   "If an account matches those details, password-reset instructions will arrive shortly. For privacy, we cannot confirm whether an account exists.";
@@ -176,6 +178,10 @@ function RecoveryLayout({ title, description, children }: { title: string; descr
   return (
     <main className="recovery-page">
       <section className="recovery-shell" aria-labelledby="recovery-title">
+        <Link className="auth-brand" to="/" aria-label="K-Comms home">
+          <AppIcon name="messages" />
+          <span>K-Comms</span>
+        </Link>
         <span className="eyebrow">Account recovery</span>
         {/*
           * data-route-focus marks this as the route announcement target. Without

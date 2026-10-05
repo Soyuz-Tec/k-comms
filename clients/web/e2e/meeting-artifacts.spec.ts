@@ -1,24 +1,81 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { conversationId, installWorkspace, userId } from "./mobile-ui-support";
+import { conversationId, expectNoDocumentOverflow, installWorkspace, userId } from "./mobile-ui-support";
 import type { MeetingArtifact, MeetingArtifactPage } from "../src/types/meeting-artifacts";
+import type { CallSummary } from "../src/types";
 
 const callId = "11111111-1111-4111-8111-111111111111";
 const recording: MeetingArtifact = { id: "22222222-2222-4222-8222-222222222222", conversation_id: conversationId, call_id: callId, kind: "recording", status: "available", created_at: "2026-10-04T12:00:00Z", expires_at: "2099-11-04T12:00:00Z", content_type: "video/mp4", byte_size: 4, consent_required_count: 2, consent_accepted_count: 2, my_consent: true, can_manage: true };
 const transcript: MeetingArtifact = { ...recording, id: "33333333-3333-4333-8333-333333333333", kind: "transcript", source_artifact_id: recording.id, content_type: "application/json" };
+const endedCall: CallSummary = { id: callId, conversation_id: conversationId, started_by_user_id: userId, ended_by_user_id: userId, media_kind: "video", status: "ended", started_at: "2026-10-04T12:00:00Z", expires_at: "2026-10-04T20:00:00Z", ended_at: "2026-10-04T13:00:00Z", end_reason: "host_ended", duration_seconds: 3600, can_end: false };
 
 async function history(page: Page) {
-  await installWorkspace(page);
+  const workspace = await installWorkspace(page);
   await page.route("**/api/v1/calls?**", route => {
     const recent = new URL(route.request().url()).searchParams.get("scope") === "recent";
-    return route.fulfill({ json: { data: recent ? [{ id: callId, conversation_id: conversationId, started_by_user_id: userId, ended_by_user_id: userId, media_kind: "video", status: "ended", started_at: "2026-10-04T12:00:00Z", expires_at: "2026-10-04T20:00:00Z", ended_at: "2026-10-04T13:00:00Z", end_reason: "host_ended", duration_seconds: 3600, can_end: false }] : [], page: { limit: 25, has_more: false, next_cursor: null } } });
+    return route.fulfill({ json: { data: recent ? [endedCall] : [], page: { limit: 25, has_more: false, next_cursor: null } } });
   });
+  return workspace;
 }
 function artifacts(data: MeetingArtifact[], enabled = true): MeetingArtifactPage {
   return { data, capabilities: { recording: enabled, recording_reason: "privacy_opt_in_required", participant_consent_required: true, persistent_transcript: enabled, persistent_transcript_reason: "qualified_provider_required", captions: "provider_events_only", automatic_capture: false } };
 }
 
 test.describe("post-meeting artifacts", () => {
+  for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+    test(`browses dated calls, loads older history and opens exact saved content without automatic retrieval (${viewport.name})`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const workspace = await history(page);
+      let artifactReads = 0;
+      let contentReads = 0;
+      const cursors: (string | null)[] = [];
+      await page.route("**/api/v1/calls?**", route => {
+        const query = new URL(route.request().url()).searchParams;
+        expect(query.get("scope")).toBe("recent");
+        expect(query.get("limit")).toBe("25");
+        const cursor = query.get("cursor");
+        cursors.push(cursor);
+        return route.fulfill({ json: { data: cursor ? [{ ...endedCall, id: "44444444-4444-4444-8444-444444444444", media_kind: "audio", started_at: "2026-10-03T12:00:00Z" }] : [endedCall], page: { limit: 25, has_more: !cursor, next_cursor: cursor ? null : "older-calls" } } });
+      });
+      await page.route("**/api/v1/conversations/*/calls/*/artifacts**", route => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.endsWith(`/calls/${callId}/artifacts`) && route.request().method() === "GET") {
+          artifactReads += 1;
+          return route.fulfill({ json: artifacts([recording, transcript]) });
+        }
+        contentReads += 1;
+        return route.fulfill({ status: 404, json: { error: { code: "unexpected_content_read", detail: "Saved content requires an explicit action." } } });
+      });
+      await page.goto("/app/artifacts");
+      const list = page.getByRole("list", { name: "Recent calls for saved content" });
+      await expect(list.getByRole("listitem")).toHaveCount(1);
+      await expect(page.getByText(/Recording availability is checked when you open it/)).toBeVisible();
+      expect(artifactReads).toBe(0);
+      await page.getByRole("button", { name: "Load older calls" }).click();
+      await expect(list.getByRole("listitem")).toHaveCount(2);
+      expect(cursors[0]).toBeNull();
+      expect(cursors.filter(cursor => cursor !== null)).toEqual(["older-calls"]);
+      await page.getByRole("combobox", { name: "Call type", exact: true }).selectOption("video");
+      await expect(list.getByRole("listitem")).toHaveCount(1);
+      await page.getByRole("searchbox", { name: "Find a conversation" }).fill("Another conversation");
+      await expect(page.getByText("No matching loaded calls", { exact: true })).toBeVisible();
+      await page.getByRole("searchbox", { name: "Find a conversation" }).fill("General");
+      await expect(list.getByRole("listitem")).toHaveCount(1);
+      await expectNoDocumentOverflow(page);
+      await list.getByRole("link", { name: /^View saved content for General/ }).click();
+      await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}&call=${callId}`));
+      await expect(page.getByRole("button", { name: "Read transcript", exact: true })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Selected call" })).toContainText("General");
+      await page.getByRole("combobox", { name: "Show saved content", exact: true }).selectOption("transcript");
+      await expect(page.getByRole("button", { name: "Play recording", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Read transcript", exact: true })).toBeVisible();
+      expect(artifactReads).toBeGreaterThan(0);
+      expect(contentReads).toBe(0);
+      await expectNoDocumentOverflow(page);
+      expect(workspace.unexpectedRequests).toEqual([]);
+    });
+  }
+
   test("opens actual call history retrieval, explicitly generates and reads a saved transcript, and reports legal-hold deletion", async ({ page }) => {
     await history(page);
     let generated = false;

@@ -159,7 +159,7 @@ function UsageReportsContent({ api }: { api: UsageApi }) {
   }
 
   return <section className="data-card usage-reports" aria-label="Retained usage report">
-    <h2>Usage reports</h2>
+    <div className="card-heading"><div><span className="eyebrow">Workspace activity</span><h2>Usage reports</h2></div>{report && !denied && <span className="status-pill neutral">{Object.values(report.sources).filter((source) => source.status === "available" && source.data).length} of 6 sources reported</span>}</div>
     <p>Currently retained records, not complete lifetime history, license usage or carrier billing. Each source has its own observation; these totals are not an atomic snapshot across sources.</p>
     <form className="usage-window-form" onSubmit={apply} noValidate>
       <label className="field">From (UTC)<input type="date" required value={draft.from} max={utcToday()} onChange={(event) => setDraft({ ...draft, from: event.target.value })} /></label>
@@ -172,7 +172,7 @@ function UsageReportsContent({ api }: { api: UsageApi }) {
     {loading && <p role="status">Loading retained usage…</p>}
     {report && !denied && <>
       <p className="usage-applied-window">Applied window: {report.range.from} through {report.range.through} UTC · Report observed {formatDateTime(report.observed_at)}.</p>
-      <p>Current totals cover all retained records at each source observation, independently of the selected date window. Daily creation/start cohorts are filtered by the selected window; duration overlaps each day even when a call started earlier.</p>
+      <p className="support-note">Current totals include all retained records at each source observation. The selected window filters daily creation/start cohorts; duration overlaps each day even when a call started earlier.</p>
       <div className="usage-source-grid">{(Object.keys(sources) as UsageSourceKey[]).map((key) => <UsageSourceCard key={key} source={report.sources[key] as UsageSource} definition={sources[key]} />)}</div>
     </>}
   </section>;
@@ -180,11 +180,10 @@ function UsageReportsContent({ api }: { api: UsageApi }) {
 
 function metricValue(value: number | undefined) { return value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : "Not reported"; }
 function UsageSourceCard({ source, definition }: { source: UsageSource; definition: SourceDefinition }) {
-  return <section className="usage-source" aria-label={`${definition.title} usage`}><h3>{definition.title}</h3>
+  return <section className="usage-source" aria-label={`${definition.title} usage`}><div className="card-heading"><h3>{definition.title}</h3><span className="status-pill neutral">{source.status === "unavailable" || !source.data ? "Unavailable" : "Observed"}</span></div>
     {source.status === "unavailable" || !source.data ? <p role="note">Source unavailable. Current totals and daily metrics are unknown.</p> : <>
-      <p>Source observed {formatDateTime(source.data.observed_at)} · {source.data.earliest_retained_at ? `Earliest retained timestamp ${formatDateTime(source.data.earliest_retained_at)}` : "No retained timestamp reported"}.</p>
       <h4>Current retained totals</h4><dl className="usage-current-metrics">{Object.entries(definition.current).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{metricValue(source.data?.current[key])}</dd></div>)}</dl>
-      <p>{definition.explanation}</p><UsageDaily data={source.data} definition={definition} />
+      <p className="support-note">{definition.explanation}</p><details className="usage-daily"><summary>Source observation and coverage</summary><p>Source observed {formatDateTime(source.data.observed_at)} · {source.data.earliest_retained_at ? `Earliest retained timestamp ${formatDateTime(source.data.earliest_retained_at)}` : "No retained timestamp reported"}.</p></details><UsageDaily data={source.data} definition={definition} />
     </>}
   </section>;
 }

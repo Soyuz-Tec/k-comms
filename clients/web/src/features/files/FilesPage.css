@@ -8,6 +8,7 @@
 }
 
 .files-page-heading {
+  position: relative;
   margin-bottom: .25rem;
 }
 
@@ -68,7 +69,7 @@
 }
 
 .files-advanced-filter {
-  position: relative;
+  position: static;
 }
 
 .files-advanced-filter > summary {
@@ -102,7 +103,7 @@
   z-index: 4;
   top: calc(100% + .5rem);
   right: 0;
-  width: min(32rem, calc(100vw - 2rem));
+  width: min(32rem, 100%);
   padding: .75rem;
   border: 1px solid var(--border-default);
   border-radius: 14px;
@@ -403,6 +404,11 @@
     flex-direction: column;
   }
 
+  .files-category-tabs {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+
   .files-filters select {
     width: 100%;
     max-width: none;
@@ -638,7 +644,7 @@
   }
 
   .file-row-copy p + p {
-    display: none;
+    overflow-wrap: anywhere;
   }
 
   .file-safety {
@@ -681,14 +687,14 @@
  */
 
 @media (min-width: 761px) and (min-height: 561px) {
-  @container files-page (min-width: 800px) {
+  @container files-page (min-width: 900px) {
   .files-column-heads,
   .files-list .file-row {
     display: grid;
     grid-template-columns:
-      34px minmax(10rem, 1.6fr) minmax(8rem, 1fr) minmax(6rem, .8fr) 4.5rem 8rem auto;
+      44px minmax(10rem, 1.6fr) minmax(7rem, 1fr) minmax(7rem, 1fr) 4.5rem 9rem var(--files-action-width, 92px);
     align-items: center;
-    column-gap: var(--space-4);
+    column-gap: .75rem;
   }
 
   .files-column-heads {
@@ -776,6 +782,14 @@
     grid-column: 3;
   }
 
+  .files-list .file-owner-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
   .files-list .file-row-source {
     grid-column: 4;
   }
@@ -799,8 +813,18 @@
     white-space: nowrap;
   }
 
+  .files-list .file-row-owner,
+  .files-list .file-row-time {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
   .files-list .file-row-actions {
     grid-column: 7;
+    width: var(--files-action-width, 92px);
+    gap: 4px;
+    flex-wrap: nowrap;
   }
   }
 }
@@ -822,7 +846,11 @@
   }
 }
 
-@media (min-width: 1280px) and (min-height: 561px) {
+@media (min-width: 761px) and (min-height: 561px) {
+  @container files-page (min-width: 1080px) {
+  .files-column-heads,
+  .files-list .file-row { --files-action-width: 228px; }
+
   .files-list .file-row-action-label {
     position: static;
     width: auto;
@@ -836,8 +864,11 @@
   .files-list .file-row-actions a,
   .files-list .file-row-actions button {
     width: auto;
+    flex: 1 1 0;
     gap: var(--space-1);
     padding-inline: var(--space-2);
+    white-space: nowrap;
+  }
   }
 }
 .files-filter-summary {

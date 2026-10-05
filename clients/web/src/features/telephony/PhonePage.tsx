@@ -4,6 +4,7 @@ import { AgentQueuePanel } from "./AgentQueuePanel";
 import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { useSession } from "../../app/session";
 import { errorText, formatDateTime } from "../../lib/format";
 import { useTelephony } from "./TelephonyProvider";
@@ -48,17 +49,18 @@ export function PhonePage() {
     void load();
   }
 
-  const { canCall: configured } = phoneReadiness(phone.configuration);
+  const { canCall: configured, state: readiness } = phoneReadiness(phone.configuration);
   const advice = phoneSetupAdvice(phone.configuration);
+  const setupNext = readiness === "disabled" && phone.configuration?.can_manage
+    ? "Ask the service operator to complete provider and carrier checks before enabling phone calls. Review line assignments in Phone administration."
+    : advice.next;
   const currentActive = Boolean(phone.currentCall && phoneCallIsActive(phone.currentCall));
   const visibleCalls = calls.filter((call) => filter === "all" || (call.direction === "inbound" && ["no_answer", "busy"].includes(call.status)));
   return <main className="page-shell phone-page" id="main-content">
-    <header className="page-heading"><div><h1>Phone</h1><p>Call phone numbers and review your personal call history.</p></div><Link className="button ghost" to="/app/calls">Conversation calls</Link></header>
+    <SurfaceHeader title="Phone" description="Dial a number, review calls, and manage your voicemail." actions={<Link className="button ghost" to="/app/calls">Conversation calls</Link>} />
     {phone.loading ? <p role="status">Checking phone availability…</p> : !configured && <section className="phone-setup-note" aria-label="Phone setup">
-      <h2>{advice.title}</h2>
-      <p>{advice.next}</p>
-      <p>Your personal call history remains available below.</p>
-      {phone.configuration?.can_manage ? <Link className="button primary" to="/admin?section=phone">Review phone setup</Link> : <button className="button ghost" type="button" onClick={() => void phone.refresh()}>Refresh phone availability</button>}
+      <div><h2>{advice.title}</h2><p>{setupNext}</p><small>Your personal call history remains available below.</small></div>
+      {phone.configuration?.can_manage ? <Link className="button ghost" to="/admin?section=phone">Review phone setup</Link> : <button className="button ghost" type="button" onClick={() => void phone.refresh()}>Refresh phone availability</button>}
     </section>}
     {phone.error && <p className="form-error" role="alert">{phone.error}</p>}
     {phone.configuration?.number && <section className="phone-line" aria-label="Your phone line"><span>Your caller number <strong>{phone.configuration.number.phone_number}</strong></span><span>Extension {phone.configuration.number.extension}</span></section>}
@@ -72,7 +74,7 @@ export function PhonePage() {
             {["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0"].map((digit) => <button key={digit} className="button ghost" type="button" aria-label={digit === "+" ? "Enter country code prefix" : `Enter ${digit}`} disabled={currentActive || phone.busy || destination.length >= 16 || (digit === "+" && destination.length > 0)} onClick={() => setDestination((value) => value + digit)}>{digit}</button>)}
             <button className="button ghost" type="button" aria-label="Delete last digit" disabled={!destination || currentActive || phone.busy} onClick={() => setDestination((value) => value.slice(0, -1))}><AppIcon name="backspace" /></button>
           </div>
-          <p className="phone-help">This keypad enters a number before calling; it does not send tones during a call.</p>
+          <details className="phone-keypad-help"><summary>About this keypad</summary><p className="phone-help">This keypad enters a number before calling; it does not send tones during a call.</p></details>
           {phone.conversationBusy && <p role="status">Leave your conversation call before dialing.</p>}
           <button className="button primary" type="submit" disabled={!configured || phone.busy || phone.conversationBusy || currentActive || !/^\+[1-9]\d{7,14}$/.test(destination.trim())}>{phone.busy ? "Connecting…" : "Call number"}</button>
         </form>
@@ -82,7 +84,7 @@ export function PhonePage() {
         <label className="field">Show calls<select value={filter} onChange={(event) => setFilter(event.currentTarget.value as "all" | "missed")}><option value="all">All calls</option><option value="missed">Missed calls</option></select></label>
         {historyError && <p className="form-error" role="alert">{historyError}</p>}
         {loading && <p role="status">Loading phone history…</p>}
-        {!loading && !historyError && visibleCalls.length === 0 && <p>{filter === "missed" ? "No missed calls yet." : "No phone calls yet."}</p>}
+        {!loading && !historyError && visibleCalls.length === 0 && <div className="surface-empty"><AppIcon name="phone" /><strong>{filter === "missed" ? "No missed calls yet." : "No phone calls yet."}</strong><p>Incoming and outgoing calls appear here when phone service is available.</p></div>}
         <ul className="phone-history-list">{visibleCalls.map((call) => <li key={call.id}>
           <div><strong>{otherPhoneNumber(call)}</strong><span>{call.direction === "inbound" ? "Incoming" : "Outgoing"} · {phoneCallLabel(call)}</span><time dateTime={call.started_at}>{formatDateTime(call.started_at)}</time><span>{phoneDurationLabel(call)}</span>{call.end_reason && call.end_reason !== "answer_unconfirmed" && <span>{call.end_reason.replaceAll("_", " ")}</span>}</div>
           {call.can_join && !currentActive && <button className="button ghost" type="button" disabled={phone.busy || phone.conversationBusy} onClick={() => void phone.join(call)}>Connect audio</button>}

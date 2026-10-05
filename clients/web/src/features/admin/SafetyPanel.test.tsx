@@ -26,6 +26,22 @@ const moderationCase: ModerationCase = {
 };
 
 describe("SafetyPanel role scoping", () => {
+  it("distinguishes an unavailable inventory from zero cases and retries the current role scope", async () => {
+    const moderationCases = vi.fn().mockRejectedValueOnce(new Error("Connection interrupted")).mockResolvedValueOnce([]);
+    const attachmentSafety = vi.fn();
+    const user = userEvent.setup();
+    render(<SafetyPanel api={{ moderationCases, attachmentSafety } as unknown as ApiClient} canManageAttachments={false} />);
+    await screen.findByRole("alert");
+    expect(screen.getByText("Unavailable")).toBeVisible();
+    expect(screen.queryByText("No moderation cases match these filters.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry moderation inventory" }));
+    expect(await screen.findByText("No moderation cases match these filters.")).toBeVisible();
+    expect(screen.getByText("0 cases shown")).toBeVisible();
+    expect(moderationCases).toHaveBeenCalledTimes(2);
+    expect(moderationCases).toHaveBeenLastCalledWith({ limit: 100 });
+    expect(attachmentSafety).not.toHaveBeenCalled();
+  });
+
   it("gives moderation-load errors a descriptive dismiss control", async () => {
     const user = userEvent.setup();
     const api = {
@@ -50,6 +66,7 @@ describe("SafetyPanel role scoping", () => {
     render(<SafetyPanel api={api} canManageAttachments={false} />);
 
     expect(await screen.findByText("Review this message")).toBeInTheDocument();
+    expect(screen.getByText("open", { selector: ".status-pill" })).toHaveClass("warning");
     expect(attachmentSafety).not.toHaveBeenCalled();
     expect(screen.queryByRole("heading", { name: "Attachment safety" })).not.toBeInTheDocument();
   });
@@ -110,6 +127,8 @@ describe("SafetyPanel case evidence", () => {
     const user = userEvent.setup();
     render(<SafetyPanel api={api} canManageAttachments />);
     await screen.findByText("unavailable.pdf");
+    expect(screen.getByText("scan failed / failed")).toHaveClass("danger");
+    expect(screen.getByText("ready / clean")).toHaveClass("success");
     await user.selectOptions(screen.getByLabelText("Scan status"), "failed");
     expect(screen.queryByText("available.pdf")).not.toBeInTheDocument();
     await waitFor(() => expect(api.attachmentSafety).toHaveBeenLastCalledWith({ scan_status: "failed", limit: 100 }));

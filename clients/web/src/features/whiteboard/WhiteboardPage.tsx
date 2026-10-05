@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
+import { conversationTitle } from "../../lib/format";
 import { useSession } from "../../app/session";
 import { BoardGallery } from "./BoardGallery";
 import "./board-library.css";
@@ -13,6 +14,7 @@ export function WhiteboardPage() {
   const [statusContainer, setStatusContainer] = useState<HTMLDivElement | null>(null);
   const [libraryTriggerContainer, setLibraryTriggerContainer] = useState<HTMLDivElement | null>(null);
   const { conversations, loading } = useWorkspaceData();
+  const conversationTitles = useMemo(() => new Map(conversations.map(conversation => [conversation.id, conversationTitle(conversation)])), [conversations]);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("conversation");
@@ -36,16 +38,15 @@ export function WhiteboardPage() {
   }
 
   return (
-    <main className="whiteboard-page" id="main-content">
+    <main className={`whiteboard-page${galleryOpen ? " gallery-open" : ""}`} id="main-content">
       <header className="whiteboard-heading">
         <div className="whiteboard-heading-copy">
           <AppIcon name="whiteboard" aria-hidden="true" />
-          <h1>Whiteboard</h1>
-          <p className="visually-hidden">Sketch, diagram, and plan together in the selected conversation.</p>
+          <div className="whiteboard-heading-title"><h1>Whiteboard</h1><p title={activeConversation ? conversationTitle(activeConversation) : undefined}>{activeConversation ? conversationTitle(activeConversation) : "Choose a conversation"}</p></div>
         </div>
         <div ref={setStatusContainer} className="whiteboard-heading-status" />
         <div ref={setLibraryTriggerContainer} className="whiteboard-context-actions">
-        <button type="button" className="button ghost" aria-expanded={galleryOpen} onClick={() => setGalleryOpen(value => !value)}>Board gallery</button>
+        <button type="button" className="button ghost" aria-label="Board gallery" title="Board gallery" aria-expanded={galleryOpen} aria-controls="whiteboard-gallery" onClick={() => setGalleryOpen(value => !value)}><AppIcon name="whiteboard" /><span>Board gallery</span></button>
         <label>
           <span>Conversation</span>
           <select
@@ -72,7 +73,7 @@ export function WhiteboardPage() {
         </div>
       </header>
 
-      {galleryOpen && <BoardGallery api={api} onOpen={id => {
+      {galleryOpen && <BoardGallery api={api} conversationTitles={conversationTitles} onOpen={id => {
         setSearchParams({ conversation: id }); setGalleryOpen(false);
       }} />}
       {activeConversation ? (

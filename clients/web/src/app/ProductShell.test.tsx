@@ -95,12 +95,15 @@ vi.mock("../pwa/PwaProvider", () => ({
   usePwa: () => harness.pwa
 }));
 
-function productShellTree() {
+function productShellTree(initialEntry = "/app") {
   return (
-    <MemoryRouter initialEntries={["/app"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/app" element={<ProductShell />}>
           <Route index element={<main id="main-content"><h1>Inbox</h1></main>} />
+        </Route>
+        <Route path="/admin" element={<ProductShell />}>
+          <Route index element={<main id="main-content"><h1>Workspace settings</h1></main>} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -117,6 +120,7 @@ describe("ProductShell", () => {
     window.localStorage.clear();
     harness.pwa.installMode = "unavailable";
     harness.pwa.updateAvailable = false;
+    harness.session.user.role = "member";
     harness.pwa.requestInstall.mockResolvedValue("accepted");
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -132,6 +136,22 @@ describe("ProductShell", () => {
         dispatchEvent: vi.fn()
       }))
     });
+  });
+
+  it("separates administration from daily destinations and returns to the workspace", async () => {
+    harness.session.user.role = "owner";
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)", media: query,
+      onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn()
+    }));
+    render(productShellTree("/admin"));
+    expect(screen.getByRole("navigation", { name: "Administration navigation" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Member areas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New instant room" })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("link", { name: "Return to workspace" }));
+    expect(screen.getByRole("navigation", { name: "Member areas" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "New instant room" })).toBeVisible();
   });
 
   /*

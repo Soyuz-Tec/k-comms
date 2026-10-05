@@ -22,7 +22,7 @@ export function QueueSupervisorPanel() {
     finally { if (current === generation.current) setBusy(false); }
   }
   return <section className="phone-queue-supervision" aria-labelledby="phone-queue-supervision-heading">
-    <h2 id="phone-queue-supervision-heading">Current queues</h2>
+    <h3 id="phone-queue-supervision-heading">Current queues</h3>
     <p>Review current waiting, offered, and answered calls with administrator verification. Counts do not show online agents or historical service levels.</p>
     <button className="button ghost" type="button" disabled={busy} onClick={() => void load()}>{busy ? "Loading current queues…" : snapshot ? "Refresh current queues" : "Load current queues"}</button>
     {error && <p className="form-error" role="alert">{error}</p>}

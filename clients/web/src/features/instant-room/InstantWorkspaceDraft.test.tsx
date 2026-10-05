@@ -65,7 +65,8 @@ describe("InstantWorkspaceDraft", () => {
     window.localStorage.clear();
   });
 
-  it("opens as a usable local canvas with room creation as the next step", () => {
+  it("opens as a usable local canvas with optional messaging behind a disclosure", async () => {
+    const user = userEvent.setup();
     renderDraft();
 
     expect(
@@ -78,9 +79,14 @@ describe("InstantWorkspaceDraft", () => {
         name: "Your display name"
       }) as HTMLInputElement).value
     ).toMatch(/^Guest \d{4}$/);
-    expect(screen.getByText("Your name", { exact: false }).closest("li")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("K-Comms")).toBeVisible();
+    expect(screen.getByText("Room details", { exact: false }).closest("li")).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
     expect(screen.getByText("Join by link")).toBeVisible();
+    expect(screen.getByRole("textbox", {
+      name: "Optional first message"
+    })).not.toBeVisible();
+    await user.click(screen.getByText("Add a first message"));
     const firstMessage = screen.getByRole("textbox", {
       name: "Optional first message"
     });
@@ -101,6 +107,7 @@ describe("InstantWorkspaceDraft", () => {
     const { onActivate } = renderDraft();
 
     await user.click(screen.getByRole("button", { name: "Draw rectangle" }));
+    await user.click(screen.getByText("Add a first message"));
     await user.type(
       screen.getByRole("textbox", { name: "Optional first message" }),
       "Let’s plan this together"
@@ -118,6 +125,21 @@ describe("InstantWorkspaceDraft", () => {
         whiteboardOperationId: expect.stringMatching(/^[0-9a-f-]{36}$/i)
       })
     );
+  });
+
+  it("preserves an optional message when its disclosure closes and creates the room with that message", async () => {
+    const user = userEvent.setup();
+    const { onActivate } = renderDraft();
+    await user.click(screen.getByText("Add a first message"));
+    await user.type(screen.getByRole("textbox", { name: "Optional first message" }), "Welcome to our planning room");
+    await user.click(screen.getByText("Add a first message"));
+    expect(screen.getByRole("textbox", { name: "Optional first message" })).not.toBeVisible();
+    expect(screen.getByText("Message added")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Create room" }));
+    expect(onActivate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      intent: "room",
+      initialMessage: "Welcome to our planning room"
+    }));
   });
 
   it("keeps invite and call actions behind room creation", async () => {

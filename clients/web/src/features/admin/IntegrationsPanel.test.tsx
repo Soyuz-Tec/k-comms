@@ -1,15 +1,29 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import { IntegrationsPanel } from "./IntegrationsPanel";
 
+const { runWithStepUp } = vi.hoisted(() => ({ runWithStepUp: <T,>(action: () => Promise<T>) => action() }));
+
 vi.mock("../../app/step-up", () => ({
-  useStepUp: () => ({ runWithStepUp: <T,>(action: () => Promise<T>) => action() }),
+  useStepUp: () => ({ runWithStepUp }),
   stepUpWasCancelled: () => false
 }));
 
 describe("IntegrationsPanel one-time secret handling", () => {
+  it("shows pending inventories before presenting a verified empty delivery ledger", async () => {
+    let finish!: (value: []) => void;
+    const inventory = new Promise<[]>((resolve) => { finish = resolve; });
+    const api = { webhooks: vi.fn().mockReturnValue(inventory), webhookDeliveries: vi.fn().mockResolvedValue([]), serviceAccounts: vi.fn().mockResolvedValue([]) } as unknown as ApiClient;
+    render(<IntegrationsPanel api={api} />);
+    expect(await screen.findByText("Loading webhook deliveries…")).toBeVisible();
+    expect(screen.queryByText("No webhook deliveries.")).not.toBeInTheDocument();
+    await act(async () => { finish([]); });
+    expect(await screen.findByText("No webhook deliveries.")).toBeVisible();
+    expect(screen.queryByText("Loading webhook deliveries…")).not.toBeInTheDocument();
+  });
+
   it("gives integration-load errors a descriptive dismiss control", async () => {
     const user = userEvent.setup();
     const api = {
@@ -22,8 +36,12 @@ describe("IntegrationsPanel one-time secret handling", () => {
 
     const dismiss = await screen.findByRole("button", { name: "Dismiss integrations error" });
     expect(screen.getByRole("alert")).toHaveTextContent("Integrations unavailable");
+    expect(screen.getByText("Delivery inventory is unavailable. Reload integrations to retry.")).toBeVisible();
+    expect(screen.queryByText("No webhook deliveries.")).not.toBeInTheDocument();
     await user.click(dismiss);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Delivery inventory is unavailable. Reload integrations to retry.")).toBeVisible();
+    expect(screen.queryByText("Loading webhook deliveries…")).not.toBeInTheDocument();
   });
 
   it("blocks another secret-generating operation until the current secret is acknowledged", async () => {
@@ -37,6 +55,7 @@ describe("IntegrationsPanel one-time secret handling", () => {
     const user = userEvent.setup();
     render(<IntegrationsPanel api={api} />);
 
+    await user.click(screen.getByText("New webhook"));
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Primary");
     await user.type(screen.getByRole("textbox", { name: "HTTPS URL" }), endpoint.url);
     await user.click(screen.getByRole("checkbox", { name: /Message sent/ }));

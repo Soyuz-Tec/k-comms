@@ -14,5 +14,5 @@ export function CompositionToolbar({ value, textareaId, disabled, onChange }: { 
     onChange(result.body);
     window.requestAnimationFrame(() => { textarea.focus(); textarea.setSelectionRange(result.start, result.end); });
   }
-  return <div className="composition-formatting" role="group" aria-label="Message formatting">{([ ["bold", "Bold"], ["italic", "Italic"], ["code", "Code"], ["quote", "Quote"], ["bullet", "Bullet"] ] as const).map(([kind, label]) => <button key={kind} type="button" disabled={disabled} onClick={() => apply(kind)}>{label}</button>)}</div>;
+  return <div className="composition-formatting" role="group" aria-label="Message formatting">{([ ["bold", "Bold"], ["italic", "Italic"], ["code", "Code"], ["quote", "Quote"], ["bullet", "Bullet"] ] as const).map(([kind, label]) => <button className="button ghost compact" key={kind} type="button" disabled={disabled} title={`Format selection: ${label.toLowerCase()}`} onClick={() => apply(kind)}>{label}</button>)}</div>;
 }

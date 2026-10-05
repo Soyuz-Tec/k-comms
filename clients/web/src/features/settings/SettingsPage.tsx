@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
@@ -8,13 +8,14 @@ import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { AvatarBadge } from "../../components/AvatarBadge";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import {
   useCallControlPreferences,
   useSetCallControlPreference,
   type CallControlPreferenceName
 } from "../experience/call-control-preferences";
 import { PushNotifications } from "./PushNotifications";
-import { EnterpriseProfileSettings } from "./EnterpriseProfileSettings";
+import { avatarData, EnterpriseProfileSettings } from "./EnterpriseProfileSettings";
 import { EnterpriseSecuritySettings } from "./EnterpriseSecuritySettings";
 import { AvailabilitySettings } from "./AvailabilitySettings";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
@@ -59,7 +60,12 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
   const profileIdentity = session ? `${session.tenant.id}:${session.user.id}` : "";
+  const currentProfileIdentity = useRef(profileIdentity);
+  currentProfileIdentity.current = profileIdentity;
   const profileDisplayName = session?.user.display_name ?? "";
+  const profileTimezone = session?.user.timezone || "Etc/UTC";
+  const [timezoneDraft, setTimezoneDraft] = useState(() => ({ identity: profileIdentity, value: profileTimezone, dirty: false }));
+  const timezone = timezoneDraft.identity === profileIdentity && timezoneDraft.dirty ? timezoneDraft.value : profileTimezone;
   const [profileDraft, setProfileDraft] = useState(() => ({
     identity: profileIdentity,
     value: profileDisplayName,
@@ -87,6 +93,10 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       ? current
       : { identity: profileIdentity, value: profileDisplayName, dirty: false });
   }, [profileIdentity, profileDisplayName]);
+
+  useEffect(() => {
+    setTimezoneDraft((current) => current.identity === profileIdentity ? current : { identity: profileIdentity, value: profileTimezone, dirty: false });
+  }, [profileIdentity, profileTimezone]);
 
   async function refreshSecurity() {
     const [deviceResult, sessionResult] = await Promise.allSettled([
@@ -149,13 +159,21 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
   async function updateProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     const submittedDraftValue = values.get("display_name");
     const submittedDisplayName = stringValue(values, "display_name");
     setBusy("profile");
     setError(null);
     try {
-      const user = await api.updateProfile({ display_name: submittedDisplayName });
+      const input: Parameters<typeof api.updateProfile>[0] = { display_name: submittedDisplayName };
+      const submittedTimezone = stringValue(values, "timezone");
+      if (submittedTimezone !== profileTimezone) input.timezone = submittedTimezone;
+      const avatar = values.get("avatar") as File | null;
+      if (values.get("remove_avatar") === "on") input.avatar_url = null;
+      else if (avatar?.size) input.avatar_url = await avatarData(avatar);
+      if (currentProfileIdentity.current !== profileIdentity) return;
+      const user = await api.updateProfile(input);
       setSession((latest) => {
         if (!latest) return null;
 
@@ -168,6 +186,10 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       setProfileDraft((draft) => draft.identity === profileIdentity && draft.value === submittedDraftValue
         ? { identity: profileIdentity, value: user.display_name, dirty: false }
         : draft);
+      setTimezoneDraft((draft) => draft.identity === profileIdentity && (!draft.dirty || draft.value === submittedTimezone)
+        ? { identity: profileIdentity, value: user.timezone || "Etc/UTC", dirty: false }
+        : draft);
+      form.reset();
       setNotice("Profile updated.");
       announceMemberWorkspaceChange();
     } catch (reason: unknown) {
@@ -300,7 +322,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
   return (
     <main className="page-shell settings-page" id="main-content">
-      <header className="page-heading settings-page-heading"><div><h1>You</h1></div></header>
+      <SurfaceHeader title="You" description="Manage your profile and preferences." className="settings-page-heading" />
       <nav className="settings-section-tabs" aria-label="Profile and settings sections" role="tablist">
         {settingsSections.map((value) => (
           <button
@@ -366,10 +388,9 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       )}
 
       {section === "profile" && <section id="settings-profile-panel" role="tabpanel" aria-labelledby="settings-profile-tab">
-        <EnterpriseProfileSettings />
-        <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
+        <form key={profileIdentity} className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
           <div className="profile-identity">
-            <AvatarBadge name={session.user.display_name} />
+            <AvatarBadge name={session.user.display_name} avatarUrl={session.user.avatar_url} />
             <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name}</small></div>
           </div>
           <label className="field">Display name<input name="display_name" value={displayName} onChange={(event) => setProfileDraft({
@@ -377,6 +398,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
             value: event.currentTarget.value,
             dirty: event.currentTarget.value !== profileDisplayName
           })} maxLength={120} required /></label>
+          <EnterpriseProfileSettings timezone={timezone} onTimezoneChange={(value) => setTimezoneDraft({ identity: profileIdentity, value, dirty: value !== profileTimezone })} hasAvatar={Boolean(session.user.avatar_url)} busy={busy === "profile"} />
           <dl className="profile-account-details"><div><dt>Email address</dt><dd>{session.user.email || "Not supplied"}<small>Verified account email</small></dd></div></dl>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>

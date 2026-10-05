@@ -5,6 +5,7 @@ import type { WebhookDelivery, WebhookEndpoint } from "../../types";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AdminCreateDisclosure } from "./AdminCreateDisclosure";
 import { AppIcon } from "../../components/AppIcon";
 import { ServiceAccountsPanel } from "./ServiceAccountsPanel";
 import "./IntegrationsPanel.css";
@@ -29,6 +30,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [secret, setSecret] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,8 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
     let current = true;
     Promise.all([api.webhooks(), api.webhookDeliveries()])
       .then(([nextEndpoints, nextDeliveries]) => { if (current) { setEndpoints(nextEndpoints); setDeliveries(nextDeliveries); setLoaded(true); } })
-      .catch((reason: unknown) => current && setError(errorText(reason)));
+      .catch((reason: unknown) => current && setError(errorText(reason)))
+      .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [api]);
 
@@ -135,6 +138,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
   async function refresh() {
     if (busy) return;
     setBusy("refresh");
+    setLoading(true);
     setError(null);
     try {
       const [nextEndpoints, nextDeliveries] = await Promise.all([api.webhooks(), api.webhookDeliveries()]);
@@ -142,7 +146,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
       setDeliveries(nextDeliveries);
       setLoaded(true);
     } catch (reason: unknown) { setError(errorText(reason)); }
-    finally { setBusy(null); }
+    finally { setBusy(null); setLoading(false); }
   }
 
   async function copy(value: string) {
@@ -169,12 +173,12 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
     />}
     <ServiceAccountsPanel api={api} onLifecycleChanged={onServiceAccountLifecycleChanged} />
     <section className="data-card integration-endpoints">
-      <div className="card-heading"><div><span className="eyebrow">Signed delivery</span><h2>Webhook endpoints</h2></div><div className="integration-heading-actions"><span className="status-pill neutral">{loaded ? `${endpoints.length} configured` : "Loading…"}</span><button className="button ghost compact" type="button" disabled={Boolean(busy)} onClick={() => void refresh()}>Refresh</button></div></div>
-      <form className="webhook-edit-form" aria-label="Create webhook" onSubmit={(event) => void create(event)}>
+      <div className="card-heading"><div><span className="eyebrow">Signed delivery</span><h2>Webhook endpoints</h2></div><div className="integration-heading-actions"><span className="status-pill neutral">{loaded ? `${endpoints.length} configured` : loading ? "Loading…" : "Unavailable"}</span><button className="button ghost compact" type="button" disabled={Boolean(busy)} onClick={() => void refresh()}>Refresh</button></div></div>
+      <AdminCreateDisclosure label="New webhook"><form className="webhook-edit-form" aria-label="Create webhook" onSubmit={(event) => void create(event)}>
         <div className="inline-admin-form"><label className="field">Name<input name="name" required disabled={Boolean(busy)} /></label><label className="field grow-field">HTTPS URL<input name="url" type="url" placeholder="https://example.test/hooks/k-comms" required disabled={Boolean(busy)} /></label></div>
         <WebhookEventPicker selected={createEvents} onChange={setCreateEvents} disabled={Boolean(busy)} />
         <button className="button primary" type="submit" disabled={Boolean(busy) || Boolean(secret)}>Create webhook</button>
-      </form>
+      </form></AdminCreateDisclosure>
       {secret && <div className="secret-reveal" role="region" aria-label="One-time signing secret"><strong>One-time signing secret</strong><code>{secret}</code><button className="button ghost compact" type="button" onClick={() => void copy(secret)}>Copy secret</button><button className="text-button" type="button" onClick={() => setSecret(null)}>I stored it</button></div>}
       {editing && <form className="webhook-edit-form" aria-label={`Edit webhook ${editing.name}`} key={editing.id} onSubmit={(event) => void save(event)}>
         <h3>Edit {editing.name}</h3><p>Changing the URL cancels pending deliveries to the previous destination. The existing signing secret remains in use.</p>
@@ -194,16 +198,16 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
       </li>)}</ul>
     </section>
     <section className="data-card integration-deliveries">
-      <div className="card-heading"><div><span className="eyebrow">Delivery ledger</span><h2>Webhook deliveries</h2></div><span className="status-pill neutral">{deliveries.length} recent</span></div>
+      <div className="card-heading"><div><span className="eyebrow">Delivery ledger</span><h2>Webhook deliveries</h2></div><span className="status-pill neutral">{loaded ? `${deliveries.length} recent` : loading ? "Loading…" : "Unavailable"}</span></div>
       <p className="empty-copy">Filters apply to these recent deliveries. Endpoint status indicates configuration; recent successful deliveries show past reachability.</p>
       <div className="inline-admin-form"><label className="field">Delivery endpoint<select value={deliveryEndpoint} onChange={(event) => setDeliveryEndpoint(event.currentTarget.value)}><option value="">All endpoints</option>{endpoints.map((endpoint) => <option key={endpoint.id} value={endpoint.id}>{endpoint.name}</option>)}</select></label><label className="field">Delivery status<select value={deliveryStatus} onChange={(event) => setDeliveryStatus(event.currentTarget.value)}><option value="">All statuses</option>{[...new Set(deliveries.map((delivery) => delivery.status))].sort().map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}</select></label></div>
-      {visibleDeliveries.length === 0 ? <p className="empty-copy">{deliveries.length ? "No recent deliveries match these filters." : "No webhook deliveries."}</p> : <ul className="security-list">{visibleDeliveries.map((delivery) => {
+      {!loaded ? <p className="empty-copy" role={loading ? "status" : undefined}>{loading ? "Loading webhook deliveries…" : "Delivery inventory is unavailable. Reload integrations to retry."}</p> : visibleDeliveries.length === 0 ? <p className="empty-copy">{deliveries.length ? "No recent deliveries match these filters." : "No webhook deliveries."}</p> : <ul className="security-list">{visibleDeliveries.map((delivery) => {
         const endpoint = endpointById.get(delivery.endpoint_id);
         return <li key={delivery.id}>
           <div className="integration-endpoint-copy"><strong>{eventLabel(delivery.event_type)}</strong><small>{endpoint?.name || `Endpoint ${delivery.endpoint_id.slice(0, 8)}`} · {delivery.attempt_count} attempts · {formatDateTime(delivery.inserted_at)}</small>
             <details className="integration-delivery-details"><summary>Delivery details</summary><dl><div><dt>Delivery ID</dt><dd>{delivery.id}</dd></div><div><dt>Endpoint ID</dt><dd>{delivery.endpoint_id}</dd></div><div><dt>Event</dt><dd>{delivery.event_type}</dd></div>{endpoint && <div><dt>Current endpoint URL</dt><dd>{endpoint.url}</dd></div>}{delivery.response_status != null && <div><dt>HTTP response</dt><dd>{delivery.response_status}</dd></div>}{delivery.last_error_code && <div><dt>Failure</dt><dd>{delivery.last_error_code}</dd></div>}{delivery.last_attempt_at && <div><dt>Last attempt</dt><dd>{formatDateTime(delivery.last_attempt_at)}</dd></div>}{delivery.next_attempt_at && <div><dt>Next attempt</dt><dd>{formatDateTime(delivery.next_attempt_at)}</dd></div>}{delivery.delivered_at && <div><dt>Delivered</dt><dd>{formatDateTime(delivery.delivered_at)}</dd></div>}</dl>{delivery.last_error_code && <button className="button ghost compact" type="button" onClick={() => void copy(`Delivery ${delivery.id}\nEndpoint ${delivery.endpoint_id}\nEvent ${delivery.event_type}\nHTTP ${delivery.response_status ?? "none"}\nError ${delivery.last_error_code}`)}>Copy failure details</button>}</details>
           </div>
-          <span className={`status-pill ${delivery.status === "delivered" ? "success" : "neutral"}`}>{delivery.status.replaceAll("_", " ")}</span>
+          <span className={`status-pill ${delivery.status === "delivered" ? "success" : ["failed", "dead_letter"].includes(delivery.status) ? "danger" : "warning"}`}>{delivery.status.replaceAll("_", " ")}</span>
           {["failed", "dead_letter"].includes(delivery.status) && <button className="button ghost compact" type="button" disabled={Boolean(busy) || endpoint?.status === "disabled"} title={endpoint?.status === "disabled" ? "Enable the endpoint before replaying" : undefined} onClick={() => void replay(delivery)}>Replay</button>}
         </li>;
       })}</ul>}

@@ -5,6 +5,9 @@ const routeLabels: Record<string, string> = {
   "/": "Instant room",
   "/app": "Inbox",
   "/app/calls": "Calls",
+  "/app/meetings": "Meetings",
+  "/app/artifacts": "Recordings and transcripts",
+  "/app/saved": "Saved items",
   "/app/calls/phone": "Phone",
   "/app/directory": "Directory",
   "/app/files": "Files",
@@ -22,16 +25,18 @@ const routeLabels: Record<string, string> = {
 
 const adminSectionLabels: Record<string, string> = {
   workspace: "Workspace",
+  domains: "Domains",
   phone: "Phone",
   people: "People",
   safety: "Safety",
   integrations: "Integrations",
   audit: "Audit",
-  governance: "Governance"
+  governance: "Governance",
+  usage: "Usage"
 };
 
 function isRendered(element: HTMLElement): boolean {
-  if (element.closest("[hidden], [aria-hidden='true']")) return false;
+  if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
   const style = window.getComputedStyle(element);
   if (style.display === "none" || style.visibility === "hidden") return false;
   return (
@@ -40,9 +45,13 @@ function isRendered(element: HTMLElement): boolean {
   );
 }
 
+function renderedMain(): HTMLElement | null {
+  return [...document.querySelectorAll<HTMLElement>("main#main-content, main")].find(isRendered) ?? null;
+}
+
 function routeDestination(): HTMLElement | null {
-  const main = document.querySelector<HTMLElement>("main#main-content, main");
-  if (!main) return null;
+  const main = renderedMain();
+  if (!main) return [...document.querySelectorAll<HTMLElement>("[data-route-focus]")].find(isRendered) ?? null;
   const explicit = [
     ...main.querySelectorAll<HTMLElement>("[data-route-focus]")
   ].find(isRendered);
@@ -114,7 +123,7 @@ export function RouteOrientation({ authenticated = true }: { authenticated?: boo
     let observer: MutationObserver | null = null;
     let fallbackTimer: number | null = null;
     const frame = window.requestAnimationFrame(() => {
-      const main = document.querySelector<HTMLElement>("main#main-content, main");
+      const main = renderedMain();
       const activeElement = document.activeElement;
       const id = fragmentId(location.hash);
 

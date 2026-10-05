@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { conversationTitle, errorText, formatDateTime } from "../../lib/format";
 import {
   conversationParticipantIdentifier,
@@ -151,14 +152,7 @@ export function CallsPage() {
 
   return (
     <main className="page-shell calls-page" id="main-content">
-      <header className="page-heading calls-page-heading">
-        <div className="calls-page-title-lockup">
-          <div>
-            <h1>Calls</h1>
-            <p>Your conversations, together in real time.</p>
-          </div>
-        </div>
-        <div className="calls-page-actions">
+      <SurfaceHeader title="Calls" description="Start a conversation call or return to a recent session." actions={<div className="calls-page-actions">
           <button className="button primary calls-start-action" type="button" onClick={() => {
             setLauncherPreference(true);
             launcherSearchRef.current?.focus();
@@ -186,13 +180,13 @@ export function CallsPage() {
             <AppIcon name="refresh" />
             <span>{loading ? "Refreshing…" : "Refresh"}</span>
           </button>
-        </div>
-      </header>
+        </div>} />
 
       <nav className="calls-destination-tabs" aria-label="Calling destinations">
-        <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Meetings</Link>
+        <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Conversation calls</Link>
         <Link to="/app/meetings"><AppIcon name="clock" />Calendar</Link>
         <Link to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
+        <Link to="/app/artifacts"><AppIcon name="file" />Recordings</Link>
       </nav>
 
       <div className="calls-workspace">

@@ -7,6 +7,7 @@ import type { Session } from "../../types";
 import type { SessionUpdate } from "../../app/session";
 import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 import { SettingsPage } from "./SettingsPage";
+import * as profilePreferences from "./EnterpriseProfileSettings";
 import { resetCallControlPreferencesForTest } from "../experience/call-control-preferences";
 
 const harness = vi.hoisted(() => {
@@ -83,6 +84,7 @@ function LocationProbe() {
 
 describe("profile settings", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     window.localStorage.clear();
     // The preference snapshot is memoized for identity stability, so tests
@@ -151,6 +153,80 @@ describe("profile settings", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Display name"))
       .toHaveValue("Reviewed in another browser"));
+  });
+
+  it("groups name, avatar and timezone in one profile form and saves an edited timezone with the name", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    const profile = document.getElementById("profile-settings")!;
+    expect(profile).toContainElement(screen.getByLabelText("Display name"));
+    expect(profile).toContainElement(screen.getByLabelText("Avatar image", { exact: true }));
+    expect(profile).toContainElement(screen.getByLabelText("Time zone", { exact: true }));
+    expect(screen.queryByRole("button", { name: "Save avatar and timezone" })).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Time zone", { exact: true }));
+    await user.type(screen.getByLabelText("Time zone", { exact: true }), "Asia/Kolkata");
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile).toHaveBeenCalledWith({ display_name: "Original Name", timezone: "Asia/Kolkata" }));
+  });
+
+  it("keeps a pending timezone edit across same-identity refreshes and clears it on identity change", async () => {
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    await user.clear(screen.getByLabelText("Time zone", { exact: true }));
+    await user.type(screen.getByLabelText("Time zone", { exact: true }), "Europe/London");
+    harness.currentSession = { ...harness.initialSession, user: { ...harness.initialSession.user, timezone: "Asia/Tokyo" } };
+    view.rerender(<SettingsPage />);
+    expect(screen.getByLabelText("Time zone", { exact: true })).toHaveValue("Europe/London");
+    harness.currentSession = { ...harness.initialSession, user: { ...harness.initialSession.user, id: "user-2", timezone: "America/New_York" } };
+    view.rerender(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Time zone", { exact: true })).toHaveValue("America/New_York"));
+  });
+
+  it("removes an existing avatar through the same profile save without sending an unchanged timezone", async () => {
+    harness.currentSession = { ...harness.initialSession, user: { ...harness.initialSession.user, avatar_url: "data:image/png;base64,c2FtcGxl" } };
+    const user = userEvent.setup(); render(<SettingsPage />);
+    await user.click(screen.getByLabelText("Remove avatar"));
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile).toHaveBeenCalledWith({ display_name: "Original Name", avatar_url: null }));
+  });
+
+  it("does not send an avatar save to a different actor after image conversion finishes", async () => {
+    const image = deferred<string>();
+    const conversion = vi.spyOn(profilePreferences, "avatarData").mockReturnValueOnce(image.promise);
+    const user = userEvent.setup(); const view = render(<SettingsPage />);
+    const file = new File(["sample"], "avatar.png", { type: "image/png" });
+    await user.upload(screen.getByLabelText("Avatar image", { exact: true }), file);
+    // jsdom's form serialization does not retain the synthetic uploaded File.
+    const readField = FormData.prototype.get;
+    const serializedFile = vi.spyOn(FormData.prototype, "get").mockImplementation(function(this: FormData, name) {
+      return name === "avatar" ? file : readField.call(this, name);
+    });
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(conversion).toHaveBeenCalledOnce());
+    harness.currentSession = { ...harness.initialSession, user: { ...harness.initialSession.user, id: "user-2" } };
+    view.rerender(<SettingsPage />);
+    image.resolve("data:image/png;base64,c2FtcGxl");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled());
+    expect(harness.api.updateProfile).not.toHaveBeenCalled();
+    conversion.mockRestore();
+    serializedFile.mockRestore();
+  });
+
+  it("preserves a newer timezone edit when an earlier combined profile save finishes", async () => {
+    const pending = deferred<Session["user"]>();
+    harness.api.updateProfile.mockReturnValueOnce(pending.promise);
+    const user = userEvent.setup(); render(<SettingsPage />);
+    await user.clear(screen.getByLabelText("Time zone", { exact: true }));
+    await user.type(screen.getByLabelText("Time zone", { exact: true }), "Europe/London");
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile).toHaveBeenCalledOnce());
+    await user.clear(screen.getByLabelText("Time zone", { exact: true }));
+    await user.type(screen.getByLabelText("Time zone", { exact: true }), "Asia/Tokyo");
+    pending.resolve({ ...harness.initialSession.user, timezone: "Europe/London" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile updated."));
+    expect(screen.getByLabelText("Time zone", { exact: true })).toHaveValue("Asia/Tokyo");
   });
 
   it("preserves a pending profile edit when the same actor receives fresh profile and role data", async () => {

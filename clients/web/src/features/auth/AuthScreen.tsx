@@ -4,6 +4,7 @@ import type { FormEvent, InputHTMLAttributes } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import type { BootstrapInput, LoginInput } from "../../api";
 import { Field } from "../../components/Field";
+import { AppIcon } from "../../components/AppIcon";
 import { browserName, errorText, stringValue } from "../../lib/format";
 import {
   readRememberedWorkspaceSlug,
@@ -14,6 +15,7 @@ import { authenticationReturnState } from "../../app/authNavigation";
 import type { MfaChallenge } from "../../types/enterpriseIdentity";
 import { MfaSignInForm } from "./MfaSignInForm";
 import { WorkspaceDiscovery } from "./WorkspaceDiscovery";
+import "./AuthScreen.css";
 
 type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
@@ -301,14 +303,13 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
       </span>
       <section className="auth-panel" aria-labelledby="auth-heading">
         <div className="auth-card">
-          <span className="eyebrow">{eyebrow}</span>
-          <h2 id="auth-heading" data-route-focus>{heading}</h2>
-          <p className="muted">{description}</p>
-
-          <Link className="auth-instant-room-cta" to="/">
-            <strong>Start an instant room</strong>
-            <span>No account needed</span>
+          <Link className="auth-brand" to="/" aria-label="K-Comms home">
+            <AppIcon name="messages" />
+            <span>K-Comms</span>
           </Link>
+          <span className="eyebrow">{eyebrow}</span>
+          <h1 id="auth-heading" data-route-focus>{heading}</h1>
+          <p className="muted">{description}</p>
           {accountActionsUnavailable && (
             <div
               className="transport-warning"
@@ -389,6 +390,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                   >
                     {busy ? "Signing in…" : "Sign in"}
                   </button>
+                  <p className="auth-method-divider">Or use your organization’s account</p>
                   <button type="button" className="button secondary full" disabled={busy || accountActionsUnavailable} onClick={() => void corporateSignIn()}>Corporate sign in</button>
                 </div>
               </form>
@@ -581,6 +583,10 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           )}
+          <Link className="auth-instant-room-cta" to="/">
+            <strong>Start an instant room</strong>
+            <span>No account needed</span>
+          </Link>
         </div>
       </section>
     </>

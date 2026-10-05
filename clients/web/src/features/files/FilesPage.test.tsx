@@ -117,7 +117,7 @@ describe("FilesPage", () => {
     const row = (await screen.findByText("forecast.xlsx")).closest("li");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("Finance review")).toBeVisible();
-    expect(within(row as HTMLElement).getByText(/Shared by Katherine Johnson/)).toBeVisible();
+    expect(within(row as HTMLElement).getByTitle("Katherine Johnson")).toHaveTextContent("Shared by Katherine Johnson");
     expect(within(row as HTMLElement).getByText("Available")).toBeVisible();
     expect(within(row as HTMLElement).getByRole("link", { name: "View source message for forecast.xlsx" })).toHaveAttribute(
       "href",

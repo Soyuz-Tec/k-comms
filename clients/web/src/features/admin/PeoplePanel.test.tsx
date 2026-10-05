@@ -63,6 +63,17 @@ describe("PeoplePanel", () => {
     sessionApi.stepUp.mockReset().mockResolvedValue({ step_up_at: "2026-07-14T12:00:00Z" });
   });
 
+  it("opens the invitation workflow for its explicit onboarding deep link", async () => {
+    const originalUrl = window.location.href;
+    try {
+      window.history.replaceState({}, "", "/admin?section=people#admin-invitations");
+      renderPanel({ invitations: vi.fn().mockResolvedValue([]) });
+      await screen.findByText("No invitations match this search.");
+      expect(screen.getByLabelText("Email")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Create invitation" })).toBeVisible();
+    } finally { window.history.replaceState({}, "", originalUrl); }
+  });
+
   it("gives invitation-load errors a descriptive dismiss control", async () => {
     const user = userEvent.setup();
     renderPanel({ invitations: vi.fn().mockRejectedValue(new Error("Invitations unavailable")) });
@@ -79,6 +90,7 @@ describe("PeoplePanel", () => {
     const user = userEvent.setup();
     renderPanel({ invitations, createInvitation });
 
+    await user.click(screen.getByText("Invite person"));
     await user.type(screen.getByLabelText("Email"), "new.member@example.test");
     await user.click(screen.getByRole("button", { name: "Create invitation" }));
 

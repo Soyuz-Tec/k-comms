@@ -12,6 +12,41 @@ function api(response: MeetingArtifactPage): MeetingArtifactsApi {
 }
 
 describe("meeting artifacts", () => {
+  it("filters saved content without fetching it or hiding active recording consent", async () => {
+    const transcript = { ...recording, id: "transcript-1", kind: "transcript" as const, status: "available" as const };
+    const client = api(page([recording, transcript]));
+    render(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" joined canManage />);
+    const filter = await screen.findByLabelText("Show saved content");
+    fireEvent.change(filter, { target: { value: "recording" } });
+    expect(screen.getByText("No saved content matches this type.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "I consent to recording and transcription" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start recording" })).toBeDisabled();
+    expect(client.artifactTranscript).not.toHaveBeenCalled();
+    expect(client.artifactPlayback).not.toHaveBeenCalled();
+  });
+
+  it("treats deleted artifacts as an empty saved-content list", async () => {
+    render(<MeetingArtifactsPanel api={api(page([{ ...recording, status: "deleted" }]))} conversationId="conversation-1" callId="call-1" />);
+    expect(await screen.findByText("No saved artifacts for this call.")).toBeVisible();
+    expect(screen.queryByLabelText("Show saved content")).not.toBeInTheDocument();
+  });
+
+  it("resets a saved-type filter and focuses a changed exact artifact link in the same call", async () => {
+    const savedRecording = { ...recording, status: "available" as const };
+    const transcript = { ...savedRecording, id: "transcript-1", kind: "transcript" as const };
+    const client = api(page([savedRecording, transcript]));
+    const view = render(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" artifactId={savedRecording.id} />);
+    const filter = await screen.findByLabelText("Show saved content");
+    fireEvent.change(filter, { target: { value: "recording" } });
+    expect(screen.queryByRole("button", { name: "Read transcript" })).not.toBeInTheDocument();
+    view.rerender(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" artifactId={transcript.id} />);
+    await waitFor(() => expect(screen.getByLabelText("Show saved content")).toHaveValue("all"));
+    await waitFor(() => expect(view.container.querySelector("li[data-selected='true']")).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Read transcript" })).toBeVisible();
+    expect(client.artifactTranscript).not.toHaveBeenCalled();
+    expect(client.artifactPlayback).not.toHaveBeenCalled();
+  });
+
   it("defaults captions and recording off, and explains the real provider gates", async () => {
     const client = api(page([], false));
     render(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" joined canManage />);

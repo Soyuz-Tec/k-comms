@@ -63,7 +63,9 @@ export function WorkspaceSwitcher({ session, conversations, onClose }: {
   }, [session.user.platform_role_expires_at]);
   const options = workspaceDestinations(session, conversations);
   const matches = options.filter(({ label, detail }) => `${label} ${detail}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  const visible = matches.slice(0, 12);
+  // Reserve space for workspace areas, role tools, and several conversations.
+  const resultLimit = 20;
+  const visible = matches.slice(0, resultLimit);
   const active = Math.min(activeIndex, visible.length - 1);
   useEffect(() => {
     document.getElementById(`${id}-option-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -121,7 +123,7 @@ export function WorkspaceSwitcher({ session, conversations, onClose }: {
           }}><AppIcon name="users" />Find a person in Directory</button>
         </div>
         <footer>
-          <span role="status">{matches.length === 0 ? "No matching destination. Try another name." : matches.length > 12 ? `${matches.length} matches · keep typing to narrow results` : `${matches.length} destinations`}</span>
+          <span role="status">{matches.length === 0 ? "No matching destination. Try another name." : matches.length > resultLimit ? `${matches.length} matches · keep typing to narrow results` : `${matches.length} destinations`}</span>
           <span className="workspace-switcher-hint">Arrow keys to choose · Enter to open · Esc to close</span>
         </footer>
       </section>

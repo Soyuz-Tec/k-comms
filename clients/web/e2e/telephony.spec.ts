@@ -158,6 +158,7 @@ test("an administrator provisions a phone line only after step-up, preserving th
     return route.fulfill({ json: { data: { step_up_at: "2026-10-03T12:00:00Z" } } });
   });
   await page.goto("/admin?section=phone");
+  await page.getByRole("tab", { name: "Numbers", exact: true }).click();
   await page.getByLabel("Phone number").fill(number.phone_number);
   await page.getByLabel("Extension", { exact: true }).fill(number.extension);
   await page.getByLabel("Assigned member").selectOption(userId);
@@ -173,6 +174,7 @@ test("an administrator provisions a phone line only after step-up, preserving th
   expect(saves).toBe(2);
   expect(submitted).toEqual({ phone_number: number.phone_number, extension: number.extension, user_id: userId, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "Synthetic phone pilot", version: 0 });
   await page.reload();
+  await page.getByRole("tab", { name: "Numbers", exact: true }).click();
   await expect(page.getByLabel("Phone number")).toHaveValue(number.phone_number);
   await expect(page.getByLabel("Extension", { exact: true })).toHaveValue(number.extension);
   await expect(page.getByLabel("Assigned member")).toHaveValue(userId);

@@ -49,6 +49,10 @@ describe("Phone page", () => {
     expect(await screen.findByText("Incoming · Missed")).toBeVisible();
     expect(screen.getByRole("button", { name: "Call number" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Review phone setup" })).toHaveAttribute("href", "/admin?section=phone");
+    if (!readiness.enabled) {
+      expect(screen.getByText(/Review line assignments in Phone administration/)).toBeVisible();
+      expect(screen.queryByText(/line assignment below/)).not.toBeInTheDocument();
+    }
     await userEvent.setup().click(screen.getByRole("button", { name: "Refresh phone calls" }));
     await waitFor(() => expect(harness.calls).toHaveBeenCalledTimes(2));
     expect(harness.dial).not.toHaveBeenCalled();
@@ -102,6 +106,7 @@ describe("Phone page", () => {
     expect(screen.getByLabelText("Phone number")).toHaveValue("+14");
     await user.click(screen.getByRole("button", { name: "Delete last digit" }));
     expect(screen.getByLabelText("Phone number")).toHaveValue("+1");
+    await user.click(screen.getByText("About this keypad"));
     expect(screen.getByText(/does not send tones during a call/)).toBeVisible();
     expect(harness.dial).not.toHaveBeenCalled();
   });

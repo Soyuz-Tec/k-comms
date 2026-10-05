@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
@@ -55,7 +55,7 @@ describe("YouPage", () => {
     expect(screen.queryByRole("link", { name: /People & invitations/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Safety review/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Workspace administration/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Role tools" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Administration and operations" })).not.toBeInTheDocument();
   });
 
   it("keeps role tools out of the member profile", () => {
@@ -66,7 +66,7 @@ describe("YouPage", () => {
     render(<MemoryRouter><YouPage /></MemoryRouter>);
 
     expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
-    expect(screen.queryByRole("navigation", { name: "Role tools" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Administration and operations" })).not.toBeInTheDocument();
     const sections = screen.getByRole("navigation", { name: "Profile and settings sections" });
     expect(
       screen.getByRole("heading", { name: "You" }).compareDocumentPosition(sections)
@@ -81,6 +81,10 @@ describe("YouPage", () => {
     expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
     expect(workspace).toContainElement(screen.getByRole("link", { name: "Saved items" }));
     expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
+    expect(workspace).toContainElement(screen.getByRole("link", { name: "Shared documents" }));
+    expect(within(workspace).getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+    expect(within(workspace).getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
+    expect(within(workspace).getByRole("link", { name: "Private rooms" })).toHaveAttribute("href", "/app/private");
   });
 
   it("provides direct role-gated people, safety and operations entries", () => {
@@ -106,5 +110,9 @@ describe("YouPage", () => {
       "href",
       "/ops"
     );
+    const administration = screen.getByRole("navigation", { name: "Administration and operations" });
+    expect(within(administration).getByRole("link", { name: "Workspace administration" })).toBeVisible();
+    expect(within(administration).queryByRole("link", { name: "Whiteboard" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Workspace" })).queryByRole("link", { name: "Workspace administration" })).not.toBeInTheDocument();
   });
 });

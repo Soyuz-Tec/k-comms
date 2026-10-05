@@ -4,6 +4,7 @@ import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
 import { AvatarBadge } from "../../components/AvatarBadge";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { conversationTitle, errorText } from "../../lib/format";
 import {
   duplicateParticipantNames,
@@ -282,11 +283,7 @@ export function DirectoryPage() {
 
   return (
     <main className="directory-page member-page" id="main-content">
-      <header className="member-page-heading">
-        <div>
-          <h1>Directory</h1>
-        </div>
-      </header>
+      <SurfaceHeader title="Directory" description="Find people and rooms, or organize your private contacts and groups." className="member-page-heading" />
 
       {callGuidance && (
         <p className="call-availability-guidance" id="directory-call-availability" role="status">

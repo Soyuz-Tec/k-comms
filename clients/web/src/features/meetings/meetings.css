@@ -4,6 +4,11 @@
 .meetings-toolbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
 .meetings-toolbar .field { margin: 0; }
 .meetings-toolbar > span { color: var(--text-muted); font-size: .85rem; }
+.meetings-next { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-inline-start: 3px solid var(--accent-solid); }
+.meetings-next h2 { font-size: var(--text-sm); color: var(--text-muted); margin: 0 0 .5rem; }
+.meetings-next strong { font-size: var(--text-lg); }
+.meetings-next p { font-size: var(--text-sm); color: var(--text-muted); margin: .5rem 0 0; }
+.meetings-next-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
 .meetings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .75rem; }
 .meeting-row { border: 1px solid var(--border-default); border-radius: 1rem; padding: 1.2rem; display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; background: var(--surface-raised); }
 .meeting-row h2 { font-size: 1rem; margin: 0 0 .5rem; }
@@ -11,13 +16,15 @@
 .meeting-policy, .meeting-status { color: var(--text-muted); font-size: .8rem; }
 .meeting-row.cancelled h2, .meetings-calendar-day .cancelled { text-decoration: line-through; }
 .meeting-row[aria-current="true"] { outline: 2px solid var(--focus-color, #526ac8); outline-offset: .2rem; }
+.meeting-row.is-next { border-color: var(--accent-border); }
+.meeting-row:focus-visible { outline: 2px solid var(--accent-text); outline-offset: .2rem; }
 .meeting-row-actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; max-width: 24rem; }
 .meetings-day-heading { display: flex; align-items: center; gap: 1rem; justify-content: space-between; }
 .meetings-day-heading h2 { font-size: 1rem; }
 .meetings-calendar { border: 1px solid var(--border-default); border-radius: .75rem; overflow: hidden; }
 .meetings-calendar-weekdays, .meetings-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .meetings-calendar-weekdays span { text-align: center; padding: .5rem; font-size: .8rem; color: var(--text-muted); }
-.meetings-calendar-day, .meetings-calendar-blank { min-height: 7rem; border: 1px solid var(--border-default); border-radius: 0; padding: .5rem; }
+.meetings-calendar-day, .meetings-calendar-blank { min-height: 5rem; border: 1px solid var(--border-default); border-radius: 0; padding: .5rem; }
 .meetings-calendar-day { display: flex; align-items: flex-start; flex-direction: column; gap: .4rem; background: var(--surface-raised); color: inherit; text-align: left; overflow: hidden; }
 .meetings-calendar-day[aria-pressed="true"] { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 .meetings-calendar-day span { font-size: .75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
@@ -30,7 +37,7 @@
 .meeting-form-help, .meeting-editor small { color: var(--text-muted); font-size: .8rem; margin: 0; }
 .meeting-checkbox { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
 @media (max-width: 720px) {
-  .meetings-page .member-page-heading, .meeting-row { flex-direction: column; align-items: stretch; }
+  .meetings-page .member-page-heading, .meeting-row, .meetings-next { flex-direction: column; align-items: stretch; }
   .meeting-row-actions { justify-content: flex-start; max-width: none; }
   .meetings-calendar-day, .meetings-calendar-blank { min-height: 5rem; padding: .25rem; }
   .meetings-calendar-day span { font-size: .65rem; }

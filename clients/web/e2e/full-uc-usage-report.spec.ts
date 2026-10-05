@@ -37,7 +37,11 @@ for (const variant of [{ width: 390, colorScheme: "dark" as const }, { width: 10
     await initialVerification.getByLabel("Current password").fill("synthetic-current-password");
     await initialVerification.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("region", { name: "Accounts usage" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Attachments usage" })).toContainText("Source unavailable");
+    await expect(page.getByText("4 of 6 sources reported")).toBeVisible();
+    const attachments = page.getByRole("region", { name: "Attachments usage" });
+    await expect(attachments).toContainText("Source unavailable");
+    await expect(attachments).toContainText("Current totals and daily metrics are unknown.");
+    await expect(attachments.getByText("0", { exact: true })).toHaveCount(0);
     const calls = page.getByRole("region", { name: "Meeting calls usage" });
     await calls.getByText("Daily retained records for meeting calls").click();
     await calls.getByLabel("Daily meeting calls metric").selectOption("observed_room_seconds");

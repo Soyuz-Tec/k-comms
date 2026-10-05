@@ -10,7 +10,7 @@ export function SetupGuide({ controller, settings = false }: { controller: Works
   if (!data) return <div className="member-setup-guide">
     {loading ? <p role="status">Loading setup progress…</p> : <>
       <p role="alert">{error || "Setup progress could not be synchronized."}</p>
-      <button type="button" onClick={() => void refresh()}>Retry setup progress</button>
+      <button className="button ghost compact" type="button" onClick={() => void refresh()}>Retry setup progress</button>
     </>}
   </div>;
   if (data.onboarding.dismissed_at && !settings && !error) return null;
@@ -18,11 +18,11 @@ export function SetupGuide({ controller, settings = false }: { controller: Works
   return <section className="member-setup-guide" aria-label="Setup guide">
     {error && <div className="inline-notice error" role="alert">
       <p>{error}</p>
-      {pendingOnboarding && <button type="button" disabled={busy} onClick={() => void onboarding(pendingOnboarding)}>Retry setup change</button>}
+      {pendingOnboarding && <button className="button ghost compact" type="button" disabled={busy} onClick={() => void onboarding(pendingOnboarding)}>Retry setup change</button>}
     </div>}
     {data.onboarding.dismissed_at ? <>
       <p>Setup is hidden across your signed-in browsers.</p>
-      <button type="button" disabled={busy} onClick={() => void onboarding("resume")}>{busy ? "Synchronizing…" : "Resume setup"}</button>
+      <button className="button ghost compact" type="button" disabled={busy} onClick={() => void onboarding("resume")}>{busy ? "Synchronizing…" : "Resume setup"}</button>
     </> : <details open={settings || undefined}>
       <summary>Setup guide <span>{profileReviewed ? "Profile reviewed" : "Review your profile"}</span></summary>
       <ul>
@@ -33,8 +33,8 @@ export function SetupGuide({ controller, settings = false }: { controller: Works
         <li><Link to="/app/you?section=notifications">Set up notifications</Link><span>Browser notification permission requires your explicit choice.</span></li>
       </ul>
       <div className="member-workspace-actions">
-        <button type="button" disabled={busy} onClick={() => void onboarding("dismiss")}>Hide for now</button>
-        {settings && <button type="button" disabled={busy} onClick={() => void onboarding("reset")}>Reset setup review</button>}
+        <button className="button ghost compact" type="button" disabled={busy} onClick={() => void onboarding("dismiss")}>Hide for now</button>
+        {settings && <button className="button ghost compact" type="button" disabled={busy} onClick={() => void onboarding("reset")}>Reset setup review</button>}
       </div>
     </details>}
   </section>;

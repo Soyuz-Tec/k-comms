@@ -968,22 +968,7 @@
     padding-bottom: var(--mobile-nav-total);
   }
 
-  /*
-   * Personal settings retain their own section heading. Other destinations
-   * keep a compact local title so their controls have context above the fold.
-   */
-  .you-page > .page-shell > .page-heading {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    margin: 0;
-    padding: 0;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    clip-path: inset(50%);
-  }
-
+  /* Each destination keeps its local title above its controls. */
   .conversation-sidebar .sidebar-heading-title {
     margin-right: auto;
     font-size: 1.1rem;
@@ -1577,14 +1562,8 @@
     font-weight: 500;
   }
 
-  /*
-   * Six destinations do not need three category headings. COMMUNICATE /
-   * COLLABORATE / PERSONAL cost three rows of tracked-out caps to group two,
-   * three and one item; the hairline above "You" carries the only division
-   * that earns its place. The labels stay in the accessibility tree because
-   * each one is the aria-labelledby target of its section.
-   */
-  .member-nav-group-label,
+  /* Context labels stay subtle; the twelve workspace destinations have
+     visible group labels below so users can find communication and content. */
   .workspace-identity-copy small,
   .calls-panel-heading .eyebrow,
   .calls-section-heading .eyebrow,
@@ -1614,3 +1593,15 @@
     font-weight: 500;
   }
 }
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .workspace-sidebar .workspace-instant-room { color: var(--accent-text); background: var(--accent-quiet); border-color: var(--accent-border); }
+  .workspace-sidebar .workspace-instant-room:hover { background: var(--accent-quiet-hover); }
+  .workspace-sidebar-nav { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
+  .workspace-sidebar-spacer { flex: 0; }
+  .workspace-sidebar.is-expanded .member-nav-group-label { position: static; width: auto; height: auto; margin: var(--space-3) 0 var(--space-1); padding: 0 var(--space-3); overflow: visible; clip: auto; clip-path: none; white-space: normal; font-size: var(--text-xs); letter-spacing: .04em; }
+  .workspace-sidebar.is-expanded .workspace-sidebar-nav a { min-height: 40px; padding-block: var(--space-2); }
+  .administration-shell .workspace-sidebar.is-expanded .workspace-identity-copy small { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; color: var(--text-secondary); font-size: var(--text-xs); }
+  .administration-destinations { margin-top: var(--space-3); }
+}
+.administration-mobile-context { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--text-secondary); font-size: var(--text-xs); border-bottom: 1px solid var(--border-subtle); }

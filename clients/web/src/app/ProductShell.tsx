@@ -138,6 +138,8 @@ function ProductShellContent() {
   if (!session) return null;
   const showAdmin = canAccessWorkspaceAdmin(session.user);
   const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
+  const administrationMode = (location.pathname === "/admin" && showAdmin)
+    || (location.pathname === "/ops" && showOperations);
   const signOut = () => {
     teardownCall();
     clearMemberInstantRoomContinuity();
@@ -168,7 +170,7 @@ function ProductShellContent() {
     ? "Use compact navigation"
     : "Keep navigation open";
   return (
-    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}`}>
+    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}${administrationMode ? " administration-shell" : ""}`}>
         {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
@@ -238,7 +240,7 @@ function ProductShellContent() {
             <div className="workspace-sidebar-identity" title={session.tenant.name}>
               <span className="workspace-mark" aria-hidden="true">K</span>
               <span className="workspace-identity-copy">
-                <small>Workspace</small>
+                <small>{administrationMode ? "Administration" : "Workspace"}</small>
                 <strong>{session.tenant.name}</strong>
               </span>
             </div>
@@ -266,7 +268,7 @@ function ProductShellContent() {
             onClick={() => setSwitcherOpen(true)}>
             <AppIcon name="search" /><span>Go to…</span><kbd>⌘ / Ctrl K</kbd>
           </button>
-          <button
+          {!administrationMode && <button
             className="workspace-instant-room"
             type="button"
             aria-label="New instant room"
@@ -278,10 +280,14 @@ function ProductShellContent() {
           >
             <AppIcon name="plus" />
             <span>New instant room</span>
-          </button>
-          <nav className="workspace-sidebar-nav" aria-label="Member areas">
+          </button>}
+          {administrationMode ? <nav className="workspace-sidebar-nav administration-destinations" aria-label="Administration navigation">
+            <NavLink to="/app/" end title="Return to workspace"><AppIcon name="arrowLeft" /><span>Return to workspace</span></NavLink>
+            {showAdmin && <NavLink to="/admin"><AppIcon name="settings" /><span>Workspace administration</span></NavLink>}
+            {showOperations && <NavLink to="/ops"><AppIcon name="activity" /><span>Service operations</span></NavLink>}
+          </nav> : <nav className="workspace-sidebar-nav" aria-label="Member areas">
             <MemberAreaLinks variant="grouped" compact={!workspaceSidebarExpanded} />
-          </nav>
+          </nav>}
           <div className="workspace-sidebar-spacer" />
           <div className="workspace-sidebar-notifications">
             <NotificationCenter conversations={conversations} />
@@ -358,6 +364,10 @@ function ProductShellContent() {
             <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button>
           </div>
         )}
+        {administrationMode && !desktopShell && !immersive && <div className="administration-mobile-context">
+          <NavLink className="button ghost compact" to="/app/"><AppIcon name="arrowLeft" />Return to workspace</NavLink>
+          <span>Administration</span>
+        </div>}
         <RouteRecoveryBoundary>
           <Suspense fallback={<main id="main-content" className="route-loading" role="status" aria-busy="true">Loading page…</main>}>
             <Outlet />

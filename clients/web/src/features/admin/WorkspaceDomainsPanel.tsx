@@ -142,10 +142,10 @@ function DomainsContent({ api }: { api: DomainsApi }) {
   }
 
   return <section className="data-card workspace-domains" aria-label="Workspace domain settings">
-    <h2>Workspace domains</h2><p>Verify exact DNS ownership and explicitly opt in to public workspace sign-in hints. This does not enroll people, verify their email, grant workspace access or choose an identity provider.</p>
-    <p>TXT challenges last 30 minutes; verified proof leases last seven days. Each subdomain needs its own claim. Keep your current workspace address available to members when discovery is off or expired.</p>
+    <div className="card-heading"><div><h2>Workspace domains</h2><p>Verify domain ownership and choose whether to show public workspace sign-in hints.</p></div><button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => void load()}>Reload domain inventory</button></div>
+    <p>This does not enroll people, verify their email, grant workspace access or choose an identity provider.</p>
+    <details className="workspace-domain-guide"><summary>Verification and discovery requirements</summary><p>TXT challenges last 30 minutes; verified proof leases last seven days. Each subdomain needs its own claim. Keep your current workspace address available to members when discovery is off or expired.</p></details>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{loading && <p role="status">Loading domain inventory…</p>}
-    <button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => void load()}>Reload domain inventory</button>
     {!denied && <>
       <form className="workspace-domain-create" aria-label="Add workspace domain" onSubmit={(event) => void create(event)} noValidate>
         <label className="field">Domain<input value={domain} maxLength={254} autoCapitalize="none" spellCheck={false} autoComplete="off" disabled={saving} onChange={(event) => setDomain(event.target.value)} placeholder="team.example.org" /></label>
@@ -181,7 +181,7 @@ function DomainsContent({ api }: { api: DomainsApi }) {
       confirmLabel={pending.kind === "verify" ? "Verify current DNS challenge" : pending.kind === "renew" ? "Create new challenge" : pending.kind === "remove" ? "Remove claim" : "Apply discovery setting"}
       tone={pending.kind === "remove" ? "danger" : "default"} busy={saving || loading} error={error}
       onCancel={() => { if (!saving && !loading) { setPending(null); setError(null); } }} onConfirm={() => void confirm()} />}
-    {pending && !selected && !saving && !loading && !denied && <div role="alert"><p>The selected claim is no longer available. Reload current state before choosing another action.</p><button type="button" onClick={() => setPending(null)}>Dismiss unavailable domain action</button></div>}
+    {pending && !selected && !saving && !loading && !denied && <div role="alert"><p>The selected claim is no longer available. Reload current state before choosing another action.</p><button className="button ghost" type="button" onClick={() => setPending(null)}>Dismiss unavailable domain action</button></div>}
   </section>;
 }
 

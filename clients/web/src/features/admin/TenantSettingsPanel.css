@@ -56,6 +56,9 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
 }
+.tenant-settings-form > .card-heading p { margin-bottom: 0; color: var(--text-secondary); font-size: var(--text-sm); }
+.tenant-settings-form .settings-grid { align-items: start; }
+.tenant-settings-form > .form-actions { margin-top: var(--space-3); padding-block: var(--space-3); border-top: 1px solid var(--border-subtle); background: var(--surface-raised); }
 
 @media (max-width: 760px), (max-height: 560px) {
   .workspace-policy-group {

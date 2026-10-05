@@ -54,8 +54,8 @@
 
 .people-session-identifiers summary {
   min-height: 44px;
-  display: flex;
-  align-items: center;
+  display: list-item;
+  align-content: center;
   cursor: pointer;
 }
 

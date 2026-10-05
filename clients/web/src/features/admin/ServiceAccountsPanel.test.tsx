@@ -39,6 +39,7 @@ describe("ServiceAccountsPanel", () => {
     render(<ServiceAccountsPanel api={api} onLifecycleChanged={onLifecycleChanged} />);
 
     await screen.findByText("No service accounts configured.");
+    await user.click(screen.getByText("New service account"));
     await user.type(screen.getByRole("textbox", { name: "Bot name" }), "Release Bot");
     await user.type(screen.getByRole("textbox", { name: "Creation reason" }), "Release automation");
     await user.click(screen.getByRole("button", { name: "Create service account" }));

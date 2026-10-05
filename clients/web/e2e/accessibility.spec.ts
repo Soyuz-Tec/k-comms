@@ -230,7 +230,7 @@ test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
 test("tenant administration satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await openClientRoute(page, "/admin");
-  await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", level: 1, exact: true })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 

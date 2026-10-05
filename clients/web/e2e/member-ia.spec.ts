@@ -70,7 +70,7 @@ test.describe("low-click member information architecture", () => {
           expect(tabColumnCount).toBe(2);
           const [profileBox, toolsBox] = await Promise.all([
             page.locator("#profile-settings").boundingBox(),
-            page.locator(".you-role-shortcuts").boundingBox()
+            page.getByRole("navigation", { name: "Administration and operations" }).boundingBox()
           ]);
           expect(profileBox).not.toBeNull();
           expect(toolsBox).not.toBeNull();
@@ -275,7 +275,7 @@ test.describe("low-click member information architecture", () => {
     actions = 0;
     let workspaceTools = await openYouScreen(page, () => actions += 1);
     await countedClick(workspaceTools.getByRole("link", { name: "Workspace administration" }), () => actions += 1);
-    await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
     expect(actions).toBe(2);
     expect(actions).toBeLessThanOrEqual(2);
 
@@ -304,6 +304,8 @@ test.describe("low-click member information architecture", () => {
     await expect(invitationHeading).toBeVisible();
     await expect(invitationHeading).toBeFocused();
     await expectInViewport(invitationHeading);
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create invitation" })).toBeVisible();
     expect(actions).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
@@ -680,7 +682,7 @@ async function openYouScreen(page: Page, count: () => void) {
     page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }),
     count
   );
-  const workspaceTools = page.getByRole("navigation", { name: "Workspace" });
+  const workspaceTools = page.getByRole("navigation", { name: "Administration and operations" });
   await expect(workspaceTools).toBeVisible();
   return workspaceTools;
 }
