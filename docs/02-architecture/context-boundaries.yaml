@@ -11,8 +11,8 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: add-shared-document-owner-contracts
-    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
+  - id: compose-shared-document-owner-contracts
+    previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
     - context:collaboration:internal_namespaces:add:CommsCore.SharedDocuments
     - context:collaboration:public_contracts:add:CommsCore.SharedDocuments.DocumentView
@@ -30,7 +30,7 @@ enforcement:
     - table:shared_document_operations:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Operation","owner":"collaboration","role":"source"}
     - table:shared_documents:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Document","owner":"collaboration","role":"source"}
     adr: docs/02-architecture/adr/0101-bounded-server-owned-shared-documents.md
-    removal_condition: Remove this exact ADR-0101 transition after the shared document owner contracts reach the protected branch; it may not authorize later permissions or persistence changes.
+    removal_condition: Remove this exact ADR-0101 transition only after these reviewed shared-document owner contracts reach the protected branch; it may not authorize later manifest or persistence changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
