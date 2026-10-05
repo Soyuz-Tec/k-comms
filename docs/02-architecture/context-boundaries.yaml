@@ -11,13 +11,9 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-history-and-shared-document-owner-contracts
-    previous_manifest_sha256: 965855fcff2f3e2412ac1e2c6d598dfc29f923162a4ddb2f6bf6187808450f10
+  - id: add-shared-document-owner-contracts
+    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
     approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
     - context:collaboration:internal_namespaces:add:CommsCore.SharedDocuments
     - context:collaboration:public_contracts:add:CommsCore.SharedDocuments.DocumentView
     - context:collaboration:public_contracts:add:CommsCore.SharedDocuments.ErasureReceipt
@@ -28,36 +24,13 @@ enforcement:
     - context:collaboration:public_contracts:add:CommsCore.SharedDocuments.SummaryView
     - context:collaboration:public_facades:add:CommsCore.SharedDocuments
     - context:collaboration:publishes:add:collaboration.document_operation_applied.v1
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->cb4c88a924e82f84b2da2df8ce83c5ca80f6012474f75b83b5154ffadcffade3
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->cb4c88a924e82f84b2da2df8ce83c5ca80f6012474f75b83b5154ffadcffade3
     - runtime_collaborations:shared-document-governance-protection:add:{"binding":{"application":"comms_core","key":"shared_document_protection_adapter","module":"CommsCore.Governance.DocumentProtection"},"callers":["CommsCore.SharedDocuments.Authority"],"condition":"ADR-0101 retains Governance tenant protection first; the exact Collaboration projection denies pending author/conversation erasure and blocks held erasure without foreign schema or Repo access. Authority is the sole port caller.","consumer":"collaboration","graph_semantics":{"compile_dependency":"trust_governance_to_collaboration","control_flow":"collaboration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"shared-document-governance-protection","implementation":"CommsCore.Governance.DocumentProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.SharedDocuments.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.SharedDocuments.Protection","transaction":"required"}
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
     - table:shared_document_operations:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Operation","owner":"collaboration","role":"source"}
     - table:shared_documents:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Document","owner":"collaboration","role":"source"}
     adr: docs/02-architecture/adr/0101-bounded-server-owned-shared-documents.md
-    removal_condition: Remove this exact ADR-0093 through ADR-0096 and ADR-0101 transition after the member organization and administrative
-      evidence composition from qualified immutable first parent e7d85225b875a83d071f10c27a5e3e7f2675540e reaches the protected
-      branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
+    removal_condition: Remove this exact ADR-0101 transition after the shared document owner contracts reach the protected branch; it may not authorize later permissions or persistence changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
