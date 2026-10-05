@@ -18,6 +18,12 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :authenticated_export_api do
+    plug(:accepts, ["csv", "json"])
+    plug(CommsWeb.Plugs.Authenticate)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -470,7 +476,6 @@ defmodule CommsWeb.Router do
     get("/admin/tenant", AdminTenantController, :show)
     patch("/admin/tenant", AdminTenantController, :update)
     get("/admin/usage", UsageReportController, :index)
-    get("/admin/usage/export", UsageReportController, :export)
     get("/admin/role-permissions", RolePermissionController, :index)
     post("/admin/users/:id/role-preview", RolePermissionController, :preview)
     get("/admin/users", AdminUserController, :index)
@@ -481,7 +486,6 @@ defmodule CommsWeb.Router do
     post("/admin/invitations", InvitationController, :create)
     post("/admin/invitations/:id/revoke", InvitationController, :revoke)
     get("/admin/audit-events", AuditController, :index)
-    post("/admin/audit-events/export", AuditExportController, :create)
     get("/admin/webhooks", WebhookEndpointController, :index)
     post("/admin/webhooks", WebhookEndpointController, :create)
     get("/admin/webhooks/:id", WebhookEndpointController, :show)
@@ -512,11 +516,18 @@ defmodule CommsWeb.Router do
     post("/admin/deletion-requests", DeletionRequestController, :create)
     patch("/admin/deletion-requests/:id", DeletionRequestController, :update)
     get("/admin/deletion-requests/:id/timeline", DeletionRequestHistoryController, :index)
-    get("/admin/deletion-requests/:id/timeline/export", DeletionRequestHistoryController, :export)
 
     get("/ops", OpsController, :show)
     post("/ops/retry", OpsController, :retry)
     get("/platform/ops", OpsController, :platform)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:authenticated_export_api)
+
+    get("/admin/usage/export", UsageReportController, :export)
+    post("/admin/audit-events/export", AuditExportController, :create)
+    get("/admin/deletion-requests/:id/timeline/export", DeletionRequestHistoryController, :export)
   end
 
   scope "/api/v1", CommsWeb do

@@ -55,6 +55,7 @@ defmodule CommsWeb.DeletionRequestHistoryControllerTest do
 
     conn =
       auth(ctx.token)
+      |> put_req_header("accept", "text/csv")
       |> get(
         "/api/v1/admin/deletion-requests/#{ctx.request.id}/timeline/export",
         %{snapshot: timeline["snapshot"]}
