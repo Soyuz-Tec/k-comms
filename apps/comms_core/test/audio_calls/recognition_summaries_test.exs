@@ -220,7 +220,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
     Application.put_env(:comms_core, :synthetic_summary_result, :paused)
     Application.put_env(:comms_core, :synthetic_summary_test_pid, self())
     producer = Task.async(fn -> process_summary(view.id) end)
-    assert_receive {:synthetic_summary_effect_started, effect_pid}
+    assert_receive {:synthetic_summary_effect_started, effect_pid}, 1_000
     test_pid = self()
 
     revoker =
@@ -246,7 +246,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
     Application.put_env(:comms_core, :synthetic_summary_result, :paused)
     Application.put_env(:comms_core, :synthetic_summary_test_pid, self())
     producer = Task.async(fn -> process_summary(view.id) end)
-    assert_receive {:synthetic_summary_effect_started, effect_pid}
+    assert_receive {:synthetic_summary_effect_started, effect_pid}, 1_000
     observer = Task.async(fn -> process_summary(view.id) end)
     send(effect_pid, :finish_summary_effect)
     assert {:ok, :summarized} = Task.await(producer, 5_000)
