@@ -11,11 +11,9 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-calendar-administrative-owner-contracts
-    previous_manifest_sha256: 965855fcff2f3e2412ac1e2c6d598dfc29f923162a4ddb2f6bf6187808450f10
+  - id: add-calendar-administrative-owner-contracts
+    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
     approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.AuthorizationReceipt
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.CallbackCommand
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.ConnectionView
@@ -36,56 +34,25 @@ enforcement:
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.SourceContributionQuery
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.SourceContributionReceipt
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.TokenReceipt
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarActorLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarSourceGrant
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarSourceLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerGrant
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerLockQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.CalendarPolicy
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.CalendarPolicyLockQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
     - context:trust_governance:public_facades:add:CommsCore.Governance.CalendarProtection
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->7c39524d5b2343745055a866a9d03c56046550e8a6bab3c7fd9e294fc39d0f65
-    - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
-      acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve managed
-      objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No foreign persistence
-      access is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"calendar-governance-protection","implementation":"CommsCore.Governance.CalendarProtection","operations":[{"arity":1,"name":"protection"}],"port":"CommsCore.AudioCalls.CalendarSync.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.CalendarSync.ProtectionReceipt","transaction":"required"}
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->7c39524d5b2343745055a866a9d03c56046550e8a6bab3c7fd9e294fc39d0f65
+    - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098 acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No foreign persistence access is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"calendar-governance-protection","implementation":"CommsCore.Governance.CalendarProtection","operations":[{"arity":1,"name":"protection"}],"port":"CommsCore.AudioCalls.CalendarSync.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.CalendarSync.ProtectionReceipt","transaction":"required"}
     - table:calendar_connections:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.Connection","owner":"calls","role":"source"}
     - table:calendar_erasure_receipts:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.ErasureReceipt","owner":"calls","role":"source"}
     - table:calendar_event_mappings:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.EventMapping","owner":"calls","role":"source"}
     - table:calendar_exports:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.Export","owner":"calls","role":"source"}
     - table:calendar_oauth_challenges:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.OAuthChallenge","owner":"calls","role":"source"}
     - table:calendar_sync_commands:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.SyncCommand","owner":"calls","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
-    - technical_interfaces:owned-calendar-provider-protocol:add:{"behaviour":"CommsCore.AudioCalls.CalendarSync.ProviderPort","binding":{"application":"comms_core","key":"calendar_provider_adapter","module":"CommsIntegrations.Calendar"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Effects"],"condition":"ADR-0098
-      fixed delegated Google/Microsoft OAuth and owned-event operations use one absolute provider deadline inside an authority-sealed
-      Connection transaction. A durable pre-effect lease survives crashes; no API request supplies endpoints/scopes/provider
-      IDs. Default providers are off and qualification is not claimed.","contracts":["CommsCore.AudioCalls.CalendarSync.ProviderPort","CommsCore.AudioCalls.CalendarSync.ProviderAdapter","CommsCore.AudioCalls.CalendarSync.ProviderCapability","CommsCore.AudioCalls.CalendarSync.OAuthRequest","CommsCore.AudioCalls.CalendarSync.TokenReceipt","CommsCore.AudioCalls.CalendarSync.ExternalIdentityReceipt","CommsCore.AudioCalls.CalendarSync.EventCommand","CommsCore.AudioCalls.CalendarSync.EventReceipt"],"dispatch":"configured","id":"owned-calendar-provider-protocol","implementation":"CommsIntegrations.Calendar","interface":"CommsCore.AudioCalls.CalendarSync.ProviderAdapter","operations":[{"arity":1,"name":"status"},{"arity":4,"name":"authorization_url"},{"arity":1,"name":"token"},{"arity":1,"name":"event"},{"arity":3,"name":"revoke"}],"owner":"calls","transaction":"required"}
-    adr: docs/02-architecture/adr/0093-private-member-organization-and-synchronized-setup.md
-    removal_condition: Remove this exact cumulative ADR-0093 through ADR-0096 and ADR-0098 transition only after the combined
-      source reaches the protected branch; the Member addition remains pending. No later ownership, persistence, facade, callback,
-      namespace or baseline changes are authorized.
+    - technical_interfaces:owned-calendar-provider-protocol:add:{"behaviour":"CommsCore.AudioCalls.CalendarSync.ProviderPort","binding":{"application":"comms_core","key":"calendar_provider_adapter","module":"CommsIntegrations.Calendar"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Effects"],"condition":"ADR-0098 fixed delegated Google/Microsoft OAuth and owned-event operations use one absolute provider deadline inside an authority-sealed Connection transaction. A durable pre-effect lease survives crashes; no API request supplies endpoints/scopes/provider IDs. Default providers are off and qualification is not claimed.","contracts":["CommsCore.AudioCalls.CalendarSync.ProviderPort","CommsCore.AudioCalls.CalendarSync.ProviderAdapter","CommsCore.AudioCalls.CalendarSync.ProviderCapability","CommsCore.AudioCalls.CalendarSync.OAuthRequest","CommsCore.AudioCalls.CalendarSync.TokenReceipt","CommsCore.AudioCalls.CalendarSync.ExternalIdentityReceipt","CommsCore.AudioCalls.CalendarSync.EventCommand","CommsCore.AudioCalls.CalendarSync.EventReceipt"],"dispatch":"configured","id":"owned-calendar-provider-protocol","implementation":"CommsIntegrations.Calendar","interface":"CommsCore.AudioCalls.CalendarSync.ProviderAdapter","operations":[{"arity":1,"name":"status"},{"arity":4,"name":"authorization_url"},{"arity":1,"name":"token"},{"arity":1,"name":"event"},{"arity":3,"name":"revoke"}],"owner":"calls","transaction":"required"}
+    adr: docs/02-architecture/adr/0098-explicit-hosted-calendar-synchronization.md
+    removal_condition: Remove this exact ADR-0098 transition after Calendar owner contracts reach the protected branch; it may not authorize later permissions or persistence changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
