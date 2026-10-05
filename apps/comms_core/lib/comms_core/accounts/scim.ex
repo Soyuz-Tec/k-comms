@@ -512,6 +512,22 @@ defmodule CommsCore.Accounts.Scim do
       set: [consumed_at: Persistence.now()]
     )
 
+    # The SCIM writer already retains canonical admission/Tenant/ordered User
+    # authority. Native credentials and room epochs must be fenced in this
+    # transaction, including when all K sessions were previously revoked.
+    CommsCore.Accounts.MatrixSessions.revoke_sessions(user.tenant_id, ids)
+
+    case CommsCore.Accounts.MatrixEligibilityPort.withdraw_user(
+           %CommsCore.Accounts.MatrixEligibilityCommand{
+             tenant_id: user.tenant_id,
+             user_id: user.id,
+             timestamp: Persistence.now()
+           }
+         ) do
+      {:ok, %CommsCore.Accounts.MatrixEligibilityReceipt{}} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     effects.notify_identity_access_revoked.(
       NotificationCommand.user_access_revoked(user.tenant_id, user.id, "scim_suspended")
     )

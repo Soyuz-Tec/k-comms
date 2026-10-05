@@ -62,7 +62,7 @@ defmodule CommsCore.Repo.Migrations.AddPrivateMatrixRooms do
 
   def down do
     execute(
-      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM private_matrix_rooms) OR EXISTS (SELECT 1 FROM conversations WHERE content_mode = 'matrix_e2ee') THEN RAISE EXCEPTION 'refusing retained private room lineage, provider purge or key cleanup proof rollback'; END IF; END $$"
+      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM private_matrix_rooms) OR EXISTS (SELECT 1 FROM conversations WHERE content_mode = 'matrix_e2ee') OR EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.PrivateRoomPurgeReconcilerWorker' AND state::text IN ('available','scheduled','executing','retryable','suspended')) THEN RAISE EXCEPTION 'refusing retained private room lineage, provider purge, key cleanup proof or pending purge worker rollback'; END IF; END $$"
     )
 
     drop(table(:private_matrix_rooms))

@@ -58,7 +58,7 @@ defmodule CommsCore.Repo.Migrations.AddOpaquePrivateEvents do
 
   def down do
     execute(
-      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM opaque_private_events) THEN RAISE EXCEPTION 'refusing retained opaque events, unknown sends or erasure tombstone rollback'; END IF; END $$"
+      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM opaque_private_events) OR EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.PrivateRoomPurgeReconcilerWorker' AND state::text IN ('available','scheduled','executing','retryable','suspended')) THEN RAISE EXCEPTION 'refusing retained opaque events, unknown sends, erasure tombstones or pending purge worker rollback'; END IF; END $$"
     )
 
     drop(table(:opaque_private_events))

@@ -13,6 +13,15 @@ defmodule CommsCore.PrivateRooms.AdditiveMigrationTest do
   @identity 20_261_006_001_000
   @rooms 20_261_006_001_100
   @events 20_261_006_001_200
+  @worker_dependencies [
+    {@identity, CommsCore.Repo.Migrations.AddMatrixClientIdentity,
+     "CommsWorkers.MatrixDeviceReconcilerWorker",
+     ["matrix_identities", "matrix_client_sessions"]},
+    {@rooms, CommsCore.Repo.Migrations.AddPrivateMatrixRooms,
+     "CommsWorkers.PrivateRoomPurgeReconcilerWorker", ["private_matrix_rooms"]},
+    {@events, CommsCore.Repo.Migrations.AddOpaquePrivateEvents,
+     "CommsWorkers.PrivateRoomPurgeReconcilerWorker", ["opaque_private_events"]}
+  ]
   setup_all do
     # Older parent migrations deliberately use the canonical Repo helper for
     # concurrent indexes. Qualify a truly fresh parent in its own process,
@@ -168,6 +177,94 @@ defmodule CommsCore.PrivateRooms.AdditiveMigrationTest do
     end
 
     assert R.get!(PrivateEvent, saved.id).content == nil
+  end
+
+  for {version, migration, worker, tables} <- @worker_dependencies,
+      state <- ["available", "scheduled", "executing", "retryable", "suspended"] do
+    @version version
+    @migration migration
+    @worker worker
+    @tables tables
+    @state state
+    @tag :orphan_worker_rollback
+    test "direct rollback #{@version} refuses orphan #{@worker} #{@state} while owner tables are empty" do
+      prepare_direct_down!(@version)
+
+      for table <- @tables do
+        assert %{rows: [[0]]} = Ecto.Adapters.SQL.query!(R, "SELECT count(*) FROM " <> table, [])
+      end
+
+      job_id = raw_job!(@worker, @state)
+
+      assert_raise Postgrex.Error, ~r/refusing.*rollback/, fn ->
+        Ecto.Migrator.down(R, @version, @migration, log: false)
+      end
+
+      for table <- @tables, do: assert(table_present?(table))
+      assert R.get!(Oban.Job, job_id).state == @state
+
+      assert %{rows: [[1]]} =
+               Ecto.Adapters.SQL.query!(
+                 R,
+                 "SELECT count(*) FROM schema_migrations WHERE version = $1",
+                 [@version]
+               )
+    end
+  end
+
+  for {version, migration, worker, tables} <- @worker_dependencies do
+    @version version
+    @migration migration
+    @worker worker
+    @tables tables
+    @tag :orphan_worker_rollback
+    test "direct rollback #{@version} preserves terminal and unrelated jobs without refusing empty schema" do
+      prepare_direct_down!(@version)
+
+      terminal_ids =
+        for state <- ["completed", "cancelled", "discarded"], do: raw_job!(@worker, state)
+
+      unrelated = raw_job!("CommsWorkers.NotificationDeliveryWorker", "available")
+      wrong_name = raw_job!(@worker <> "Unrelated", "retryable")
+      assert :ok = Ecto.Migrator.down(R, @version, @migration, log: false)
+      for table <- @tables, do: refute(table_present?(table))
+
+      assert Enum.map(terminal_ids, &R.get!(Oban.Job, &1).state) == [
+               "completed",
+               "cancelled",
+               "discarded"
+             ]
+
+      assert R.get!(Oban.Job, unrelated).state == "available"
+      assert R.get!(Oban.Job, wrong_name).state == "retryable"
+    end
+  end
+
+  # Remove the later opaque-event FK before the identity migration so the
+  # negative isolates its orphan worker guard, rather than PostgreSQL's
+  # independent dependency refusal on the retained exact-session index.
+  defp prepare_direct_down!(@identity),
+    do:
+      Ecto.Migrator.down(R, @events, CommsCore.Repo.Migrations.AddOpaquePrivateEvents, log: false)
+
+  defp prepare_direct_down!(_), do: :ok
+
+  defp raw_job!(worker, state) do
+    %{rows: [[id]]} =
+      Ecto.Adapters.SQL.query!(
+        R,
+        "INSERT INTO oban_jobs(worker,state,queue,args) VALUES ($1,$2::oban_job_state,'lifecycle','{}'::jsonb) RETURNING id",
+        [worker, state]
+      )
+
+    id
+  end
+
+  defp table_present?(table) do
+    %{rows: [[present]]} =
+      Ecto.Adapters.SQL.query!(R, "SELECT to_regclass($1) IS NOT NULL", [table])
+
+    present
   end
 
   defp migrate(direction, to),
