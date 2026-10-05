@@ -8,6 +8,10 @@ import sys
 
 from protocol import MAX_MEDIA_BYTES, MAX_SECONDS, normalized_result
 
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
 
 def verify_model(directory, manifest):
     root = Path(directory).resolve(strict=True)
