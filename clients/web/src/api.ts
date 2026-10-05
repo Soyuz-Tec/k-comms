@@ -101,6 +101,7 @@ import { createWhiteboardsApi } from "./api/domains/whiteboards";
 import type { DeletionHistoryExportFile, DeletionHistoryPage, DeletionHistoryQuery } from "./types/deletionHistory";
 import type { FixedRolePermission, UserRoleChangePreview } from "./types/rolePermissions";
 import type { UsageExportFile, UsageQuery, UsageReport } from "./types/usage";
+import type { WorkspaceDiscoveryResult, WorkspaceDomainClaim, WorkspaceDomainCreateInput, WorkspaceDomainInventory } from "./types/workspaceDiscovery";
 export type { AuditExportFile, AuditExportInput, BootstrapInput, CreateConversationInput, CreateServiceAccountInput, LoginInput, SendMessageInput, UpdateTenantInput } from "./api/contracts";
 export { ApiError } from "./api/errors";
 export { GuestApiClient } from "./api/guest/GuestApiClient";
@@ -259,6 +260,34 @@ export class ApiClient {
 
   login(input: LoginInput): Promise<Session>{
     return this.accountsApi.login(input);
+  }
+
+  discoverWorkspace(domain: string): Promise<WorkspaceDiscoveryResult> {
+    return this.accountsApi.discoverWorkspace(domain);
+  }
+
+  workspaceDomains(): Promise<WorkspaceDomainInventory> {
+    return this.administrationApi.workspaceDomains();
+  }
+
+  createWorkspaceDomain(input: WorkspaceDomainCreateInput): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.createWorkspaceDomain(input);
+  }
+
+  renewWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.renewWorkspaceDomain(id, version);
+  }
+
+  verifyWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.verifyWorkspaceDomain(id, version);
+  }
+
+  updateWorkspaceDomainDiscovery(id: string, version: number, discoveryEnabled: boolean): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.updateWorkspaceDomainDiscovery(id, version, discoveryEnabled);
+  }
+
+  removeWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.removeWorkspaceDomain(id, version);
   }
 
   requestPasswordRecovery(input: { tenant_slug: string; email: string }): Promise<void>{

@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 8badc49825388b8a199243d6177a0b389562ff98bea7fe140a10647ed0379e9e
+  sha256: 880e792532db72e8e50f4c1002b13f419a9273289e3d4f4d44c31f3ed30b5e8f
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -33,17 +33,35 @@ enforcement:
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderPort.Contract
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderRequest
     - context:telephony:public_contracts:add:CommsCore.Telephony.QueueSupervisorSnapshot
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DiscoveryView
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainClaimView
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainGovernanceFenceQuery
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainGovernanceFenceReceipt
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainIdentityAuthorization
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainTXTQuery
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainUserErasureCommand
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainUserErasureReceipt
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.WorkspaceDomainGovernancePort
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.WorkspaceDomainIdentityPort
+    - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->8badc49825388b8a199243d6177a0b389562ff98bea7fe140a10647ed0379e9e
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->880e792532db72e8e50f4c1002b13f419a9273289e3d4f4d44c31f3ed30b5e8f
     - runtime_collaborations:shared-document-governance-protection:add:{"binding":{"application":"comms_core","key":"shared_document_protection_adapter","module":"CommsCore.Governance.DocumentProtection"},"callers":["CommsCore.SharedDocuments.Authority"],"condition":"ADR-0101
       retains Governance tenant protection first; the exact Collaboration projection denies pending author/conversation
       erasure and blocks held erasure without foreign schema or Repo access. Authority is the sole port caller.","consumer":"collaboration","graph_semantics":{"compile_dependency":"trust_governance_to_collaboration","control_flow":"collaboration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"shared-document-governance-protection","implementation":"CommsCore.Governance.DocumentProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.SharedDocuments.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.SharedDocuments.Protection","transaction":"required"}
+    - runtime_collaborations:workspace-domain-governance-fence:add:{"binding":{"application":"comms_core","key":"workspace_domain_governance_adapter","module":"CommsCore.Governance"},"callers":["CommsCore.Administration.WorkspaceDomains"],"condition":"ADR-0097
+      requires the exact governance tenant advisory fence before admission/tenant/user/session locks so personal
+      DNS challenges cannot survive governed user erasure; the receipt exposes only the matching tenant ID.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"trust_governance_to_tenant_administration","control_flow":"tenant_administration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-governance-fence","implementation":"CommsCore.Governance","operations":[{"arity":1,"name":"lock_workspace_domain_fence"}],"port":"CommsCore.Administration.WorkspaceDomainGovernancePort","provider":"trust_governance","result_contract":"CommsCore.Administration.DomainGovernanceFenceReceipt","transaction":"required"}
+    - runtime_collaborations:workspace-domain-retained-identity:add:{"binding":{"application":"comms_core","key":"workspace_domain_identity_adapter","module":"CommsCore.Accounts"},"callers":["CommsCore.Administration.WorkspaceDomains"],"condition":"ADR-0097
+      requires the exact retained current workspace human owner/admin and recent-proof identity grant on the caller
+      transaction before domain resources; no DNS proof creates identity or enrollment authority.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"identity_access_to_tenant_administration","control_flow":"tenant_administration_to_identity_access","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-retained-identity","implementation":"CommsCore.Accounts","operations":[{"arity":1,"name":"authorize_workspace_domain"}],"port":"CommsCore.Administration.WorkspaceDomainIdentityPort","provider":"identity_access","result_contract":"CommsCore.Administration.IdentityGrant","transaction":"required"}
     - table:shared_document_operations:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Operation","owner":"collaboration","role":"source"}
     - table:shared_documents:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Document","owner":"collaboration","role":"source"}
     - table:telephony_agent_states:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.AgentState","owner":"telephony","role":"source"}
     - table:telephony_ivr_event_receipts:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrEventReceipt","owner":"telephony","role":"source"}
     - table:telephony_ivr_menus:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrMenu","owner":"telephony","role":"source"}
     - table:telephony_ivr_runs:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrRun","owner":"telephony","role":"source"}
+    - table:workspace_domain_claims:add:{"access":"owner_only","access_namespaces":["CommsCore.Administration"],"canonical_schema":"CommsCore.Administration.WorkspaceDomainClaim","owner":"tenant_administration","role":"source"}
     - technical_interfaces:telephony-ivr-provider:add:{"behaviour":"CommsCore.Telephony.IvrProviderPort.Contract","binding":{"application":"comms_core","key":"telephony_ivr_adapter","module":"CommsIntegrations.Telephony.IvrARI"},"callers":["CommsCore.Telephony.Ivr"],"condition":"ADR-0099
       permits only caller-bound prompt preparation, playback, one qualified destination effect and authenticated
       original-timestamp event normalization. Telephony consumes a durable effect claim once under current tenant,
@@ -358,6 +376,7 @@ contexts:
     - CommsCore.Administration
     - CommsCore.AdmissionQuotas
     - CommsCore.AuditExport
+    - CommsCore.Administration.WorkspaceDomainErasure
     public_contracts:
     - CommsCore.Administration.AdmissionPolicy
     - CommsCore.Administration.AuthorizationActor
@@ -377,6 +396,16 @@ contexts:
     - CommsCore.Administration.RetentionDefaults
     - CommsCore.Administration.TenantSettingsView
     - CommsCore.Administration.TenantView
+    - CommsCore.Administration.DiscoveryView
+    - CommsCore.Administration.DomainClaimView
+    - CommsCore.Administration.DomainGovernanceFenceQuery
+    - CommsCore.Administration.DomainGovernanceFenceReceipt
+    - CommsCore.Administration.DomainIdentityAuthorization
+    - CommsCore.Administration.DomainTXTQuery
+    - CommsCore.Administration.DomainUserErasureCommand
+    - CommsCore.Administration.DomainUserErasureReceipt
+    - CommsCore.Administration.WorkspaceDomainGovernancePort
+    - CommsCore.Administration.WorkspaceDomainIdentityPort
     owned_modules:
     - CommsCore.AuditExport
     internal_namespaces:
@@ -1252,6 +1281,51 @@ runtime_collaborations:
   condition: ADR-0088 and ADR-0092 bind voicemail erasure and retention to the exact Telephony-owned protection
     projection on the existing caller transaction. Governance alone reads tenant and participant legal holds and
     retention policies while acquiring the tenant lock; there is no foreign Repo access or broader operation.
+- id: workspace-domain-retained-identity
+  consumer: tenant_administration
+  provider: identity_access
+  port: CommsCore.Administration.WorkspaceDomainIdentityPort
+  result_contract: CommsCore.Administration.IdentityGrant
+  implementation: CommsCore.Accounts
+  callers:
+  - CommsCore.Administration.WorkspaceDomains
+  operations:
+  - name: authorize_workspace_domain
+    arity: 1
+  binding:
+    application: comms_core
+    key: workspace_domain_identity_adapter
+    module: CommsCore.Accounts
+  transaction: required
+  graph_semantics:
+    control_flow: tenant_administration_to_identity_access
+    compile_dependency: identity_access_to_tenant_administration
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0097 requires the exact retained current workspace human owner/admin and recent-proof identity
+    grant on the caller transaction before domain resources; no DNS proof creates identity or enrollment authority.
+- id: workspace-domain-governance-fence
+  consumer: tenant_administration
+  provider: trust_governance
+  port: CommsCore.Administration.WorkspaceDomainGovernancePort
+  result_contract: CommsCore.Administration.DomainGovernanceFenceReceipt
+  implementation: CommsCore.Governance
+  callers:
+  - CommsCore.Administration.WorkspaceDomains
+  operations:
+  - name: lock_workspace_domain_fence
+    arity: 1
+  binding:
+    application: comms_core
+    key: workspace_domain_governance_adapter
+    module: CommsCore.Governance
+  transaction: required
+  graph_semantics:
+    control_flow: tenant_administration_to_trust_governance
+    compile_dependency: trust_governance_to_tenant_administration
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0097 requires the exact governance tenant advisory fence before admission/tenant/user/session locks
+    so personal DNS challenges cannot survive governed user erasure; the receipt exposes only the matching tenant
+    ID.
 technical_interfaces:
 - id: telephony-provider-webhook-verification
   owner: telephony
@@ -1985,6 +2059,13 @@ tables:
     access: owner_only
     access_namespaces:
     - CommsCore.Telephony
+  workspace_domain_claims:
+    owner: tenant_administration
+    canonical_schema: CommsCore.Administration.WorkspaceDomainClaim
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Administration
 read_model_exceptions:
 - id: operations-cross-context-read-model
   module: CommsCore.Operations

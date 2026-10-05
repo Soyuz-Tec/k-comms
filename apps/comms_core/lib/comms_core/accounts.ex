@@ -1,6 +1,7 @@
 defmodule CommsCore.Accounts do
   @behaviour CommsCore.Administration.AuthorizationActorPort
   @behaviour CommsCore.Administration.IdentityAccessPort
+  @behaviour CommsCore.Administration.WorkspaceDomainIdentityPort
   @behaviour CommsCore.Administration.InvitationIdentityPort
 
   alias CommsCore.Accounts.{
@@ -307,6 +308,13 @@ defmodule CommsCore.Accounts do
 
   @impl CommsCore.Administration.IdentityAccessPort
   def resolve_access(subject), do: AccessControl.resolve_access(subject)
+
+  @impl CommsCore.Administration.WorkspaceDomainIdentityPort
+  @spec authorize_workspace_domain(CommsCore.Administration.DomainIdentityAuthorization.t()) ::
+          {:ok, CommsCore.Administration.IdentityGrant.t()} | {:error, atom()}
+  defdelegate authorize_workspace_domain(command),
+    to: CommsCore.Accounts.WorkspaceDomainAuthority,
+    as: :authorize
 
   @impl CommsCore.Administration.AuthorizationActorPort
   def resolve_authorization_actor(subject), do: AccessControl.resolve_authorization_actor(subject)

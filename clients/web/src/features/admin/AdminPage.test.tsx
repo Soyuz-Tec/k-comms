@@ -39,6 +39,7 @@ vi.mock("../../app/workspace-data", () => ({
   })
 }));
 
+vi.mock("./WorkspaceDomainsPanel", () => ({ WorkspaceDomainsPanel: () => <h2>Workspace domains</h2> }));
 vi.mock("./TenantSettingsPanel", () => ({ TenantSettingsPanel: () => <h2>Workspace settings</h2> }));
 vi.mock("./PeoplePanel", () => ({ PeoplePanel: () => <h2>People directory</h2> }));
 vi.mock("./SafetyPanel", () => ({ SafetyPanel: () => <h2>Safety review</h2> }));
@@ -81,6 +82,24 @@ describe("AdminPage section routing", () => {
     expect(screen.getByRole("heading", { name: "People directory" })).toBeVisible();
     expect(screen.getByTestId("location-search")).toHaveTextContent("section=people");
     expect(screen.getByTestId("location-search")).toHaveTextContent("source=notification");
+  });
+
+  it("opens domain settings from their own route and returns through the navigation", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/admin?section=domains"]}><AdminPage /><LocationProbe /></MemoryRouter>);
+    expect(screen.getByRole("heading", { name: "Workspace domains" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Domains" })).toHaveAttribute("aria-current", "page");
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(screen.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
+    expect(screen.getByTestId("location-search")).toHaveTextContent("section=workspace");
+  });
+
+  it("does not expose domain management to a conversation-only owner", async () => {
+    session.user.access_scope = "conversation_only";
+    render(<MemoryRouter initialEntries={["/admin?section=domains"]}><AdminPage /><LocationProbe /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "Domains" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Workspace domains" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("/app/"));
   });
 
   it("replaces an unavailable section with the first authorized section", async () => {

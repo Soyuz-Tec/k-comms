@@ -27,7 +27,7 @@ defmodule CommsCore.Release.Environment do
                                    "rich_content_erasure_v1",
                                    "member_workspace_v1",
                                    "governance_history_v1",
-                                   "shared_documents_v1,ivr_routing_v1"
+                                   "shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1"
                                  ])
   @communication_rollback_capabilities @guest_rollback_capabilities
                                        |> MapSet.union(@instant_room_rollback_capabilities)

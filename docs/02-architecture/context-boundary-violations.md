@@ -39,9 +39,9 @@ Declared runtime control flow (consumer -> provider).
 | `conversations` | `calls`, `collaboration` |
 | `identity_access` | `calls`, `conversations`, `notification_delivery` |
 | `telephony` | `trust_governance` |
-| `tenant_administration` | `calls`, `identity_access` |
+| `tenant_administration` | `calls`, `identity_access`, `trust_governance` |
 
-Edges: **11**. Strongly connected components: **0**.
+Edges: **12**. Strongly connected components: **0**.
 
 ### Combined graph
 
@@ -57,10 +57,10 @@ Union of compiled references and runtime control flow.
 | `notification_delivery` | `audit`, `conversations`, `identity_access`, `platform_eventing` |
 | `operations_read_model` | `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `telephony` | `audit`, `identity_access`, `platform_eventing`, `tenant_administration`, `trust_governance` |
-| `tenant_administration` | `audit`, `calls`, `identity_access` |
+| `tenant_administration` | `audit`, `calls`, `identity_access`, `trust_governance` |
 | `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `platform_eventing`, `telephony`, `tenant_administration`, `webhook_management` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **60**. Strongly connected components: **1**.
+Edges: **61**. Strongly connected components: **1**.
 
 - `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `telephony`, `tenant_administration`, `trust_governance`, `webhook_management`

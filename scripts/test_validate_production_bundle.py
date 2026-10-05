@@ -9,6 +9,8 @@ import yaml
 from validate_production_bundle import (
     COMMUNICATION_ROLLBACK_CAPABILITIES,
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS,
+    KNOWN_M1_ROLLBACK_CAPABILITIES,
+    KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES,
     validate,
     validate_documents,
     validate_paths,
@@ -38,6 +40,49 @@ CA_PEM = (
 
 
 class ValidateProductionBundleTest(unittest.TestCase):
+    def test_preserves_exact_preceding_receipts_without_granting_discovery_support(self) -> None:
+        self.assertEqual(len(COMMUNICATION_ROLLBACK_CAPABILITIES.split(",")), 15)
+        self.assertEqual(len(KNOWN_M1_ROLLBACK_CAPABILITIES.split(",")), 12)
+        self.assertEqual(len(KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES.split(",")), 14)
+        self.assertNotIn("workspace_domain_discovery_v1", KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES)
+        self.assertEqual(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS["workspace_domain_discovery_v1"],
+                         ("workspace_domain_claims",))
+        for receipt in (None, "", KNOWN_M1_ROLLBACK_CAPABILITIES,
+                        KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES,
+                        COMMUNICATION_ROLLBACK_CAPABILITIES):
+            with self.subTest(receipt=receipt):
+                documents = valid_documents()
+                operation = guest_rollback_operation()
+                env = operation["spec"]["template"]["spec"]["containers"][0]["env"]
+                next(item for item in env if item["name"] == "K_COMMS_ROLLBACK_TARGET_CAPABILITIES")["value"] = receipt
+                documents.append(operation)
+                self.assertEqual(validate_documents(documents), [])
+
+    def test_refuses_unknown_incomplete_reordered_or_ambiguous_discovery_receipts(self) -> None:
+        for receipt in ("workspace_domain_discovery_v1", "unknown_v1",
+                        COMMUNICATION_ROLLBACK_CAPABILITIES + ",workspace_domain_discovery_v1",
+                        COMMUNICATION_ROLLBACK_CAPABILITIES + ",unknown_v1",
+                        ",".join(reversed(COMMUNICATION_ROLLBACK_CAPABILITIES.split(","))),
+                        COMMUNICATION_ROLLBACK_CAPABILITIES + " "):
+            with self.subTest(receipt=receipt):
+                documents = valid_documents()
+                operation = guest_rollback_operation()
+                env = operation["spec"]["template"]["spec"]["containers"][0]["env"]
+                next(item for item in env if item["name"] == "K_COMMS_ROLLBACK_TARGET_CAPABILITIES")["value"] = receipt
+                documents.append(operation)
+                self.assertTrue(any("target capabilities must be" in error
+                                    for error in validate_documents(documents)))
+
+    def test_current_edge_and_worker_must_publish_discovery_capability(self) -> None:
+        documents = valid_documents()
+        for document in documents:
+            if document.get("kind") == "Deployment":
+                document["spec"]["template"]["metadata"]["annotations"][
+                    "k-comms.soyuz-tec.io/rollback-capabilities"
+                ] = KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES
+        self.assertTrue(any("rollback-capabilities annotation" in error
+                            for error in validate_documents(documents)))
+
     def test_accepts_a_fully_composed_provider_bundle(self) -> None:
         self.assertEqual(validate_documents(valid_documents()), [])
 

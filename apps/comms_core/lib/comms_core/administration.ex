@@ -21,6 +21,67 @@ defmodule CommsCore.Administration do
     TenantView
   }
 
+  @spec list_workspace_domains(map()) ::
+          {:ok, [CommsCore.Administration.DomainClaimView.t()]} | {:error, atom()}
+  defdelegate list_workspace_domains(subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :list
+
+  @spec create_workspace_domain(map(), map()) ::
+          {:ok, CommsCore.Administration.DomainClaimView.t()} | {:error, atom()}
+  defdelegate create_workspace_domain(attrs, subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :create
+
+  @spec renew_workspace_domain(binary(), map(), map()) ::
+          {:ok, CommsCore.Administration.DomainClaimView.t()} | {:error, atom()}
+  defdelegate renew_workspace_domain(id, attrs, subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :renew
+
+  @spec verify_workspace_domain(binary(), map(), map()) ::
+          {:ok, CommsCore.Administration.DomainClaimView.t()} | {:error, atom()}
+  defdelegate verify_workspace_domain(id, attrs, subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :verify
+
+  @spec update_workspace_domain_discovery(binary(), map(), map()) ::
+          {:ok, CommsCore.Administration.DomainClaimView.t()} | {:error, atom()}
+  defdelegate update_workspace_domain_discovery(id, attrs, subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :update_discovery
+
+  @spec revoke_workspace_domain(binary(), map(), map()) ::
+          {:ok, CommsCore.Administration.DomainClaimView.t()} | {:error, atom()}
+  defdelegate revoke_workspace_domain(id, attrs, subject),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :revoke
+
+  @spec discover_workspace_domain(binary() | nil) :: CommsCore.Administration.DiscoveryView.t()
+  defdelegate discover_workspace_domain(domain),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :discover
+
+  @spec erase_workspace_domain_user_challenges(
+          CommsCore.Administration.DomainUserErasureCommand.t()
+        ) ::
+          {:ok, CommsCore.Administration.DomainUserErasureReceipt.t()} | {:error, atom()}
+  defdelegate erase_workspace_domain_user_challenges(command),
+    to: CommsCore.Administration.WorkspaceDomainErasure,
+    as: :erase_user_challenges
+
+  @spec retained_workspace_domain_claim_count(module()) :: non_neg_integer()
+  defdelegate retained_workspace_domain_claim_count(repo),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :retained_claim_count
+
+  @spec workspace_domain_release_fingerprint_fragment(module(), binary()) :: %{
+          workspace_domain_claims: [binary()]
+        }
+  defdelegate workspace_domain_release_fingerprint_fragment(repo, tenant_id),
+    to: CommsCore.Administration.WorkspaceDomains,
+    as: :release_fingerprint_fragment
+
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
           atom()
@@ -41,6 +102,14 @@ defmodule CommsCore.Administration do
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
           CommsCore.Administration.AdmissionPolicy.t()
+          | CommsCore.Administration.DiscoveryView.t()
+          | CommsCore.Administration.DomainClaimView.t()
+          | CommsCore.Administration.DomainGovernanceFenceQuery.t()
+          | CommsCore.Administration.DomainGovernanceFenceReceipt.t()
+          | CommsCore.Administration.DomainIdentityAuthorization.t()
+          | CommsCore.Administration.DomainTXTQuery.t()
+          | CommsCore.Administration.DomainUserErasureCommand.t()
+          | CommsCore.Administration.DomainUserErasureReceipt.t()
           | CommsCore.Administration.AuthorizationActor.t()
           | CommsCore.Administration.CallLifecycleCommand.t()
           | CommsCore.Administration.CallLifecycleReceipt.t()

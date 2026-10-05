@@ -24,6 +24,7 @@ from validate_contracts import (
     validate_member_workflow_contract,
     validate_shared_document_contract,
     validate_ivr_contract,
+    validate_workspace_domain_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -199,6 +200,44 @@ class ContractValidationTests(unittest.TestCase):
         validate_whiteboard_contract(self.openapi)
         validate_telephony_contract(self.openapi)
         validate_enterprise_identity_contract(self.openapi)
+        validate_workspace_domain_contract(self.openapi)
+
+    def test_workspace_domain_public_probe_cannot_request_email_or_member_authority(self) -> None:
+        for mutate in (
+                lambda d: d["components"]["schemas"]["WorkspaceDomainDiscoveryRequest"]["properties"].update(email={"type": "string"}),
+                lambda d: d["paths"]["/api/v1/workspaces/discover"]["post"].update(security=[{"bearerAuth": []}]),
+                lambda d: d["paths"]["/api/v1/workspaces/discover"]["post"].update(parameters=[])):
+            document = copy.deepcopy(self.openapi)
+            mutate(document)
+            with self.assertRaises(ValueError):
+                validate_workspace_domain_contract(document)
+
+    def test_workspace_domain_hints_cannot_be_external_inconsistent_or_additional(self) -> None:
+        schema = self.openapi["components"]["schemas"]["WorkspaceDomainDiscoveryResponse"]
+        validator = Draft202012Validator(schema)
+        for response in (
+                {"data": {"available": True, "sign_in_path": None}},
+                {"data": {"available": False, "sign_in_path": "/sign-in?tenant_slug=private"}},
+                {"data": {"available": True, "sign_in_path": "https://outside.example"}},
+                {"data": {"available": True, "sign_in_path": "/sign-in?tenant_slug=ok&email=private"}},
+                {"data": {"available": False, "sign_in_path": None, "tenant_id": "private"}}):
+            with self.subTest(response=response):
+                self.assertFalse(validator.is_valid(response))
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["WorkspaceDomainDiscoveryResponse"]["properties"]["data"].pop("allOf")
+        with self.assertRaises(ValueError):
+            validate_workspace_domain_contract(document)
+
+    def test_workspace_domain_mutations_cannot_drop_current_version_proof_or_row_bound(self) -> None:
+        for mutate in (
+                lambda d: d["components"]["schemas"]["WorkspaceDomainVersionRequest"]["properties"]["version"].update(minimum=0),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["post"]["responses"].pop("428"),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"].update(maxItems=9),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]["discovery_enabled"].update(default=True)):
+            document = copy.deepcopy(self.openapi)
+            mutate(document)
+            with self.assertRaises(ValueError):
+                validate_workspace_domain_contract(document)
 
     def test_current_member_workflow_contracts_and_standalone_schemas_pass(self) -> None:
         payloads = {

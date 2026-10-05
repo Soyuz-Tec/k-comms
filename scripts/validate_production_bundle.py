@@ -84,9 +84,18 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "telephony_calls.routing_status=ivr/ivr_destination",
         "CommsWorkers.TelephonyIvrWorker",
     ),
+    "workspace_domain_discovery_v1": ("workspace_domain_claims",),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
+)
+# Exact immutable-parent receipts retain their own capability scope. Current
+# database hazards still decide whether a preceding image can be admitted.
+KNOWN_M1_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:12]
+)
+KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:14]
 )
 DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
@@ -1024,12 +1033,12 @@ def validate_guest_rollback_preflight(
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
-        "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1",
+        KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES,
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target, the known M1 or Member/History set, or the exact communication-compatible capability set"
+            "empty for a legacy target, a known M1 or Member/History set, or the exact communication-compatible capability set"
         )
 
 

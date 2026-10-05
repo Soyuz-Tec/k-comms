@@ -31,7 +31,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :telephony_ivr_menus,
     :telephony_ivr_runs,
     :telephony_ivr_event_receipts,
-    :telephony_agent_states
+    :telephony_agent_states,
+    :workspace_domain_claims
   ]
 
   defmodule ReadOnlyRepo do
@@ -64,7 +65,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "telephony_ivr_menus" => "ivr-menu-internal-id",
             "telephony_ivr_runs" => "ivr-run-internal-id",
             "telephony_ivr_event_receipts" => "ivr-receipt-internal-id",
-            "telephony_agent_states" => "agent-state-internal-id"
+            "telephony_agent_states" => "agent-state-internal-id",
+            "workspace_domain_claims" => "domain-claim-internal-id"
           },
           table
         )

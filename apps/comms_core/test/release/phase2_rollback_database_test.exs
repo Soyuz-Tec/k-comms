@@ -412,7 +412,8 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :shared_documents,
         :ivr_state,
         :agent_queue_states,
-        :active_ivr_jobs
+        :active_ivr_jobs,
+        :workspace_domain_claims
       ],
       &{&1, 0}
     )

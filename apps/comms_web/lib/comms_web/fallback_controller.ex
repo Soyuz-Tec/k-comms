@@ -137,6 +137,27 @@ defmodule CommsWeb.FallbackController do
             ],
        do: {422, Atom.to_string(reason), "The meeting schedule is invalid"}
 
+  defp error(:invalid_workspace_domain),
+    do: {422, "invalid_workspace_domain", "Enter an exact ASCII domain and valid settings"}
+
+  defp error(reason)
+       when reason in [:domain_limit_reached, :domain_already_claimed, :domain_in_use],
+       do: {409, Atom.to_string(reason), "The workspace domain claim cannot be added or verified"}
+
+  defp error(reason) when reason in [:domain_challenge_expired, :domain_proof_missing],
+    do: {409, Atom.to_string(reason), "The current DNS challenge has not been verified"}
+
+  defp error(reason)
+       when reason in [
+              :dns_timeout,
+              :dns_unavailable,
+              :domain_identity_unavailable,
+              :domain_governance_unavailable,
+              :domain_write_failed
+            ],
+       do:
+         {503, Atom.to_string(reason), "Workspace domain verification is temporarily unavailable"}
+
   defp error(:platform_role_console_only),
     do: {403, "platform_role_console_only", "Platform roles are managed outside tenant APIs"}
 

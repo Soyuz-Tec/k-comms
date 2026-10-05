@@ -7,11 +7,11 @@ contexts:
       collaboration_operations:
       - append/2
       - authorization_denied/3
-      - resource_history_page/1
-      - rollback_history_snapshot_hazard_count/0
       - list/1
       - record/1
       - release_tenant_fingerprint_fragment/2
+      - resource_history_page/1
+      - rollback_history_snapshot_hazard_count/0
       owner_internal_operations:
       - count/1
       - get_by/1
@@ -97,6 +97,21 @@ contexts:
       - revoke_tenant_media/1
       owner_internal_operations: []
   collaboration:
+    CommsCore.SharedDocuments:
+      public_operations:
+      - apply_operation/3
+      - authorize/2
+      - copy/3
+      - create/3
+      - export/2
+      - get/2
+      - list/3
+      - replay/5
+      collaboration_operations:
+      - erase_for_governance/4
+      - release_tenant_fingerprint_fragment/2
+      - rollback_hazard_count/0
+      owner_internal_operations: []
     CommsCore.Whiteboards:
       public_operations:
       - activity/3
@@ -119,21 +134,6 @@ contexts:
       - activity/2
       - list_operations/2
       - search/2
-    CommsCore.SharedDocuments:
-      public_operations:
-      - apply_operation/3
-      - authorize/2
-      - copy/3
-      - create/3
-      - export/2
-      - get/2
-      - list/3
-      - replay/5
-      collaboration_operations:
-      - erase_for_governance/4
-      - release_tenant_fingerprint_fragment/2
-      - rollback_hazard_count/0
-      owner_internal_operations: []
   conversation_content:
     CommsCore.Attachments:
       public_operations:
@@ -368,6 +368,7 @@ contexts:
       - audit_authorization_denial/3
       - authorize_invitation/1
       - authorize_view_platform_operations/1
+      - authorize_workspace_domain/1
       - bootstrap_tenant/1
       - bootstrap_tenant_once/1
       - convert_ephemeral_guest_account/2
@@ -647,12 +648,19 @@ contexts:
       - accept_invitation/1
       - active_tenant_by_slug/1
       - create_invitation/2
+      - create_workspace_domain/2
+      - discover_workspace_domain/1
       - get_tenant_settings_view/1
       - list_audit_events/2
       - list_invitations/2
+      - list_workspace_domains/1
       - member_capabilities/1
+      - renew_workspace_domain/3
       - revoke_invitation/3
+      - revoke_workspace_domain/3
       - update_tenant_settings_view/2
+      - update_workspace_domain_discovery/3
+      - verify_workspace_domain/3
       collaboration_operations:
       - active_tenant/1
       - any_tenant?/0
@@ -665,16 +673,24 @@ contexts:
       - get_bootstrap_tenant_by_slug/1
       - lock_call_policy/1
       - release_tenant_fingerprint_id/2
+      - retained_workspace_domain_claim_count/1
       - retention_defaults/1
       - retention_tenant_ids/1
+      - workspace_domain_release_fingerprint_fragment/2
       owner_internal_operations:
       - authorize_audit_tenant/1
       - authorize_manage_invitations/1
       - authorize_manage_settings/1
       - authorize_read_capabilities/1
+      - erase_workspace_domain_user_challenges/1
       - get_tenant_settings/1
       - list_invitations/1
       - update_tenant_settings/2
+    CommsCore.Administration.WorkspaceDomainErasure:
+      public_operations: []
+      collaboration_operations:
+      - erase_user_challenges/1
+      owner_internal_operations: []
     CommsCore.AdmissionQuotas:
       public_operations: []
       collaboration_operations:
@@ -703,8 +719,8 @@ contexts:
       - create_retention_policy_view/2
       - delete_message/2
       - deletion_request_timeline/3
-      - export_deletion_request_history/3
       - enqueue_due_retention/3
+      - export_deletion_request_history/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2
       - list_retention_policy_views/2
@@ -714,7 +730,8 @@ contexts:
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
-      collaboration_operations: []
+      collaboration_operations:
+      - lock_workspace_domain_fence/1
       owner_internal_operations:
       - authorize_governance/1
       - create_deletion_request/2
@@ -727,12 +744,12 @@ contexts:
       - release_legal_hold/3
       - transition_deletion_request/3
       - update_retention_policy/3
-    CommsCore.Governance.DocumentProtection:
+    CommsCore.Governance.ArtifactProtection:
       public_operations: []
       collaboration_operations:
       - protection/3
       owner_internal_operations: []
-    CommsCore.Governance.ArtifactProtection:
+    CommsCore.Governance.DocumentProtection:
       public_operations: []
       collaboration_operations:
       - protection/3

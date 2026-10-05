@@ -1,6 +1,8 @@
 import type { AccountSession, Conversation, DataResponse, Device, DirectConversationResponse, DirectoryPeoplePage, ListResponse, MeResponse, MemberWorkspace, MemberWorkspaceInput, OnboardingAction, Session, User } from "../../types";
 import type { ApiRequest, BootstrapInput, LoginInput } from "../contracts";
 import type { LoginResult } from "../../types/enterpriseIdentity";
+import type { WorkspaceDiscoveryResult } from "../../types/workspaceDiscovery";
+import { normalizeWorkspaceDiscovery } from "../../lib/workspaceDiscovery";
 
 interface AccountsApiSupport {
   withReceivedAt: <T extends Session>(session: T) => T;
@@ -11,6 +13,12 @@ export function createAccountsApi(
   { withReceivedAt }: AccountsApiSupport
 ) {
   const api = {
+    discoverWorkspace(domain: string): Promise<WorkspaceDiscoveryResult> {
+      return request<DataResponse<unknown>>("/api/v1/workspaces/discover", {
+        method: "POST", body: JSON.stringify({ domain }), skipAuthentication: true,
+        retryAuthentication: false, credentials: "omit"
+      }).then((response) => normalizeWorkspaceDiscovery(response.data));
+    },
     bootstrap(input: BootstrapInput): Promise<Session & { conversation: Conversation }> {
         return request<Session & { conversation: Conversation }>("/api/v1/bootstrap", {
           method: "POST",
