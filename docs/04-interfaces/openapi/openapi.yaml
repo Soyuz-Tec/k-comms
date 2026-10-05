@@ -6927,6 +6927,159 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/me/native-push/config:
+    get:
+      tags:
+      - Calls
+      operationId: nativePushConfiguration
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current native owner projection or admission; transport tokens
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativePushConfigurationResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+      description: Default OFF. Approved attempt capability is configuration-only
+        and does not attest provider credentials, signed-device delivery or physical
+        ringing. Local signed-build qualification and user consent are additional
+        prerequisites.
+  /api/v1/me/native-push/registration:
+    get:
+      tags:
+      - Calls
+      operationId: nativePushRegistrations
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current native owner projection or admission; transport tokens
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativePushRegistrationList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - Calls
+      operationId: registerNativePush
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current native owner projection or admission; transport tokens
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativePushRegistrationResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativePushRegistrationRequest'
+    delete:
+      tags:
+      - Calls
+      operationId: revokeNativePush
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current native owner projection or admission; transport tokens
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativePushRevokeResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativePushRevokeRequest'
+  /api/v1/native-call-wakes/{wakeId}/admit:
+    post:
+      tags:
+      - Calls
+      operationId: admitNativeCallWake
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current native owner projection or admission; transport tokens
+            are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativeCallWakeAdmission'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: wakeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Consume an opaque at-most-30-second intent exactly once after an
+        explicit OS user answer. Rechecks exact current DeviceSession, registration/user
+        generation, current MFA and actual Calls or Telephony owner eligibility. Foreign,
+        expired, withdrawn or replayed IDs return neutral unavailable. No automatic
+        retry after uncertain network effects.
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -12726,3 +12879,268 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+
+    NativePushRegistration:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - device_id
+      - version
+      - platform
+      - channel
+      - application_id
+      - environment
+      - status
+      - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        platform:
+          enum:
+          - ios
+          - android
+        channel:
+          enum:
+          - apns_alert
+          - apns_voip
+          - fcm
+        application_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$
+        environment:
+          enum:
+          - sandbox
+          - production
+        status:
+          enum:
+          - active
+          - revoked
+          - expired
+          - stale
+        expires_at:
+          type: string
+          format: date-time
+    NativePushRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - platform
+      - channel
+      - application_id
+      - environment
+      - token
+      - installation_id
+      - expected_version
+      properties:
+        platform:
+          enum:
+          - ios
+          - android
+        channel:
+          enum:
+          - apns_alert
+          - apns_voip
+          - fcm
+        application_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$
+        environment:
+          enum:
+          - sandbox
+          - production
+        token:
+          type: string
+          minLength: 20
+          maxLength: 4096
+          writeOnly: true
+        installation_id:
+          type: string
+          format: uuid
+        expected_version:
+          type: integer
+          minimum: 0
+      allOf:
+      - if:
+          properties:
+            channel:
+              enum:
+              - apns_alert
+              - apns_voip
+        then:
+          properties:
+            platform:
+              const: ios
+            token:
+              pattern: ^[a-f0-9]{64}$
+        else:
+          properties:
+            platform:
+              const: android
+            environment:
+              const: production
+            token:
+              pattern: ^[A-Za-z0-9_:\-]+$
+    NativePushRevokeRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - channel
+      - expected_version
+      properties:
+        channel:
+          enum:
+          - apns_alert
+          - apns_voip
+          - fcm
+        expected_version:
+          type: integer
+          minimum: 1
+    NativePushPlatform:
+      type: object
+      additionalProperties: false
+      required:
+      - platform
+      - channel
+      - application_id
+      - environment
+      - enabled
+      properties:
+        platform:
+          enum:
+          - ios
+          - android
+        channel:
+          enum:
+          - apns_alert
+          - apns_voip
+          - fcm
+        application_id:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$
+        environment:
+          enum:
+          - sandbox
+          - production
+        enabled:
+          type: boolean
+    NativePushConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+      - protocol_version
+      - enabled
+      - platform_configs
+      - registration_ttl_seconds
+      - wake_ttl_seconds
+      - background_device_qualification_required
+      properties:
+        protocol_version:
+          const: 1
+        enabled:
+          type: boolean
+        platform_configs:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/NativePushPlatform'
+        registration_ttl_seconds:
+          const: 86400
+        wake_ttl_seconds:
+          const: 30
+        background_device_qualification_required:
+          const: true
+    NativePushConfigurationResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/NativePushConfiguration'
+    NativePushRegistrationList:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          type: array
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/NativePushRegistration'
+    NativePushRegistrationResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - replayed
+      properties:
+        data:
+          $ref: '#/components/schemas/NativePushRegistration'
+        replayed:
+          type: boolean
+    NativePushRevokeResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/NativePushRegistration'
+    NativeCallWakeHint:
+      type: object
+      additionalProperties: false
+      required:
+      - protocol_version
+      - wake_id
+      - expires_at
+      - kind
+      properties:
+        protocol_version:
+          const: '1'
+        wake_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+          description: Strictly future and at most 30 seconds from the original owner
+            event; current wall and monotonic deadlines are both enforced.
+        kind:
+          const: call
+    NativeCallWakeAdmission:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - owner
+        - data
+        - credential
+        properties:
+          owner:
+            const: conversation
+          data:
+            $ref: '#/components/schemas/AudioCall'
+          credential:
+            $ref: '#/components/schemas/AudioCallCredential'
+      - type: object
+        additionalProperties: false
+        required:
+        - owner
+        - data
+        - credential
+        properties:
+          owner:
+            const: telephony
+          data:
+            $ref: '#/components/schemas/TelephonyCall'
+          credential:
+            $ref: '#/components/schemas/TelephonyCredential'

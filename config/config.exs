@@ -57,6 +57,8 @@ config :comms_core,
     ephemeral_room_reconciler: CommsWorkers.EphemeralRoomReconcilerWorker,
     guest_admission_expiry: CommsWorkers.GuestAdmissionExpiryWorker,
     meeting_reminder: CommsWorkers.MeetingReminderWorker,
+    native_call_wake: CommsWorkers.NativeCallWakeWorker,
+    native_push_reconciler: CommsWorkers.NativePushReconcilerWorker,
     notification_delivery: CommsWorkers.NotificationWorker,
     outbox_publication: CommsWorkers.OutboxWorker,
     personal_content_cleanup: CommsWorkers.PersonalContentCleanupWorker,
@@ -74,6 +76,10 @@ config :comms_core,
   attachment_cleanup_claim_timeout_seconds: 900,
   attachment_cleanup_reconcile_limit: 100,
   push_delivery_status: :unavailable,
+  native_push_enabled: false,
+  native_push_platforms: [],
+  native_call_wake_adapter: CommsIntegrations.NativePush.CallOwner,
+  native_push_provider_adapter: CommsIntegrations.NativePush.Provider,
   session_ttl_seconds: 2_592_000,
   session_absolute_ttl_seconds: 2_592_000
 
@@ -102,7 +108,8 @@ config :comms_core, Oban,
        {"0 * * * *", CommsWorkers.AuditHistorySnapshotPurgeWorker},
        {"0 * * * *", CommsWorkers.RetentionReconcilerWorker},
        {"0 * * * *", CommsWorkers.PersonalContentCleanupWorker},
-       {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker}
+       {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker},
+       {"* * * * *", CommsWorkers.NativePushReconcilerWorker}
      ]}
   ]
 

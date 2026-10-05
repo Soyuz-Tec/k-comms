@@ -2388,6 +2388,42 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+def validate_native_call_wake_contract(openapi: dict[str, Any], standalone: dict[str, Any]) -> None:
+    expected = {
+        ("/api/v1/me/native-push/config", "get"): ("nativePushConfiguration", "NativePushConfigurationResponse", None),
+        ("/api/v1/me/native-push/registration", "get"): ("nativePushRegistrations", "NativePushRegistrationList", None),
+        ("/api/v1/me/native-push/registration", "put"): ("registerNativePush", "NativePushRegistrationResponse", "NativePushRegistrationRequest"),
+        ("/api/v1/me/native-push/registration", "delete"): ("revokeNativePush", "NativePushRevokeResponse", "NativePushRevokeRequest"),
+        ("/api/v1/native-call-wakes/{wakeId}/admit", "post"): ("admitNativeCallWake", "NativeCallWakeAdmission", None),
+    }
+    for (path, method), (name, response, request) in expected.items():
+        operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+        if operation.get("operationId") != name or operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError("Native wake routes require exact current member bearer authority")
+        actual = operation.get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema")
+        if actual != {"$ref": f"#/components/schemas/{response}"}:
+            raise ValueError("Native wake routes require exact safe owner response schemas")
+        if request and operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema") != {"$ref": f"#/components/schemas/{request}"}:
+            raise ValueError("Native registration and revocation require exact bounded bodies")
+    schemas = openapi["components"]["schemas"]
+    hint = schemas["NativeCallWakeHint"]
+    if hint.get("additionalProperties") is not False or set(hint.get("required", [])) != {"protocol_version", "wake_id", "expires_at", "kind"} or set(hint.get("properties", {})) != set(hint["required"]):
+        raise ValueError("Native wake hint must contain only opaque protocol fields")
+    if schemas["NativePushRegistrationRequest"]["properties"]["token"].get("writeOnly") is not True:
+        raise ValueError("Native provider tokens must be write-only")
+    if set(schemas["NativePushRegistration"]["properties"]) & {"token", "token_hash", "ciphertext", "nonce", "tag", "key_id", "user_id", "session_id"}:
+        raise ValueError("Native registration projection exposes private transport or identity material")
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+    for name, contract in standalone.get("$defs", {}).items():
+        if contract != portable(schemas.get(name)):
+            raise ValueError(f"Standalone native wake schema diverges from canonical OpenAPI: {name}")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2413,6 +2449,7 @@ def main() -> None:
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_native_call_wake_contract(openapi, schemas["native-call-wake.v1.json"])
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

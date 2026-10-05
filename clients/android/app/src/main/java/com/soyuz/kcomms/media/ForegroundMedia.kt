@@ -109,13 +109,13 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
         }
     }
 
-    suspend fun connect(admission: CallAdmission, lease: IdentityLease) {
+    suspend fun connect(admission: CallAdmission, lease: IdentityLease, incoming: Boolean = false, captureVideo: Boolean = admission.data.mediaKind == "video") {
         val call = admission.data
         if (call.status != "active" || call.mediaKind !in setOf("audio", "video"))
             throw MediaFailure("This call is no longer active.")
         validateId(call.id); validateId(call.conversationId)
         connect(admission.credential, lease, call.id, call.conversationId, null,
-            call.mediaKind == "video", false, call.expiresAt)
+            call.mediaKind == "video", incoming, call.expiresAt, captureVideo)
     }
 
     suspend fun connectPhone(session: PhoneSession, lease: IdentityLease) {
@@ -129,9 +129,9 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
 
     private suspend fun connect(credential: MediaCredential, lease: IdentityLease, callId: String?,
                                 conversationId: String?, phoneCallId: String?, video: Boolean,
-                                incoming: Boolean, callExpiresAt: String?) = withContext(Dispatchers.Main.immediate) {
+                                incoming: Boolean, callExpiresAt: String?, initialCamera: Boolean = video) = withContext(Dispatchers.Main.immediate) {
         sessions.requireCurrent(lease)
-        requirePermissions(video)
+        requirePermissions(video && initialCamera)
         if (sessions.remainingAccessMillis() <= 0) throw MediaFailure("Sign in again before joining a call.")
         val remaining = MediaAdmissionPolicy.remainingMillis(credential, callExpiresAt, System.currentTimeMillis())
         val now = SystemClock.elapsedRealtime()
@@ -142,7 +142,7 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
         val requestGeneration = ++generation
         active?.let { stopAdmission(it) }
         if (requestGeneration != generation) throw CancellationException("Call request superseded")
-        sessions.requireCurrent(lease); requirePermissions(video)
+        sessions.requireCurrent(lease); requirePermissions(video && initialCamera)
         val deadline = now + remaining
         if (SystemClock.elapsedRealtime() >= deadline) throw MediaFailure("Call admission expired. Join again.")
         usedAdmissions[fingerprint] = deadline
@@ -151,12 +151,13 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
             disableAudioPrewarming = true, javaAudioDeviceModuleCustomizer = { it.setStopRecordingOnMute(true) },
         )))
         val current = Admission(lease, room, deadline, callId, conversationId, phoneCallId, video, incoming, lifetime)
+        current.userCamera = video && initialCamera
         active = current
         mutableState.value = MediaState(MediaPhase.CONNECTING, callId, conversationId, phoneCallId, video)
         current.scope.launch {
             try {
                 registerTelecom(current)
-                current.serviceToken = CallForegroundService.acquire(context, video,
+                current.serviceToken = CallForegroundService.acquire(context, video && initialCamera,
                     onHangup = { userDisconnect(current) },
                     onTerminated = { mediaScope.launch { stopAdmission(current, "The visible call service stopped.") } })
                 guard(current)
@@ -355,7 +356,7 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
         if (sessions.remainingAccessMillis() <= 0) throw MediaFailure("Your session expired. Sign in again.")
         if (SystemClock.elapsedRealtime() >= current.deadline) throw MediaFailure("Call admission expired. Join again to request a fresh admission.")
         MediaAuthorityPolicy.requireRecent(current.authorityObservedAt, SystemClock.elapsedRealtime())
-        requirePermissions(current.video)
+        requirePermissions(current.video && current.userCamera)
     }
 
     private fun requirePermissions(video: Boolean) {
@@ -402,6 +403,10 @@ class ForegroundMedia(context: Context, private val sessions: SessionStore, scop
 
     suspend fun setCameraEnabled(enabled: Boolean) = command { current ->
         if (!current.video) throw MediaFailure("This admission permits audio only.")
+        if (enabled) {
+            requirePermissions(true)
+            current.serviceToken?.let { CallForegroundService.enableCamera(context, it) }
+        }
         current.userCamera = enabled; applyCapture(current)
     }
 

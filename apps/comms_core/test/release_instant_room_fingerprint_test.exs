@@ -24,7 +24,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :native_push_registrations,
+    :native_call_wakes
   ]
 
   defmodule ReadOnlyRepo do
@@ -50,7 +52,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "audio_calls" => "call-internal-id",
             "audio_call_participants" => "participant-internal-id",
             "member_workspaces" => "private-workspace-internal-id",
-            "audit_resource_history_snapshots" => "history-snapshot-internal-id"
+            "audit_resource_history_snapshots" => "history-snapshot-internal-id",
+            "native_push_registrations" => "native-registration-internal-id",
+            "native_call_wakes" => "native-wake-internal-id"
           },
           table
         )

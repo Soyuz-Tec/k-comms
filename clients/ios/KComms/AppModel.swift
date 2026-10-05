@@ -74,6 +74,10 @@ import LiveKit
             Task { await self.revalidateCallIfConnected() }
         }
         phone.onUnauthorized = { [weak self] in Task { await self?.refreshWorkspace() } }
+        if let credential = try? KeychainCredentialVault().load(), let client = try? ApiClient(origin: credential.serverOrigin) {
+            api = client; serverInput = credential.serverOrigin
+        }
+        NativeWakeCoordinator.shared.bootstrap(api, slot: callSlot)
         Task { await restore() }
     }
     func restore() async {
@@ -82,7 +86,8 @@ import LiveKit
         do {
             guard let credential = try KeychainCredentialVault().load() else { return }
             serverInput = credential.serverOrigin
-            let client = try ApiClient(origin: credential.serverOrigin); api = client
+            let client: ApiClient
+            if let existing = api { client = existing } else { client = try ApiClient(origin: credential.serverOrigin); api = client }
             let identity = try await client.me()
             let current = await client.currentSession()
             guard expected == accountGeneration, api === client else { return }
@@ -133,6 +138,7 @@ import LiveKit
         accountGeneration &+= 1; let expected = accountGeneration; let old = api
         clearContent(); api = nil; session = nil; me = nil; mfaChallenge = nil; challengeExpires = nil; challengeDeadline = nil; busy = true; restoring = false
         defer { if expected == accountGeneration { busy = false } }
+        await NativeWakeCoordinator.shared.detach()
         async let remoteRevocation = old?.logout() ?? true
         await stopCall()
         let revoked = await remoteRevocation
@@ -154,6 +160,8 @@ import LiveKit
             let current = await client.currentSession()
             guard expected == accountGeneration, api === client else { return }
             updateOwner(identity); session = current.map(SignedInMember.init); conversations = rooms
+            await NativeWakeCoordinator.shared.attach(client, slot: callSlot)
+            guard expected == accountGeneration, api === client else { return }
             if hasWorkspaceAccess { phone.attach(client) }
             else { clearWorkspaceContent() }
             if let selectedConversation, !rooms.contains(where: { $0.id == selectedConversation.id }) {

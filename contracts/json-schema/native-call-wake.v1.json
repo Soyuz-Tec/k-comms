@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.invalid/contracts/native-call-wake.v1.json",
+  "title": "Native call wake owner protocol v1",
+  "$ref": "#/$defs/NativeCallWakeHint",
+  "$defs": {
+    "NativePushRegistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "device_id",
+        "version",
+        "platform",
+        "channel",
+        "application_id",
+        "environment",
+        "status",
+        "expires_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "platform": {
+          "enum": [
+            "ios",
+            "android"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "apns_alert",
+            "apns_voip",
+            "fcm"
+          ]
+        },
+        "application_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$"
+        },
+        "environment": {
+          "enum": [
+            "sandbox",
+            "production"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "revoked",
+            "expired",
+            "stale"
+          ]
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "NativePushRegistrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "channel",
+        "application_id",
+        "environment",
+        "token",
+        "installation_id",
+        "expected_version"
+      ],
+      "properties": {
+        "platform": {
+          "enum": [
+            "ios",
+            "android"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "apns_alert",
+            "apns_voip",
+            "fcm"
+          ]
+        },
+        "application_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$"
+        },
+        "environment": {
+          "enum": [
+            "sandbox",
+            "production"
+          ]
+        },
+        "token": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 4096,
+          "writeOnly": true
+        },
+        "installation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "channel": {
+                "enum": [
+                  "apns_alert",
+                  "apns_voip"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "platform": {
+                "const": "ios"
+              },
+              "token": {
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "platform": {
+                "const": "android"
+              },
+              "environment": {
+                "const": "production"
+              },
+              "token": {
+                "pattern": "^[A-Za-z0-9_:\\-]+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "NativePushRevokeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "expected_version"
+      ],
+      "properties": {
+        "channel": {
+          "enum": [
+            "apns_alert",
+            "apns_voip",
+            "fcm"
+          ]
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "NativePushPlatform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "channel",
+        "application_id",
+        "environment",
+        "enabled"
+      ],
+      "properties": {
+        "platform": {
+          "enum": [
+            "ios",
+            "android"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "apns_alert",
+            "apns_voip",
+            "fcm"
+          ]
+        },
+        "application_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$"
+        },
+        "environment": {
+          "enum": [
+            "sandbox",
+            "production"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "NativePushConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "enabled",
+        "platform_configs",
+        "registration_ttl_seconds",
+        "wake_ttl_seconds",
+        "background_device_qualification_required"
+      ],
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "platform_configs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/NativePushPlatform"
+          }
+        },
+        "registration_ttl_seconds": {
+          "const": 86400
+        },
+        "wake_ttl_seconds": {
+          "const": 30
+        },
+        "background_device_qualification_required": {
+          "const": true
+        }
+      }
+    },
+    "NativePushConfigurationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativePushConfiguration"
+        }
+      }
+    },
+    "NativePushRegistrationList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/NativePushRegistration"
+          }
+        }
+      }
+    },
+    "NativePushRegistrationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "replayed"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativePushRegistration"
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "NativePushRevokeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativePushRegistration"
+        }
+      }
+    },
+    "NativeCallWakeHint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "wake_id",
+        "expires_at",
+        "kind"
+      ],
+      "properties": {
+        "protocol_version": {
+          "const": "1"
+        },
+        "wake_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Strictly future and at most 30 seconds from the original owner event; current wall and monotonic deadlines are both enforced."
+        },
+        "kind": {
+          "const": "call"
+        }
+      }
+    }
+  }
+}

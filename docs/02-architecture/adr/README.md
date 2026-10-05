@@ -97,5 +97,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0091 | Durable rich content and authorized unified retrieval | Accepted |
 | 0092 | Compose full UC through exact owner contracts | Accepted |
 | 0100 | Use foreground native clients with current owner call admission | Accepted for implementation; runtime and device qualification pending |
+| 0106 | Own native call wake through retained device registrations and one-use admission | Accepted for implementation; signed-device/provider qualification pending |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -116,6 +116,15 @@ actor ApiClient {
         }
         throw NativeClientError.ownerProjectionSuperseded
     }
+    func captureWorkspaceAuthority(_ expected: IdentityStamp) throws -> UInt64 {
+        try assertCurrent(expected)
+        guard session?.user.hasWorkspaceAccess == true else { throw NativeClientError.workspaceUnavailable }
+        return workspaceGeneration
+    }
+    func assertWorkspaceAuthority(_ value: UInt64, stamp: IdentityStamp) throws {
+        try assertCurrent(stamp)
+        guard session?.user.hasWorkspaceAccess == true, workspaceGeneration == value else { throw NativeClientError.workspaceUnavailable }
+    }
     private func workspaceRequest<T: Decodable>(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> T {
         guard try await me().user.hasWorkspaceAccess, session?.user.hasWorkspaceAccess == true else { throw NativeClientError.workspaceUnavailable }
         let expected = workspaceGeneration
@@ -226,6 +235,28 @@ actor ApiClient {
     }
     func reconcileTone(_ call: String, command: String) async throws -> PhoneControlReceipt {
         let value: Envelope<PhoneControlReceipt> = try await workspaceRequest("/api/v1/telephony/calls/\(try id(call))/controls/\(try id(command))/reconcile", method: "POST"); return value.data
+    }
+    func nativePushConfiguration() async throws -> NativePushConfiguration {
+        let value: Envelope<NativePushConfiguration> = try await request("/api/v1/me/native-push/config"); return value.data
+    }
+    func nativePushRegistrations() async throws -> [NativePushRegistration] {
+        let value: Envelope<[NativePushRegistration]> = try await request("/api/v1/me/native-push/registration"); return value.data
+    }
+    func registerNativePush(channel: String, application: String, environment: String, token: String,
+                            installation: String, version: Int) async throws -> NativePushRegistrationResult {
+        let value: NativePushRegistrationResult = try await request("/api/v1/me/native-push/registration", method: "PUT", body: [
+            "platform": "ios", "channel": channel, "application_id": application, "environment": environment,
+            "token": token, "installation_id": installation, "expected_version": version
+        ]); return value
+    }
+    func revokeNativePush(channel: String, version: Int) async throws {
+        try await requestVoid("/api/v1/me/native-push/registration", method: "DELETE", body: ["channel": channel, "expected_version": version])
+    }
+    func admitNativeWake(_ wake: String) async throws -> NativeWakeAdmission {
+        let expected = try stamp()
+        if (accessExpiresAt ?? .distantPast) <= Date().addingTimeInterval(10) { try await refresh(expected) }
+        try assertCurrent(expected)
+        return try await request("/api/v1/native-call-wakes/\(try id(wake))/admit", method: "POST", retry: false)
     }
     private func id(_ value: String) throws -> String {
         guard UUID(uuidString: value) != nil else { throw NativeClientError.invalidResponse }; return value

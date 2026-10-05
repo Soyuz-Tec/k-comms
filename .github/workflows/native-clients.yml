@@ -6,6 +6,7 @@ on:
       - 'clients/android/**'
       - '.github/workflows/native-clients.yml'
       - 'docs/02-architecture/adr/0100-*'
+      - 'docs/02-architecture/adr/0106-*'
   push:
     branches: [main]
     paths:

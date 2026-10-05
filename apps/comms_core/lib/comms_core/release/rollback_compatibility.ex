@@ -7,6 +7,7 @@ defmodule CommsCore.Release.RollbackCompatibility do
     AudioCalls,
     Conversations,
     Messaging,
+    Notifications,
     Repo,
     Release.Environment,
     Release.Migration,
@@ -33,7 +34,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
-    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+    {"native_call_wake_v1", [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -214,8 +216,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(
           RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
-        )
+        ),
+      active_native_call_wake_jobs: active_job_count(repo, :native_call_wake) + active_job_count(repo, :native_push_reconciler)
     })
+    |> Map.merge(Notifications.rollback_native_wake_hazards())
   end
 
   defp active_job_count(repo, kind),

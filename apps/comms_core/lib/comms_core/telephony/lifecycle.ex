@@ -218,6 +218,28 @@ defmodule CommsCore.Telephony.Lifecycle do
   def answer(id, subject, issuer), do: credential(id, subject, issuer, :answer)
   def join(id, subject, issuer), do: credential(id, subject, issuer, :join)
 
+  @doc false
+  def native_wake_recipients(tenant, id) do
+    case Repo.one(from(c in Call, where: c.id == ^id and c.tenant_id == ^tenant and c.status == :ringing and
+      c.direction == :inbound and is_nil(c.answer_session_id) and c.expires_at > ^now())) do
+      nil -> {:ok, []}
+      call -> {:ok, if(call.routing_status == "offered", do: call.offered_user_ids, else: [call.user_id])}
+    end
+  end
+  @doc false
+  def native_wake_authority(id, subject) do
+    if Repo.in_transaction?() do
+      grant = lock_access!(subject)
+      lock_tenant!(grant.tenant_id)
+      call = own_call!(id, grant)
+      if not view(call, grant).can_answer || not Routing.eligible_recipient?(call, grant),
+        do: Repo.rollback(:native_push_unavailable)
+      {:ok, earliest_expiry(call.expires_at, grant.effective_expires_at)}
+    else
+      {:error, :transaction_required}
+    end
+  end
+
   defp credential(id, subject, issuer, operation) when is_function(issuer, 1) do
     with {:ok, _grant} <- access(subject), {:ok, id} <- uuid(id) do
       transaction(fn ->

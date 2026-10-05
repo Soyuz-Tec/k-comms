@@ -3,14 +3,44 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
+  sha256: 2061e4def03476031e9c3da9f289fcbaa7b6a0a3a00eb580b4720a3d6ff2bee7
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+  - id: native-call-wake-exact-owner-protocol
+    previous_manifest_sha256: f126eb431fe46e01fb91e26cc7e0f74bda3236d69186f526e9d633352cb5746b
+    approved_changes:
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.NativePushAuthority
+    - context:notification_delivery:owned_modules:add:CommsCore.Security.NativePushBox
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallRequest
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallTarget
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallWakePort
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallWakePort.Contract
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeDelivery
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativePushProviderPort
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativePushProviderPort.Contract
+    - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativePushView
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->2061e4def03476031e9c3da9f289fcbaa7b6a0a3a00eb580b4720a3d6ff2bee7
+    - runtime_collaborations:identity-notification-lifecycle:callers:add:"CommsCore.Accounts.GovernanceErasure"
+    - table:native_call_wakes:add:{"access":"owner_only","access_namespaces":["CommsCore.Notifications"],"canonical_schema":"CommsCore.Notifications.NativeCallWake","owner":"notification_delivery","role":"source"}
+    - table:native_push_registrations:add:{"access":"owner_only","access_namespaces":["CommsCore.Notifications"],"canonical_schema":"CommsCore.Notifications.NativePushRegistration","owner":"notification_delivery","role":"source"}
+    - technical_interfaces:native-call-wake-owner:add:{"behaviour":"CommsCore.Notifications.NativeCallWakePort.Contract","binding":{"application":"comms_core","key":"native_call_wake_adapter","module":"CommsIntegrations.NativePush.CallOwner"},"callers":["CommsCore.Notifications.NativeWakePorts"],"condition":"ADR-0106
+      permits only content-free recipient discovery and retained-current-owner eligibility/admission through the consumer-owned
+      call composition adapter; discovery reads owner-projected identifiers, while authorize/admit retain the caller's governance-first
+      transaction and existing Calls/Telephony admission. No foreign call schema, persistence object, or media credential occurs
+      in a wake.","contracts":["CommsCore.Notifications.NativeCallWakePort","CommsCore.Notifications.NativeCallWakePort.Contract","CommsCore.Notifications.NativeCallTarget","CommsCore.Notifications.NativeCallRequest"],"dispatch":"configured","id":"native-call-wake-owner","implementation":"CommsIntegrations.NativePush.CallOwner","interface":"CommsCore.Notifications.NativeCallWakePort","operations":[{"arity":1,"name":"recipients"},{"arity":1,"name":"authorize"},{"arity":3,"name":"admit"}],"owner":"notification_delivery","transaction":"required"}
+    - technical_interfaces:native-push-provider:add:{"behaviour":"CommsCore.Notifications.NativePushProviderPort.Contract","binding":{"application":"comms_core","key":"native_push_provider_adapter","module":"CommsIntegrations.NativePush.Provider"},"callers":["CommsCore.Notifications.NativeWakePorts"],"condition":"ADR-0106
+      permits one durably claimed, deadline-bound APNs/FCM effect with transient redacted token material under current governance/identity/registration/call
+      locks; status performs no provider I/O. Secrets stay in fixed official provider transport, and uncertain results never
+      authorize automatic re-emission or physical-readiness claims.","contracts":["CommsCore.Notifications.NativePushProviderPort","CommsCore.Notifications.NativePushProviderPort.Contract","CommsCore.Notifications.NativeDelivery"],"dispatch":"configured","id":"native-push-provider","implementation":"CommsIntegrations.NativePush.Provider","interface":"CommsCore.Notifications.NativePushProviderPort","operations":[{"arity":0,"name":"status"},{"arity":2,"name":"deliver"}],"owner":"notification_delivery","transaction":"independent"}
+    adr: docs/02-architecture/adr/0106-native-call-wake-owner-protocol.md
+    removal_condition: Remove this exact ADR-0106 transition after the wake owner protocol stacked on immutable Native source
+      eaff0cb6157e27be9980a15967f9ce2025ba204b reaches the protected branch; it approves no later operation, dependency, ownership
+      or persistence-access change.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -242,6 +272,7 @@ contexts:
       - CommsCore.Accounts.UserRoleChangePreviewView
       - CommsCore.Accounts.AccessContext
       - CommsCore.Accounts.AccessGrant
+      - CommsCore.Accounts.NativePushAuthority
       - CommsCore.Accounts.AuthenticationResult
       - CommsCore.Accounts.CallLifecycleCommand
       - CommsCore.Accounts.CallLifecyclePort
@@ -466,13 +497,21 @@ contexts:
     fold_in: [InAppNotifications, PushSubscriptions]
     public_facades: [CommsCore.Notifications]
     public_contracts:
+      - CommsCore.Notifications.NativePushView
+      - CommsCore.Notifications.NativeCallTarget
+      - CommsCore.Notifications.NativeCallRequest
+      - CommsCore.Notifications.NativeDelivery
+      - CommsCore.Notifications.NativeCallWakePort
+      - CommsCore.Notifications.NativeCallWakePort.Contract
+      - CommsCore.Notifications.NativePushProviderPort
+      - CommsCore.Notifications.NativePushProviderPort.Contract
       - CommsCore.Notifications.AttemptView
       - CommsCore.Notifications.Availability
       - CommsCore.Notifications.Delivery
       - CommsCore.Notifications.IntentView
       - CommsCore.Notifications.PreferenceView
       - CommsCore.Notifications.PushSubscriptionView
-    owned_modules: [CommsCore.Security.PushSubscriptionBox]
+    owned_modules: [CommsCore.Security.PushSubscriptionBox, CommsCore.Security.NativePushBox]
     internal_namespaces: [CommsCore.Notifications]
     allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
     publishes: []
@@ -709,7 +748,7 @@ runtime_collaborations:
     port: CommsCore.Accounts.NotificationPort
     result_contract: CommsCore.Accounts.NotificationReceipt
     implementation: CommsCore.Notifications
-    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery, CommsCore.Accounts.GovernanceErasure]
     operations:
       - {name: execute, arity: 1}
     binding:
@@ -1178,6 +1217,36 @@ technical_interfaces:
       verified recording notice, live member access, bounded media, retention and legal-hold decisions precede publication
       or erasure.
 
+  - id: native-call-wake-owner
+    owner: notification_delivery
+    interface: CommsCore.Notifications.NativeCallWakePort
+    callers: [CommsCore.Notifications.NativeWakePorts]
+    operations:
+      - {name: recipients, arity: 1}
+      - {name: authorize, arity: 1}
+      - {name: admit, arity: 3}
+    dispatch: configured
+    contracts: [CommsCore.Notifications.NativeCallWakePort, CommsCore.Notifications.NativeCallWakePort.Contract, CommsCore.Notifications.NativeCallTarget, CommsCore.Notifications.NativeCallRequest]
+    behaviour: CommsCore.Notifications.NativeCallWakePort.Contract
+    implementation: CommsIntegrations.NativePush.CallOwner
+    binding: {application: comms_core, key: native_call_wake_adapter, module: CommsIntegrations.NativePush.CallOwner}
+    transaction: required
+    condition: ADR-0106 permits only content-free recipient discovery and retained-current-owner eligibility/admission through the consumer-owned call composition adapter; discovery reads owner-projected identifiers, while authorize/admit retain the caller's governance-first transaction and existing Calls/Telephony admission. No foreign call schema, persistence object, or media credential occurs in a wake.
+  - id: native-push-provider
+    owner: notification_delivery
+    interface: CommsCore.Notifications.NativePushProviderPort
+    callers: [CommsCore.Notifications.NativeWakePorts]
+    operations:
+      - {name: status, arity: 0}
+      - {name: deliver, arity: 2}
+    dispatch: configured
+    contracts: [CommsCore.Notifications.NativePushProviderPort, CommsCore.Notifications.NativePushProviderPort.Contract, CommsCore.Notifications.NativeDelivery]
+    behaviour: CommsCore.Notifications.NativePushProviderPort.Contract
+    implementation: CommsIntegrations.NativePush.Provider
+    binding: {application: comms_core, key: native_push_provider_adapter, module: CommsIntegrations.NativePush.Provider}
+    transaction: independent
+    condition: ADR-0106 permits one durably claimed, deadline-bound APNs/FCM effect with transient redacted token material under current governance/identity/registration/call locks; status performs no provider I/O. Secrets stay in fixed official provider transport, and uncertain results never authorize automatic re-emission or physical-readiness claims.
+
 retired_modules:
   - CommsCore.Authorization
   - CommsCore.InAppNotifications
@@ -1263,6 +1332,9 @@ tables:
   message_drafts: {owner: conversation_content, canonical_schema: CommsCore.Messaging.PersonalContent.Draft, role: source}
 
   telephony_voicemail_reads: {owner: telephony, canonical_schema: CommsCore.Telephony.VoicemailRead, role: source}
+
+  native_push_registrations: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.NativePushRegistration, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
+  native_call_wakes: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.NativeCallWake, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
 
 read_model_exceptions:
   - id: operations-cross-context-read-model

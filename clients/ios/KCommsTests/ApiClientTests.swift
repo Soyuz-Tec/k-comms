@@ -43,6 +43,51 @@ final class ApiClientTests: XCTestCase {
     }
     private func transport() -> URLSession { let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ProtocolStub.self]; return URLSession(configuration: configuration) }
     override func tearDown() { ProtocolStub.handler = nil; super.tearDown() }
+    func testNativeRegistrationUsesActualOwnerRoutesWithoutTokenInURL() async throws {
+        let original = try Wire.decoder().decode(MemberSession.self, from: fixture())
+        let vault = MemoryVault(.init(serverOrigin: "https://synthetic.example", session: original, accessExpiresAt: .distantFuture))
+        let receipt: [String: Any] = ["id": user, "device_id": device, "version": 1, "platform": "ios", "channel": "apns_voip", "application_id": "com.synthetic.native", "environment": "sandbox", "status": "active", "expires_at": "2026-10-06T00:00:00Z"]
+        ProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/me/native-push/registration"); XCTAssertNil(request.url?.query)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-access")
+            XCTAssertEqual(request.httpMethod, "PUT")
+            return .init(status: 200, data: try JSONSerialization.data(withJSONObject: ["data": receipt, "replayed": false]))
+        }
+        let client = try ApiClient(origin: "https://synthetic.example", vault: vault, transport: transport())
+        let result = try await client.registerNativePush(channel: "apns_voip", application: "com.synthetic.native", environment: "sandbox",
+            token: String(repeating: "a", count: 64), installation: user, version: 0)
+        XCTAssertEqual(result.registration.deviceId, device); XCTAssertFalse(result.replayed)
+    }
+    func testUncertainNativeAdmissionNeverAutomaticallyReplays() async throws {
+        let original = try Wire.decoder().decode(MemberSession.self, from: fixture())
+        let vault = MemoryVault(.init(serverOrigin: "https://synthetic.example", session: original, accessExpiresAt: .distantFuture))
+        let once = expectation(description: "Exactly one native admission"); once.assertForOverFulfill = true
+        ProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/native-call-wakes/00000000-0000-0000-0000-000000000002/admit")
+            XCTAssertNil(request.url?.query); XCTAssertEqual(request.httpMethod, "POST"); once.fulfill()
+            return .init(status: 503, data: Data("{}".utf8))
+        }
+        let client = try ApiClient(origin: "https://synthetic.example", vault: vault, transport: transport())
+        do { _ = try await client.admitNativeWake(user); XCTFail("Uncertain admission succeeded") }
+        catch let error as NativeApiError { XCTAssertEqual(error.status, 503) }
+        await fulfillment(of: [once], timeout: 2)
+        let current = await client.currentSession(); XCTAssertNotNil(current)
+    }
+    func testPhoneWakeWorkspaceFenceCannotSurviveWithdrawalAndRegrant() async throws {
+        let original = try Wire.decoder().decode(MemberSession.self, from: fixture())
+        let vault = MemoryVault(.init(serverOrigin: "https://synthetic.example", session: original, accessExpiresAt: .distantFuture))
+        let limited = try meFixture(scope: "conversation_only", version: 2), regranted = try meFixture(version: 3)
+        ProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/me")
+            return .init(status: 200, data: limited)
+        }
+        let client = try ApiClient(origin: "https://synthetic.example", vault: vault, transport: transport())
+        let stamp = try await client.stamp(); let workspace = try await client.captureWorkspaceAuthority(stamp)
+        _ = try await client.me(); ProtocolStub.handler = { _ in .init(status: 200, data: regranted) }; _ = try await client.me()
+        do { try await client.assertWorkspaceAuthority(workspace, stamp: stamp); XCTFail("Old phone admission fence survived withdrawal") }
+        catch NativeClientError.workspaceUnavailable { }
+        try await client.assertCurrent(stamp); let current = await client.currentSession(); XCTAssertTrue(current?.user.hasWorkspaceAccess == true)
+    }
     func testOriginRejectsCredentialPathQueryAndPlainHTTP() {
         for value in ["http://synthetic.example", "https://user:password@synthetic.example", "https://synthetic.example/api", "https://synthetic.example?token=x", "https://synthetic.example#fragment"] { XCTAssertThrowsError(try ApiClient.validatedOrigin(value)) }
         XCTAssertEqual(try ApiClient.validatedOrigin("https://SYNTHETIC.EXAMPLE/").absoluteString, "https://synthetic.example")

@@ -1,6 +1,10 @@
 package com.soyuz.kcomms.ui
 
 import android.content.Context
+import com.soyuz.kcomms.push.*
+import com.soyuz.kcomms.media.MediaPhase
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.soyuz.kcomms.media.ForegroundMedia
 import com.soyuz.kcomms.protocol.*
 import com.soyuz.kcomms.security.*
@@ -49,6 +53,8 @@ data class AppState(
 class AppController(context: Context, val api: KCommsApi) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val media = ForegroundMedia(context.applicationContext, api.sessions, scope)
+    val nativeWake = NativeWakeCoordinator(context.applicationContext, api, scope)
+    private val mediaAdmission = Mutex()
     private val mutableState = MutableStateFlow(AppState())
     val state = mutableState.asStateFlow()
     private val socket = PhoenixSocket(api)
@@ -218,6 +224,7 @@ class AppController(context: Context, val api: KCommsApi) {
     }
     fun cancelMfa() { scope.launch { api.sessions.resetForSignIn(); update { copy(challenge = null, busy = false) } } }
     fun logout() {
+        nativeWake.invalidate()
         admissionFence.invalidatePending(); socket.stop(); activeCall = null; activePhone = null
         scope.launch {
             val stopped = launch { media.stop() }
@@ -394,7 +401,7 @@ class AppController(context: Context, val api: KCommsApi) {
 
     private fun mediaTask(workspaceOnly: Boolean = false, block: suspend (IdentityLease) -> Unit) {
         val serial = admissionFence.capture()
-        task(workspaceOnly = workspaceOnly) { lease -> requireForeground(serial); api.sessions.ensureFresh(lease); requireForeground(serial); block(lease) }
+        task(workspaceOnly = workspaceOnly) { lease -> mediaAdmission.withLock { requireForeground(serial); api.sessions.ensureFresh(lease); requireForeground(serial); block(lease) } }
     }
     private fun workspaceMediaTask(block: suspend (IdentityLease, Long) -> Unit) = mediaTask(workspaceOnly = true) { lease ->
         publishOwner(lease, api.me(lease))
@@ -402,6 +409,31 @@ class AppController(context: Context, val api: KCommsApi) {
         block(lease, generation)
     }
     private fun requireForeground(serial: Long) = admissionFence.requireCurrent(serial)
+    suspend fun answerNativeWake(hint: NativeWakeHint, lease: IdentityLease) = mediaAdmission.withLock {
+        val serial = admissionFence.capture(); requireForeground(serial)
+        require(hint.current() && media.state.value.phase == MediaPhase.IDLE)
+        publishOwner(lease, api.me(lease)); requireForeground(serial); api.sessions.requireCurrent(lease)
+        // Capture the workspace fence before any awaited one-use admission.
+        // A limited human may still answer an admitted conversation call.
+        val workspaceGeneration = if (api.sessions.identity.value?.authentication?.user?.workspaceEligible == true)
+            api.sessions.captureWorkspace(lease) else null
+        val admission = api.admitNativeWake(hint.id, lease)
+        requireForeground(serial); api.sessions.requireCurrent(lease)
+        require(media.state.value.phase == MediaPhase.IDLE)
+        when (admission) {
+            is NativeWakeAdmission.Conversation -> {
+                activeCall = admission.value.data; activePhone = null
+                // Audio-only capture after the OS user's explicit answer. Camera
+                // remains off; video can be enabled later with its own permission.
+                media.connect(admission.value, lease, incoming = true, captureVideo = false)
+            }
+            is NativeWakeAdmission.Phone -> {
+                require(workspaceGeneration != null)
+                api.sessions.requireWorkspace(lease, workspaceGeneration)
+                activePhone = admission.value.data; activeCall = null; media.connectPhone(admission.value, lease)
+            }
+        }
+    }
     fun startCall(video: Boolean) {
         val serial = admissionFence.capture()
         mediaTask { lease ->

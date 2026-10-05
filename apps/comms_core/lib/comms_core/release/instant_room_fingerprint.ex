@@ -8,6 +8,7 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     Audit,
     Conversations,
     Messaging,
+    Notifications,
     Outbox,
     Release.Environment,
     Repo
@@ -31,7 +32,9 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :native_push_registrations,
+    :native_call_wakes
   ]
 
   def run do
@@ -66,7 +69,8 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
           Messaging.release_tenant_fingerprint_fragment(repo, tenant_id),
           Audit.release_tenant_fingerprint_fragment(repo, tenant_id),
           Outbox.release_tenant_fingerprint_fragment(repo, tenant_id),
-          AudioCalls.release_tenant_fingerprint_fragment(repo, tenant_id)
+          AudioCalls.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Notifications.release_tenant_fingerprint_fragment(repo, tenant_id)
         ]
 
         build(tenant_id, merge_fragments(fragments))

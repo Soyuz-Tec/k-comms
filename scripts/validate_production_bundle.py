@@ -75,6 +75,12 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "native_call_wake_v1": (
+        "native_push_registrations",
+        "native_call_wakes",
+        "CommsWorkers.NativeCallWakeWorker",
+        "CommsWorkers.NativePushReconcilerWorker",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

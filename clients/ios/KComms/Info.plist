@@ -13,4 +13,6 @@
     <key>UILaunchScreen</key><dict/>
     <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>NativePushDeviceQualified</key><false/>
+    <key>NativePushEnvironment</key><string>sandbox</string>
 </dict></plist>

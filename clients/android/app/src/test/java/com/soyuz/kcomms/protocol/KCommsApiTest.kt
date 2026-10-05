@@ -1,5 +1,6 @@
 package com.soyuz.kcomms.protocol
 
+import com.soyuz.kcomms.push.*
 import com.soyuz.kcomms.security.CredentialVault
 import com.soyuz.kcomms.security.SessionStore
 import com.soyuz.kcomms.security.StoredState
@@ -20,6 +21,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class KCommsApiTest {
+    @Test fun nativeRegistrationUsesActualSingularOwnerRouteAndKeepsTokenOutOfUrl() = runBlocking {
+        ProtocolFixture().use { f ->
+            val config = NativePushConfiguration(1, false, emptyList(), 30, true)
+            f.respond(NativeConfigurationResult(config))
+            assertEquals(config, f.api.nativePushConfiguration(f.lease)); assertEquals("/api/v1/me/native-push/config", f.request().path)
+            val receipt = NativeRegistration(f.receiptId, f.deviceId, 1, "android", "fcm", "com.synthetic.native", "production", "active", Instant.now().plusSeconds(60).toString())
+            f.respond(NativeRegistrationResult(receipt, false))
+            assertEquals(receipt, f.api.registerNativePush("synthetic-provider-token-123456", f.commandId, "com.synthetic.native", 0, f.lease).data)
+            val request = f.request()
+            assertEquals("PUT", request.method); assertEquals("/api/v1/me/native-push/registration", request.path)
+            assertNull(request.requestUrl!!.query); assertEquals("Bearer ${f.authentication.accessToken}", request.getHeader("Authorization"))
+            assertEquals("synthetic-provider-token-123456", request.json()["token"]?.jsonPrimitive?.content)
+            assertEquals(0L, request.json()["expected_version"]?.jsonPrimitive?.long)
+            f.respond(NativeRegistrationList(listOf(receipt))); assertEquals(listOf(receipt), f.api.nativeRegistrations(f.lease))
+            assertEquals("GET", f.request().method)
+            f.server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody("{}"))
+            f.api.revokeNativePush(1, f.lease)
+            val revoke = f.request(); assertEquals("DELETE", revoke.method); assertEquals("/api/v1/me/native-push/registration", revoke.path)
+            assertEquals(setOf("channel", "expected_version"), revoke.json().keys)
+        }
+    }
+    @Test fun uncertainNativeAdmissionDoesNotReplayTheOneUseMutation() = runBlocking {
+        ProtocolFixture().use { f ->
+            f.server.enqueue(MockResponse().setResponseCode(503).setHeader("Content-Type", "application/json").setBody("{}"))
+            assertTrue(runCatching { f.api.admitNativeWake(f.commandId, f.lease) }.exceptionOrNull() is ApiFailure)
+            val request = f.request(); assertEquals("POST", request.method)
+            assertEquals("/api/v1/native-call-wakes/${f.commandId}/admit", request.path); assertNull(request.requestUrl!!.query)
+            assertEquals(1, f.server.requestCount); assertEquals(f.userId, f.lease.userId)
+        }
+    }
+
     @Test fun limitedHumanOwnerMetadataKeepsAdmittedConversationAndCallRoutesAvailable() = runBlocking {
         ProtocolFixture().use { f ->
             val originalLease = f.lease

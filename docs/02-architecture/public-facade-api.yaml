@@ -7,11 +7,11 @@ contexts:
       collaboration_operations:
       - append/2
       - authorization_denied/3
-      - resource_history_page/1
-      - rollback_history_snapshot_hazard_count/0
       - list/1
       - record/1
       - release_tenant_fingerprint_fragment/2
+      - resource_history_page/1
+      - rollback_history_snapshot_hazard_count/0
       owner_internal_operations:
       - count/1
       - get_by/1
@@ -40,6 +40,8 @@ contexts:
       - list_sessions/2
       - meeting_calendar/2
       - moderation_target/4
+      - native_wake_authority/3
+      - native_wake_recipients/3
       - process_artifact/2
       - reconcile_artifacts/1
       - record_participant_eviction/4
@@ -56,6 +58,7 @@ contexts:
       - stop_artifact/4
       - update_meeting/3
       - usage_projection/2
+      - with_join_authorized/4
       - with_join_authorized/5
       collaboration_operations:
       - governance_erasure_pending?/3
@@ -89,7 +92,6 @@ contexts:
       - start/4
       - start_with_kind/3
       - start_with_kind/4
-      - with_join_authorized/4
     CommsCore.AudioCalls.LifecycleCoordinator:
       public_operations: []
       collaboration_operations:
@@ -370,6 +372,7 @@ contexts:
       - lock_active_human_directory_users/2
       - lock_content_write_grant/2
       - lock_guest_identity_parents/1
+      - lock_native_push_authority/2
       - lock_push_registration_identity/3
       - notification_eligible_device_ids/3
       - persisted_conversation_only_human_count/0
@@ -457,8 +460,10 @@ contexts:
   notification_delivery:
     CommsCore.Notifications:
       public_operations:
+      - admit_native_call_wake/3
       - claim_intent/1
       - dismiss_in_app/2
+      - dispatch_native_call_wake/3
       - enqueue_for_event/1
       - get_preferences/1
       - list_attempts/2
@@ -468,17 +473,24 @@ contexts:
       - mark_all_in_app_read/1
       - mark_in_app_read/2
       - materialize_push_destination/3
+      - native_push_config/1
+      - native_push_registrations/1
       - push_config/1
       - push_status/0
+      - reconcile_native_push/2
       - record_delivery/2
       - record_push_provider_result/3
+      - register_native_push/2
       - register_push_subscription/2
       - retry_intent/2
+      - revoke_native_push/2
       - revoke_push_subscription/2
       - unread_count/1
       - update_preferences/2
       collaboration_operations:
       - execute/1
+      - release_tenant_fingerprint_fragment/2
+      - rollback_native_wake_hazards/0
       owner_internal_operations:
       - authorize_delivery_management/1
       - authorize_tenant_scope/1
@@ -555,9 +567,9 @@ contexts:
       public_operations: []
       collaboration_operations:
       - authorized_job_worker?/2
-      - job_worker_name!/1
-      owner_internal_operations:
       - job_worker!/1
+      - job_worker_name!/1
+      owner_internal_operations: []
   telephony:
     CommsCore.Telephony:
       public_operations:
@@ -592,6 +604,8 @@ contexts:
       - list_voicemails/2
       - mailbox_config/1
       - mark_voicemail_read/2
+      - native_wake_authority/2
+      - native_wake_recipients/2
       - provision/2
       - purge_voicemail/2
       - reconcile_control/3
@@ -676,8 +690,8 @@ contexts:
       - create_retention_policy_view/2
       - delete_message/2
       - deletion_request_timeline/3
-      - export_deletion_request_history/3
       - enqueue_due_retention/3
+      - export_deletion_request_history/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2
       - list_retention_policy_views/2

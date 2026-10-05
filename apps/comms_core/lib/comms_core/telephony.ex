@@ -35,6 +35,12 @@ defmodule CommsCore.Telephony do
   @spec get_call(String.t(), map()) :: response()
   defdelegate get_call(id, subject), to: Lifecycle
 
+  @doc "Retain current exact ringing offer eligibility without claiming or answering a phone call."
+  @spec native_wake_authority(binary(), map()) :: {:ok, DateTime.t()} | {:error, atom()}
+  defdelegate native_wake_authority(id, subject), to: Lifecycle
+  @spec native_wake_recipients(binary(), binary()) :: {:ok, [binary()]} | {:error, atom()}
+  defdelegate native_wake_recipients(tenant, id), to: Lifecycle
+
   @spec start_outbound(map(), map()) ::
           {:ok, CallView.t(), :created | :replayed}
           | {:error, atom() | CommsCore.ValidationError.t()}

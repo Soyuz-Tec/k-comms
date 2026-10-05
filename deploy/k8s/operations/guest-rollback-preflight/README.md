@@ -11,7 +11,7 @@ The target is communication-compatible only when both its edge and worker pod
 templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,native_call_wake_v1
 ```
 
 The exact qualified M1 twelve-capability annotation is also preserved as a known
@@ -36,6 +36,7 @@ The same preflight includes owner-only aggregate UC hazards:
 | `uc_advanced_telephony_v1` | Unfinished advanced controls, PBX/routed calls and control/routing jobs |
 | `scheduled_meeting_lifecycle_v1` | Retained readable meeting history without verified erasure, scheduled meetings/occurrences, policy-linked active rooms and active reminder jobs |
 | `rich_content_erasure_v1` | Draft/saved content, approved board assets/checkpoints and restored author lineage |
+| `native_call_wake_v1` | All retained native registrations and wake intents, plus exact active wake/reconciliation jobs including orphaned jobs |
 | `member_workspace_v1` | All retained private workspace rows, including empty state and unusable identities |
 | `governance_history_v1` | All retained audit history snapshots, including expired rows, and active `continue:true` purge jobs; empty periodic cron jobs do not require retained history state |
 
@@ -107,7 +108,7 @@ expected = (
     "instant_room_expiry_worker_v1,conversation_only_human_v1,"
     "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
     "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
-    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,native_call_wake_v1"
 )
 values = [
     deployments[name]["spec"]["template"]

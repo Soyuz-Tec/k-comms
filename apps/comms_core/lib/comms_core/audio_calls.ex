@@ -89,6 +89,7 @@ defmodule CommsCore.AudioCalls do
           function(),
           function()
         ) :: public_response()
+  @spec with_join_authorized(binary(), binary(), public_map(), function()) :: public_response()
   @spec with_join_authorized(binary(), binary(), public_map(), public_input(), function()) ::
           public_response()
 
@@ -309,6 +310,12 @@ defmodule CommsCore.AudioCalls do
   """
   def with_join_authorized(conversation_id, call_id, subject, issuer),
     do: Lifecycle.with_join_authorized(conversation_id, call_id, subject, issuer)
+
+  @doc "Retain current conversation/call membership and media policy without admitting a participant."
+  @spec native_wake_authority(binary(), binary(), map()) :: {:ok, DateTime.t()} | {:error, atom()}
+  defdelegate native_wake_authority(conversation_id, call_id, subject), to: Lifecycle
+  @spec native_wake_recipients(binary(), binary(), binary()) :: {:ok, [binary()]} | {:error, atom()}
+  defdelegate native_wake_recipients(tenant, call, conversation), to: Lifecycle
 
   def with_join_authorized(conversation_id, call_id, subject, expected_kind, issuer),
     do:

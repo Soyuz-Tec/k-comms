@@ -496,6 +496,11 @@ defmodule CommsCore.Accounts do
   def lock_push_registration_identity(tenant_id, user_id, device_id),
     do: Directory.lock_push_registration_identity(tenant_id, user_id, device_id)
 
+  @doc "Retain exact current human/device/session authority after the caller's governance and quota fences."
+  @spec lock_native_push_authority(map(), integer()) ::
+          {:ok, CommsCore.Accounts.NativePushAuthority.t()} | {:error, atom()}
+  defdelegate lock_native_push_authority(subject, deadline), to: CommsCore.Accounts.NativePushAuthority, as: :lock
+
   @doc false
   @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::
           :ok
@@ -1164,6 +1169,10 @@ defmodule CommsCore.Accounts do
     CallLifecycleCommand.sessions_revoked(tenant_id, session_ids, reason)
     |> CallLifecyclePort.revoke_identity_access()
     |> call_lifecycle_ok!()
+
+    NotificationCommand.sessions_revoked(tenant_id, session_ids, reason)
+    |> NotificationPort.execute()
+    |> notification_ok!()
   end
 
   defp revoke_device_for_session_boundary(tenant_id, device_id, reason) do

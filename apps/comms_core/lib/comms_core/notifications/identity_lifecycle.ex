@@ -2,7 +2,7 @@ defmodule CommsCore.Notifications.IdentityLifecycle do
   @moduledoc false
 
   alias CommsCore.Accounts.{NotificationCommand, NotificationReceipt}
-  alias CommsCore.Notifications.{Intents, PushSubscriptions}
+  alias CommsCore.Notifications.{Intents, NativePush, PushSubscriptions}
   alias CommsCore.Repo
 
   @recovery_event_type "account.password_recovery.requested.v1"
@@ -25,6 +25,7 @@ defmodule CommsCore.Notifications.IdentityLifecycle do
 
   def execute(%NotificationCommand{operation: :device_revoked} = command) do
     with :ok <- require_transaction() do
+      :ok = NativePush.disable_identity(command.tenant_id, :device, [command.device_id])
       PushSubscriptions.disable_for_device(
         command.tenant_id,
         command.user_id,
@@ -36,12 +37,21 @@ defmodule CommsCore.Notifications.IdentityLifecycle do
 
   def execute(%NotificationCommand{operation: :user_access_revoked} = command) do
     with :ok <- require_transaction() do
+      :ok = NativePush.disable_identity(command.tenant_id, :user, [command.user_id])
       PushSubscriptions.disable_for_user(
         command.tenant_id,
         command.user_id,
         command.reason
       )
     end
+  end
+
+  def execute(%NotificationCommand{operation: :sessions_revoked} = command) do
+    with :ok <- require_transaction(), do: NativePush.disable_identity(command.tenant_id, :sessions, command.session_ids)
+  end
+
+  def execute(%NotificationCommand{operation: :user_erased} = command) do
+    with :ok <- require_transaction(), do: NativePush.disable_identity(command.tenant_id, :user, [command.user_id], true)
   end
 
   def execute(%NotificationCommand{}), do: {:error, :unsupported_identity_notification_command}

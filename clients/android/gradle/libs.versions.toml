@@ -11,8 +11,10 @@ okhttp = "4.12.0"
 serialization = "1.8.1"
 coroutines = "1.10.2"
 junit = "4.13.2"
+firebaseMessaging = "24.1.2"
 
 [libraries]
+firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebaseMessaging" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-foundation = { module = "androidx.compose.foundation:foundation" }

@@ -22,6 +22,7 @@ from validate_contracts import (
     validate_telephony_contract,
     validate_enterprise_identity_contract,
     validate_member_workflow_contract,
+    validate_native_call_wake_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -1196,6 +1197,42 @@ class InstantRoomRealtimeContractValidationTests(unittest.TestCase):
             ValueError, "durable instant-room lifecycle evidence"
         ):
             validate_instant_room_realtime_contract(asyncapi)
+
+
+class NativeWakeContractTests(unittest.TestCase):
+    def setUp(self):
+        self.open = load_yaml(CONTRACTS / "openapi" / "openapi.yaml")
+        self.standalone = json.loads((CONTRACTS / "json-schema" / "native-call-wake.v1.json").read_text())
+
+    def test_actual_current_owner_paths_and_safe_schema_mirrors(self):
+        validate_native_call_wake_contract(self.open, self.standalone)
+
+    def test_native_route_cannot_become_anonymous_or_generic_auth_response(self):
+        for field, value in [("security", [{}]), ("operationId", "createSession")]:
+            altered = copy.deepcopy(self.open)
+            altered["paths"]["/api/v1/native-call-wakes/{wakeId}/admit"]["post"][field] = value
+            with self.assertRaisesRegex(ValueError, "current member bearer"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_private_material_cannot_enter_a_read_projection_or_push_hint(self):
+        for name, field in [("NativePushRegistration", "token_hash"), ("NativeCallWakeHint", "caller")]:
+            altered = copy.deepcopy(self.open)
+            altered["components"]["schemas"][name]["properties"][field] = {"type": "string"}
+            with self.assertRaisesRegex(ValueError, "private|opaque"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_provider_token_cannot_lose_write_only_contract(self):
+        altered = copy.deepcopy(self.open)
+        altered["components"]["schemas"]["NativePushRegistrationRequest"]["properties"]["token"].pop("writeOnly")
+        with self.assertRaisesRegex(ValueError, "write-only"):
+            validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_standalone_hint_rejects_caller_credential_and_malformed_identity(self):
+        validator = Draft202012Validator(self.standalone, format_checker=FormatChecker())
+        payload = {"protocol_version": "1", "wake_id": "00000000-0000-4000-8000-000000000001", "expires_at": "2026-10-05T00:00:25Z", "kind": "call"}
+        self.assertFalse(list(validator.iter_errors(payload)))
+        for changed in [payload | {"caller": "Private caller"}, payload | {"participant_token": "not-authority"}, payload | {"wake_id": "invalid"}, payload | {"protocol_version": 1}]:
+            self.assertTrue(list(validator.iter_errors(changed)))
 
 
 if __name__ == "__main__":

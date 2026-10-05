@@ -208,6 +208,38 @@ defmodule CommsCore.AudioCalls.Lifecycle do
 
   def with_join_authorized(_, _, _, _, _), do: {:error, :not_found}
 
+  @doc false
+  def native_wake_recipients(tenant, call_id, conversation) do
+    case Repo.one(from(c in AudioCall, where: c.id == ^call_id and c.tenant_id == ^tenant and
+      c.conversation_id == ^conversation and c.status == :active and c.expires_at > ^now())) do
+      nil -> {:ok, []}
+      call -> {:ok, CommsCore.Conversations.active_member_ids(tenant, conversation) |> Enum.reject(&(&1 == call.started_by_user_id))}
+    end
+  end
+  @doc false
+  def native_wake_authority(conversation_id, call_id, subject) do
+    if Repo.in_transaction?() do
+      access = lock_access!(subject, conversation_id, :share)
+      call = lock_call!(conversation_id, call_id, subject)
+      authorize_access!(join_action(call.media_kind), access, call)
+      ensure_active!(call)
+      if call.started_by_user_id == value(subject, :user_id), do: Repo.rollback(:native_push_unavailable)
+      admissions = from(p in CommsCore.AudioCalls.AudioCallParticipant,
+        where: p.audio_call_id == ^call.id and p.tenant_id == ^call.tenant_id and
+          p.user_id == ^value(subject, :user_id) and
+          p.device_id == ^value(subject, :device_id) and p.session_id == ^value(subject, :session_id))
+      # A revoked admission belongs to its exact session. Historical admissions
+      # from another device do not withdraw a current member's communication.
+      # A subsequent explicit owner-authorized admission restores eligibility.
+      admitted = Repo.exists?(from(p in admissions, where: p.status == :admitted))
+      revoked = Repo.exists?(from(p in admissions, where: p.status in [:revoked, :evicted]))
+      if revoked && not admitted, do: Repo.rollback(:native_push_unavailable)
+      {:ok, call.expires_at}
+    else
+      {:error, :transaction_required}
+    end
+  end
+
   @doc "Revokes active admissions for exact sessions and durably schedules provider eviction."
   defdelegate revoke_for_sessions(tenant_id, session_ids, reason), to: Participants
 
