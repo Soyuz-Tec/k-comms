@@ -199,6 +199,7 @@ defmodule CommsCore.AudioCalls.CalendarSync.Connections do
         %ConnectionView{} = view -> {:ok, view}
       end
     else
+      {:error, :calendar_cleanup_principal_mismatch} = error -> error
       {:error, _} -> {:error, :calendar_callback_rejected}
       _ -> {:error, :calendar_callback_rejected}
     end
@@ -442,11 +443,8 @@ defmodule CommsCore.AudioCalls.CalendarSync.Connections do
           secret_context(connection, connection.id, :external_identity)
         )
 
-      unless :crypto.hash_equals(
-               old_identity["external_subject"],
-               tokens.identity.external_subject
-             ) and
-               :crypto.hash_equals(old_identity["oidc_subject"], tokens.identity.oidc_subject),
+      unless same_principal?(old_identity["external_subject"], tokens.identity.external_subject) and
+               same_principal?(old_identity["oidc_subject"], tokens.identity.oidc_subject),
              do: Repo.rollback(:calendar_cleanup_principal_mismatch)
     end
 
@@ -622,6 +620,13 @@ defmodule CommsCore.AudioCalls.CalendarSync.Connections do
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp random, do: :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
   defp digest(value), do: :crypto.hash(:sha256, value)
+
+  defp same_principal?(left, right)
+       when is_binary(left) and is_binary(right) and byte_size(left) > 0 and
+              byte_size(left) == byte_size(right),
+       do: :crypto.hash_equals(left, right)
+
+  defp same_principal?(_, _), do: false
 
   defp bounded?(value, min, max),
     do:
