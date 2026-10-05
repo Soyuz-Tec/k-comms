@@ -140,6 +140,21 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
     refute_receive {:ivr_play, _}
   end
 
+  test "the registered worker consumes one playback claim and retries by read-only observation" do
+    {_account, subject} = ready()
+    assert {:ok, _} = Telephony.save_ivr(menu(), subject)
+    assert {:ok, call, :applied} = Telephony.callback(incoming(), LiveKit)
+    run = Repo.get_by!(IvrRun, call_id: call.id)
+    job = %Oban.Job{args: %{"run_id" => run.id}}
+    assert {:snooze, 1} = TelephonyIvrWorker.perform(job)
+    assert {:snooze, 1} = TelephonyIvrWorker.perform(job)
+    assert {:snooze, 1} = TelephonyIvrWorker.perform(job)
+    assert_receive {:ivr_play, %{reconcile: false}}
+    assert Repo.get!(IvrRun, run.id).effect_started_at
+    assert {:snooze, 1} = TelephonyIvrWorker.perform(job)
+    refute_receive {:ivr_play, _}
+  end
+
   test "original provider digit time before prompt proof cannot select a branch when delivered later" do
     {_account, subject} = ready()
     {call, run, claim} = prepare(subject)
