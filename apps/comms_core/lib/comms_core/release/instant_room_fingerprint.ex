@@ -31,7 +31,8 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :workspace_domain_claims
   ]
 
   def run do
@@ -62,6 +63,7 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
       tenant_id ->
         fragments = [
           Accounts.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Administration.workspace_domain_release_fingerprint_fragment(repo, tenant_id),
           Conversations.release_tenant_fingerprint_fragment(repo, tenant_id),
           Messaging.release_tenant_fingerprint_fragment(repo, tenant_id),
           Audit.release_tenant_fingerprint_fragment(repo, tenant_id),

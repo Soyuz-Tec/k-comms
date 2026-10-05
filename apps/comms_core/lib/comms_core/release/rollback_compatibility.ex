@@ -3,6 +3,7 @@ defmodule CommsCore.Release.RollbackCompatibility do
 
   alias CommsCore.{
     Accounts,
+    Administration,
     Audit,
     AudioCalls,
     Conversations,
@@ -33,7 +34,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
-    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+    {"workspace_domain_discovery_v1", [:workspace_domain_claims]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -209,6 +211,7 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_meeting_reminder_jobs: active_job_count(repo, :meeting_reminder),
       rich_messages: Messaging.rollback_rich_content_hazard_count(),
       rich_whiteboards: Whiteboards.rollback_rich_content_hazard_count(),
+      workspace_domain_claims: Administration.retained_workspace_domain_claim_count(repo),
       member_workspaces: Accounts.rollback_member_workspace_hazard_count(),
       governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
       active_history_purge_jobs:

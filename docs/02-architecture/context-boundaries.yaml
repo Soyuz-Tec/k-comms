@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
+  sha256: 83213eb9cd598937c81761b93491808e7e9bf6b2837327b2985587fcd63599c3
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -11,39 +11,31 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-administrative-evidence-owner-contracts
-    previous_manifest_sha256: 2ae4724b084c1f36b583fd1f864f551eb19dfa03b5da89bc386520ca9afc913c
+  - id: compose-opt-in-workspace-discovery-owner-contracts
+    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
     approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
-    adr: docs/02-architecture/adr/0093-private-member-organization-and-synchronized-setup.md
-    removal_condition: Remove this exact ADR-0093 through ADR-0096 transition after the member organization and administrative
-      evidence composition reviewed against protected parent 734c9e1daf48f2280789a13f977d220f250b9890 reaches the protected
-      branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DiscoveryView
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainClaimView
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainGovernanceFenceQuery
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainGovernanceFenceReceipt
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainIdentityAuthorization
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainTXTQuery
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainUserErasureCommand
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.DomainUserErasureReceipt
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.WorkspaceDomainGovernancePort
+    - context:tenant_administration:public_contracts:add:CommsCore.Administration.WorkspaceDomainIdentityPort
+    - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->83213eb9cd598937c81761b93491808e7e9bf6b2837327b2985587fcd63599c3
+    - runtime_collaborations:workspace-domain-governance-fence:add:{"binding":{"application":"comms_core","key":"workspace_domain_governance_adapter","module":"CommsCore.Governance"},"callers":["CommsCore.Administration.WorkspaceDomains"],"condition":"ADR-0097
+      requires the exact governance tenant advisory fence before admission/tenant/user/session locks so personal DNS challenges
+      cannot survive governed user erasure; the receipt exposes only the matching tenant ID.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"trust_governance_to_tenant_administration","control_flow":"tenant_administration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-governance-fence","implementation":"CommsCore.Governance","operations":[{"arity":1,"name":"lock_workspace_domain_fence"}],"port":"CommsCore.Administration.WorkspaceDomainGovernancePort","provider":"trust_governance","result_contract":"CommsCore.Administration.DomainGovernanceFenceReceipt","transaction":"required"}
+    - runtime_collaborations:workspace-domain-retained-identity:add:{"binding":{"application":"comms_core","key":"workspace_domain_identity_adapter","module":"CommsCore.Accounts"},"callers":["CommsCore.Administration.WorkspaceDomains"],"condition":"ADR-0097
+      requires the exact retained current workspace human owner/admin and recent-proof identity grant on the caller transaction
+      before domain resources; no DNS proof creates identity or enrollment authority.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"identity_access_to_tenant_administration","control_flow":"tenant_administration_to_identity_access","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-retained-identity","implementation":"CommsCore.Accounts","operations":[{"arity":1,"name":"authorize_workspace_domain"}],"port":"CommsCore.Administration.WorkspaceDomainIdentityPort","provider":"identity_access","result_contract":"CommsCore.Administration.IdentityGrant","transaction":"required"}
+    - table:workspace_domain_claims:add:{"access":"owner_only","access_namespaces":["CommsCore.Administration"],"canonical_schema":"CommsCore.Administration.WorkspaceDomainClaim","owner":"tenant_administration","role":"source"}
+    removal_condition: Applies only to exact committed 610b6acd6bd2cd20a8607481cedc1e35fc1cd956 source; later semantic widening
+      requires a new exact accepted ADR-reviewed transition.
+    adr: docs/02-architecture/adr/0097-verify-opt-in-workspace-domain-discovery.md
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -309,7 +301,7 @@ contexts:
     responsibility: Tenant lifecycle, tenant settings, invitations, and admission policy.
     current_contexts: [Administration, AdmissionQuotas]
     fold_in: [AdmissionQuotas]
-    public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas, CommsCore.AuditExport]
+    public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas, CommsCore.AuditExport, CommsCore.Administration.WorkspaceDomainErasure]
     public_contracts:
       - CommsCore.Administration.AdmissionPolicy
       - CommsCore.Administration.AuthorizationActor
@@ -329,6 +321,16 @@ contexts:
       - CommsCore.Administration.RetentionDefaults
       - CommsCore.Administration.TenantSettingsView
       - CommsCore.Administration.TenantView
+      - CommsCore.Administration.DiscoveryView
+      - CommsCore.Administration.DomainClaimView
+      - CommsCore.Administration.DomainGovernanceFenceQuery
+      - CommsCore.Administration.DomainGovernanceFenceReceipt
+      - CommsCore.Administration.DomainIdentityAuthorization
+      - CommsCore.Administration.DomainTXTQuery
+      - CommsCore.Administration.DomainUserErasureCommand
+      - CommsCore.Administration.DomainUserErasureReceipt
+      - CommsCore.Administration.WorkspaceDomainGovernancePort
+      - CommsCore.Administration.WorkspaceDomainIdentityPort
     owned_modules: [CommsCore.AuditExport]
     internal_namespaces: [CommsCore.Administration]
     allowed_dependencies: [audit, platform_eventing]
@@ -931,6 +933,50 @@ runtime_collaborations:
       projection on the existing caller transaction. Governance alone reads tenant and participant legal holds and
       retention policies while acquiring the tenant lock; there is no foreign Repo access or broader operation.
 
+  - id: workspace-domain-retained-identity
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.WorkspaceDomainIdentityPort
+    result_contract: CommsCore.Administration.IdentityGrant
+    implementation: CommsCore.Accounts
+    callers:
+    - CommsCore.Administration.WorkspaceDomains
+    operations:
+    - name: authorize_workspace_domain
+      arity: 1
+    binding:
+      application: comms_core
+      key: workspace_domain_identity_adapter
+      module: CommsCore.Accounts
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0097 requires the exact retained current workspace human owner/admin and recent-proof identity grant on the
+      caller transaction before domain resources; no DNS proof creates identity or enrollment authority.
+  - id: workspace-domain-governance-fence
+    consumer: tenant_administration
+    provider: trust_governance
+    port: CommsCore.Administration.WorkspaceDomainGovernancePort
+    result_contract: CommsCore.Administration.DomainGovernanceFenceReceipt
+    implementation: CommsCore.Governance
+    callers:
+    - CommsCore.Administration.WorkspaceDomains
+    operations:
+    - name: lock_workspace_domain_fence
+      arity: 1
+    binding:
+      application: comms_core
+      key: workspace_domain_governance_adapter
+      module: CommsCore.Governance
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_trust_governance
+      compile_dependency: trust_governance_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0097 requires the exact governance tenant advisory fence before admission/tenant/user/session locks so personal
+      DNS challenges cannot survive governed user erasure; the receipt exposes only the matching tenant ID.
 technical_interfaces:
   - id: telephony-provider-webhook-verification
     owner: telephony
@@ -1297,6 +1343,13 @@ tables:
 
   telephony_voicemail_reads: {owner: telephony, canonical_schema: CommsCore.Telephony.VoicemailRead, role: source}
 
+  workspace_domain_claims:
+    owner: tenant_administration
+    canonical_schema: CommsCore.Administration.WorkspaceDomainClaim
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Administration
 read_model_exceptions:
   - id: operations-cross-context-read-model
     module: CommsCore.Operations

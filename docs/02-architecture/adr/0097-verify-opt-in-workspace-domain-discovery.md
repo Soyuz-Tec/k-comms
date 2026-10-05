@@ -1,6 +1,6 @@
 # ADR-0097: Verify opt-in workspace domain discovery
 
-Status: Accepted  
+Status: Accepted
 Date: 2026-10-05  
 Owners: TenantAdministration, IdentityAccess, TrustGovernance
 
@@ -106,3 +106,52 @@ protected staging, and independent production approval remain required.
 Real DNS ownership acceptance requires an authorized test domain and deployment
 resolver. No domain has been registered, DNS record published, or real tenant
 disclosure enabled during implementation. The implementation remains opt-in.
+
+## Accepted exact registry and erasure integration
+
+This source decision registers the ten TenantAdministration-owned Discovery
+DTO/port contracts, owner-only WorkspaceDomainClaim table and seven public
+administrative/discovery operations. Governance consumes only the typed user
+erasure command/receipt; Accounts implements the Administration-owned retained
+identity port, and Governance implements its tenant-fence port. The two runtime
+bindings list only WorkspaceDomains as caller, exact operations and transaction
+semantics. No foreign persistence, new Repo exception or baseline waiver is
+permitted. The retained-identity result is the existing IdentityGrant DTO.
+
+The exact reviewed transition is bound to committed
+610b6acd6bd2cd20a8607481cedc1e35fc1cd956 and lists only the fifteen Discovery
+semantic additions: ten named DTO/port contracts, the narrow owner-command
+facade, two runtime collaborations, the owner-only claim table and the public
+operation snapshot hash. Member, Role, Usage and History declarations are
+inherited intact from accepted ADR0093-0096. Every preceding owner, operation,
+table, dependency and named contract remains in force. Later widening requires
+a new exact accepted transition; this declaration grants no broader authority.
+
+Actual user erasure invokes Administration after the canonical retained User
+fence, session/device drain and lower membership contributions, before strong
+Identity key anonymization. Completion records only removed/detached counts and
+domain_challenge_erasure_version=1 for user targets. Historical reconciliation
+selects user completions missing that marker even when all older proofs are
+current; non-user completions require no domain marker. The actual registered
+DeletionWorker and ErasureReconcilerWorker regression sources cover scope,
+lease preservation, raw challenge removal and idempotent completion.
+
+workspace_domain_discovery_v1 requires the ALL-retained-row owner hazard and
+workspace_domain_claims fingerprint inventory. Known twelve-capability M1 and
+fourteen-capability Member/History receipts retain only their original scope;
+current images declare all fifteen. No Discovery job is invented. Source-only
+parsing and Python checks do not qualify DNS, migrations, application runtime or
+protected delivery. Those receipts remain pending.
+
+Governance calls the narrow published Administration.WorkspaceDomainErasure
+facade's sole erase_user_challenges/1 core collaboration. Administration's root
+erase_workspace_domain_user_challenges/1 delegate remains compatible. Exact
+individual DTO aliases and this owner-command facade preserve the existing
+Governance RetentionDefaultsReader read-only scope without a broad facade
+exception or baseline change. The validator now derives resources reserved
+outside a scoped reader from the exact query facades and source schemas declared
+by that reader, rather than every facade owned by those contexts. Its within-reader
+owner-facade checks and dynamic-call, query, write and schema enforcement remain
+unchanged. Regression sources retain direct and dynamic root-query denial, foreign
+schema/table and reader-write denial, while permitting only a separately published
+owner-command facade through the normal typed operation and graph checks.

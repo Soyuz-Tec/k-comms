@@ -5,6 +5,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
   import CommsCore.Governance.Support
 
   alias CommsCore.Audit
+  alias CommsCore.Administration.DomainUserErasureCommand
+  alias CommsCore.Administration.DomainUserErasureReceipt
+  alias CommsCore.Administration.WorkspaceDomainErasure
   alias CommsCore.Accounts.{GovernanceErasureCommand, GovernanceErasureReceipt}
 
   alias CommsCore.Governance.{
@@ -190,19 +193,21 @@ defmodule CommsCore.Governance.DeletionWorkflow do
 
         results = apply_deletion!(request, plan, timestamp, identity_result)
 
-        evidence = %{
-          executor: RuntimePorts.job_worker_name!(:deletion),
-          completed_at: DateTime.to_iso8601(now()),
-          target_type: request.target_type,
-          messages_tombstoned: results.messages_tombstoned,
-          attachments_deleted: results.attachments_deleted,
-          deleted_object_count: deleted_object_count,
-          derived_erasure_version: 1,
-          media_erasure_version: 1,
-          meeting_erasure_version: 1,
-          writer_fence_erasure_version: 1,
-          target_digest: target_digest(request)
-        }
+        evidence =
+          %{
+            executor: RuntimePorts.job_worker_name!(:deletion),
+            completed_at: DateTime.to_iso8601(now()),
+            target_type: request.target_type,
+            messages_tombstoned: results.messages_tombstoned,
+            attachments_deleted: results.attachments_deleted,
+            deleted_object_count: deleted_object_count,
+            derived_erasure_version: 1,
+            media_erasure_version: 1,
+            meeting_erasure_version: 1,
+            writer_fence_erasure_version: 1,
+            target_digest: target_digest(request)
+          }
+          |> Map.merge(domain_erasure_evidence(request, results))
 
         completed =
           request
@@ -247,7 +252,12 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                    fragment(
                      "coalesce(?->>'writer_fence_erasure_version', '') <> '1'",
                      request.evidence
-                   )),
+                   ) or
+                   (request.target_type == :user and
+                      fragment(
+                        "coalesce(?->>'domain_challenge_erasure_version', '') <> '1'",
+                        request.evidence
+                      ))),
             order_by: [
               asc: fragment("coalesce(?->>'media_erasure_checked_at', '')", request.evidence),
               asc: request.completed_at,
@@ -290,7 +300,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
            (value(request.evidence || %{}, :derived_erasure_version) == 1 and
               value(request.evidence || %{}, :media_erasure_version) == 1 and
               value(request.evidence || %{}, :meeting_erasure_version) == 1 and
-              value(request.evidence || %{}, :writer_fence_erasure_version) == 1) do
+              value(request.evidence || %{}, :writer_fence_erasure_version) == 1 and
+              domain_erasure_current?(request)) do
         false
       else
         prepare_media_erasure!(request)
@@ -310,7 +321,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           plan = fenced_deletion_plan!(request, timestamp)
 
           if plan.attachments == [] do
-            apply_deletion!(request, plan, timestamp, identity_result)
+            results = apply_deletion!(request, plan, timestamp, identity_result)
 
             evidence =
               Map.merge(evidence, %{
@@ -320,6 +331,11 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 "writer_fence_erasure_version" => 1,
                 "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
               })
+              |> Map.merge(
+                Map.new(domain_erasure_evidence(request, results), fn {key, value} ->
+                  {Atom.to_string(key), value}
+                end)
+              )
 
             request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
 
@@ -327,12 +343,15 @@ defmodule CommsCore.Governance.DeletionWorkflow do
               request.tenant_id,
               "deletion_request.derived_content_repaired",
               request.id,
-              %{
-                derived_erasure_version: 1,
-                media_erasure_version: 1,
-                meeting_erasure_version: 1,
-                writer_fence_erasure_version: 1
-              }
+              Map.merge(
+                %{
+                  derived_erasure_version: 1,
+                  media_erasure_version: 1,
+                  meeting_erasure_version: 1,
+                  writer_fence_erasure_version: 1
+                },
+                domain_erasure_evidence(request, results)
+              )
             )
 
             true
@@ -673,7 +692,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       |> owner_command_or_rollback()
 
     erase_personal_content!(request)
-    revoked_session_ids = apply_target_deletion!(request, timestamp, identity_result)
+
+    {revoked_session_ids, domain_receipt} =
+      apply_target_deletion!(request, timestamp, identity_result)
 
     %{
       messages_tombstoned: content_result.messages_tombstoned,
@@ -681,7 +702,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       whiteboards_deleted: whiteboard_result.whiteboards_deleted,
       whiteboard_operations_deleted: whiteboard_result.whiteboard_operations_deleted,
       whiteboard_operations_neutralized: whiteboard_result.whiteboard_operations_neutralized,
-      revoked_session_ids: revoked_session_ids
+      revoked_session_ids: revoked_session_ids,
+      domain_receipt: domain_receipt
     }
   end
 
@@ -736,7 +758,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
          _timestamp,
          _identity_result
        ),
-       do: []
+       do: {[], nil}
 
   defp apply_target_deletion!(
          %DeletionRequest{target_type: :conversation} = request,
@@ -751,7 +773,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       )
     )
 
-    []
+    {[], nil}
   end
 
   defp apply_target_deletion!(
@@ -766,6 +788,14 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     )
     |> owner_command_or_rollback()
 
+    domain_receipt =
+      WorkspaceDomainErasure.erase_user_challenges(%DomainUserErasureCommand{
+        tenant_id: request.tenant_id,
+        user_id: user_id,
+        timestamp: timestamp
+      })
+      |> owner_command_or_rollback()
+
     # The drain already contributed room and telephone call revocation. Strong
     # identity-key updates are last, after every lower call/content resource.
     request
@@ -773,8 +803,25 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     |> Accounts.finalize_user_for_governance_erasure()
     |> owner_command_or_rollback()
 
-    revoked_session_ids
+    {revoked_session_ids, domain_receipt}
   end
+
+  defp domain_erasure_current?(%DeletionRequest{target_type: :user} = request),
+    do: value(request.evidence || %{}, :domain_challenge_erasure_version) == 1
+
+  defp domain_erasure_current?(_request), do: true
+
+  defp domain_erasure_evidence(%DeletionRequest{target_type: :user}, %{
+         domain_receipt: %DomainUserErasureReceipt{} = receipt
+       }) do
+    %{
+      domain_challenge_erasure_version: 1,
+      domain_challenges_removed: receipt.removed_challenges,
+      domain_verified_leases_detached: receipt.detached_verified_leases
+    }
+  end
+
+  defp domain_erasure_evidence(_request, _results), do: %{}
 
   defp identity_erasure_command(request, timestamp) do
     %GovernanceErasureCommand{

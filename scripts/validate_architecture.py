@@ -5229,7 +5229,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
             target_owner = declared_module_owner(target_module, contexts, schema_owners)
             for scoped_policy in owner_scoped_policies:
                 scoped_resources = (
-                    scoped_policy["owner_facades"] | scoped_policy["source_schemas"]
+                    scoped_policy["public_facades"] | scoped_policy["source_schemas"]
                 )
                 if (
                     target_owner in scoped_policy["owners"]

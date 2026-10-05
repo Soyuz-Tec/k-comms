@@ -75,9 +75,18 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "workspace_domain_discovery_v1": ("workspace_domain_claims",),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
+)
+# Exact immutable-parent receipts retain their own capability scope. Current
+# database hazards still decide whether a preceding image can be admitted.
+KNOWN_M1_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:12]
+)
+KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:14]
 )
 DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
@@ -1014,11 +1023,12 @@ def validate_guest_rollback_preflight(
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
+        KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES,
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target, the known M1 set, or the exact communication-compatible capability set"
+            "empty for a legacy target, a known M1 or Member/History set, or the exact communication-compatible capability set"
         )
 
 

@@ -18,7 +18,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "scheduled_meeting_lifecycle_v1",
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
-                                  "governance_history_v1"
+                                  "governance_history_v1",
+                                  "workspace_domain_discovery_v1"
                                 ],
                                 ","
                               )
@@ -90,7 +91,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       rich_whiteboards: 1,
       member_workspaces: 1,
       governance_history_snapshots: 1,
-      active_history_purge_jobs: 1
+      active_history_purge_jobs: 1,
+      workspace_domain_claims: 1
     }
 
     compatible = %{
@@ -197,7 +199,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
            [:scheduled_meetings, :active_meeting_reminder_jobs]},
           {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
           {"member_workspace_v1", [:member_workspaces]},
-          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+          {"workspace_domain_discovery_v1", [:workspace_domain_claims]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)
@@ -217,6 +220,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
     end
 
     for invalid <- [
+          Map.delete(clean_hazards, :workspace_domain_claims),
+          Map.put(clean_hazards, :workspace_domain_claims, -1),
+          Map.put(clean_hazards, :workspace_domain_claims, "0"),
           Map.delete(clean_hazards, :member_workspaces),
           Map.delete(clean_hazards, :governance_history_snapshots),
           Map.put(clean_hazards, :active_history_purge_jobs, -1),

@@ -97,4 +97,10 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0091 | Durable rich content and authorized unified retrieval | Accepted |
 | 0092 | Compose full UC through exact owner contracts | Accepted |
 
+| [0093](0093-private-member-organization-and-synchronized-setup.md) | Private member organization and synchronized setup | Accepted for source integration |
+| [0094](0094-governance-request-history.md) | Governance request history | Accepted for source integration |
+| [0095](0095-guided-fixed-role-delegation.md) | Guided fixed-role delegation | Accepted for source integration |
+| [0096](0096-bounded-owner-projected-usage-reports.md) | Bounded owner-projected usage reports | Accepted for source integration |
+| [0097](0097-verify-opt-in-workspace-domain-discovery.md) | Verify opt-in workspace domain discovery | Accepted; runtime and DNS qualification pending |
+
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.
