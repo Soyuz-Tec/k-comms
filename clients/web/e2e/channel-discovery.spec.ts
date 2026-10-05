@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 const tenant = { id: "tenant-1", name: "Acme Workspace", slug: "acme", status: "active" };
-const user = { id: "user-1", tenant_id: "tenant-1", display_name: "Ada Lovelace", email: "ada@example.test", role: "member", platform_role: null, status: "active", version: 1 };
+const user = { id: "user-1", tenant_id: "tenant-1", display_name: "Ada Lovelace", email: "ada@example.test", account_type: "human", access_scope: "workspace", role: "member", platform_role: null, status: "active", version: 1 };
 const device = { id: "device-1", user_id: "user-1", name: "Browser", platform: "web" };
 const conversation = { id: "channel-1", tenant_id: "tenant-1", kind: "channel", title: "Projects", visibility: "tenant", latest_sequence: 0, last_read_sequence: 0, unread_count: 0, archived_at: null, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" };
 const membership = { id: "membership-1", role: "member", joined_at: "2026-07-12T10:00:00Z", left_at: null, last_read_sequence: 0, version: 3 };
@@ -11,11 +11,20 @@ async function mockChannelWorkspace(page: Page, allowPublicChannels: boolean, co
   const session = { access_token: "access-token", refresh_token: "refresh-token", token_type: "Bearer", expires_in: 3600, received_at: Date.now(), tenant, user, device };
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant, user, device, capabilities: { allow_public_channels: allowPublicChannels, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } }));
+  await page.route("**/api/v1/me/workspace", (route) => route.fulfill({ json: { data: {
+    version: 0,
+    contacts: [],
+    groups: [],
+    onboarding: { dismissed_at: null, profile_reviewed_at: null, active_devices: 1, has_teammates: false },
+    limits: { contacts: 500, groups: 20, members_per_group: 50 },
+    observed_at: "2026-10-05T00:00:00Z"
+  } } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [user] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: conversations() } }));
   await page.route("**/api/v1/conversations/*/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/channel-1/messages**", (route) => route.fulfill({ json: { data: [], page: { has_more: false, next_after_sequence: null, reset_required: false } } }));
+  await page.route("**/api/v1/conversations/channel-1/draft?thread_key=main", (route) => route.fulfill({ json: { data: { conversation_id: conversation.id, thread_key: "main", body: "", version: 0, expires_at: null } } }));
   await page.route("**/api/v1/conversations/channel-1/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/channel-1/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(user.id) } }));
 }
@@ -44,6 +53,7 @@ test("workspace policy disables channel discovery without an API request", async
   let discoveryRequests = 0;
   await page.route("**/api/v1/channels/discover**", (route) => { discoveryRequests += 1; return route.fulfill({ json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } } }); });
   await page.goto("/app/");
+  await expect(page.getByRole("heading", { name: "Your workspace is ready", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Browse channels" }).click();
   await expect(page.getByRole("heading", { name: "Channel discovery is disabled" })).toBeVisible();
   expect(discoveryRequests).toBe(0);
