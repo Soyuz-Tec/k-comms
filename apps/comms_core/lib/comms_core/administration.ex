@@ -77,6 +77,12 @@ defmodule CommsCore.Administration do
   @spec list_invitations(public_map(), atom() | binary()) ::
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
   @spec member_capabilities(public_map()) :: public_response()
+  @spec lock_calendar_policy(CommsCore.Administration.CalendarPolicyLockQuery.t()) ::
+          {:ok, CommsCore.Administration.CalendarPolicy.t()} | {:error, atom()}
+  defdelegate lock_calendar_policy(query),
+    to: CommsCore.Administration.CalendarPolicyQueries,
+    as: :lock
+
   @spec revoke_invitation(binary(), public_map(), public_map()) :: public_response()
   @spec update_tenant_settings_view(public_map(), public_map()) :: public_response()
 

@@ -7,7 +7,14 @@ defmodule CommsIntegrations.PinnedHttp do
     allowed_hosts = Keyword.get(opts, :allowed_hosts, [])
     allowed_ports = Keyword.get(opts, :allowed_ports, [443])
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
-    deadline = monotonic_ms() + timeout
+    local_deadline = monotonic_ms() + timeout
+
+    deadline =
+      case Keyword.get(opts, :deadline_ms) do
+        owner_deadline when is_integer(owner_deadline) -> min(owner_deadline, local_deadline)
+        nil -> local_deadline
+        _ -> monotonic_ms()
+      end
 
     policy_opts =
       opts

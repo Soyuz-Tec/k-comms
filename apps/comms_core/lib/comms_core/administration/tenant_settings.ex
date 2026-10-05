@@ -6,6 +6,8 @@ defmodule CommsCore.Administration.TenantSettings do
     field(:allow_public_channels, :boolean, default: true)
     field(:allow_audio_calls, :boolean, default: true)
     field(:allow_video_calls, :boolean, default: true)
+    field(:allow_calendar_export, :boolean, default: false)
+    field(:calendar_export_policy_version, :integer, default: 1)
     field(:message_edit_window_seconds, :integer, default: 86_400)
     field(:max_attachment_bytes, :integer, default: 26_214_400)
     field(:default_retention_days, :integer)

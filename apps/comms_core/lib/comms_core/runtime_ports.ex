@@ -9,6 +9,8 @@ defmodule CommsCore.RuntimePorts do
 
   @job_kinds [
     :audit_history_snapshot_purge,
+    :calendar_sync,
+    :calendar_sync_reconciler,
     :audio_call_expiry,
     :audio_participant_eviction,
     :attachment_abandon,
