@@ -3,7 +3,7 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
   import Ecto.Query
   @moduletag :integration
   @moduletag :call
-  alias CommsCore.{AudioCalls, Repo}
+  alias CommsCore.{Administration, AudioCalls, Repo}
   alias CommsCore.Administration.TenantSettings
 
   alias CommsCore.AudioCalls.CalendarSync.{
@@ -95,8 +95,26 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
     Application.put_env(:comms_core, :calendar_workspace_origin, "https://workspace.example.test")
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
-    settings = Repo.get_by!(TenantSettings, tenant_id: account.tenant.id)
-    Repo.update!(Ecto.Changeset.change(settings, allow_calendar_export: true))
+    assert {:ok, initial} = Administration.get_tenant_settings(subject)
+    refute initial.settings.allow_calendar_export
+
+    assert {:ok, enabled} =
+             Administration.update_tenant_settings(
+               %{version: initial.settings.lock_version, allow_calendar_export: true},
+               subject
+             )
+
+    assert enabled.settings.allow_calendar_export
+
+    assert enabled.settings.calendar_export_policy_version ==
+             initial.settings.calendar_export_policy_version + 1
+
+    assert {:error, :stale_version} =
+             Administration.update_tenant_settings(
+               %{version: initial.settings.lock_version, allow_calendar_export: false},
+               subject
+             )
+
     connection = connection(account)
     {:ok, meeting} = AudioCalls.schedule_meeting(account.conversation.id, input(), subject)
     {:ok, account: account, subject: subject, connection: connection, meeting: meeting}
@@ -324,7 +342,7 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
     {:ok, authorization} =
       AudioCalls.begin_calendar_authorization(
         :google,
-        %{export_policy_version: 1, purpose: "cleanup"},
+        %{export_policy_version: context.connection.export_policy_version, purpose: "cleanup"},
         context.subject
       )
 
@@ -367,7 +385,7 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
     {:ok, authorization} =
       AudioCalls.begin_calendar_authorization(
         :google,
-        %{export_policy_version: 1, purpose: "cleanup"},
+        %{export_policy_version: context.connection.export_policy_version, purpose: "cleanup"},
         context.subject
       )
 
@@ -435,12 +453,14 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
   end
 
   defp connection(account, provider \\ :google) do
+    settings = Repo.get_by!(TenantSettings, tenant_id: account.tenant.id)
+
     connection =
       Repo.insert!(%Connection{
         tenant_id: account.tenant.id,
         user_id: account.user.id,
         provider: provider,
-        export_policy_version: 1
+        export_policy_version: settings.calendar_export_policy_version
       })
 
     Repo.update!(

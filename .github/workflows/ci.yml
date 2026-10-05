@@ -407,6 +407,78 @@ jobs:
                   "the production Trivy exception suppressed an unrelated ConfigMap finding"
               )
           PY
+          POLICY_FIXTURES="$RUNNER_TEMP/trivy-policy-fixtures" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path(os.environ["POLICY_FIXTURES"])
+          directory.mkdir()
+          public_data = {
+              "ACCESS_TOKEN_TTL_SECONDS": "900",
+              "AUDIO_TOKEN_TTL_SECONDS": "300",
+              "CALENDAR_SECRET_ENCRYPTION_KEY_ID": "primary",
+              "PASSWORD_RECOVERY_JITTER_MS": "50",
+              "PASSWORD_RECOVERY_MIN_RESPONSE_MS": "500",
+              "PASSWORD_RECOVERY_RETENTION_SECONDS": "2592000",
+              "PASSWORD_RECOVERY_TTL_SECONDS": "1800",
+              "WEBHOOK_SECRET_ENCRYPTION_KEY_ID": "primary",
+          }
+          fixtures = {
+              "exact-public-identifier": ("k-comms-config", "k-comms-production", public_data),
+              "wrong-resource-name": ("other-config", "k-comms-production", public_data),
+              "wrong-resource-namespace": ("k-comms-config", "k-comms-staging", public_data),
+              "secret-material-key": (
+                  "k-comms-config", "k-comms-production",
+                  {**public_data, "CALENDAR_SECRET_ENCRYPTION_KEY": "synthetic-material"},
+              ),
+              "secret-material-in-identifier": (
+                  "k-comms-config", "k-comms-production",
+                  {**public_data, "CALENDAR_SECRET_ENCRYPTION_KEY_ID": "c3ludGhldGljLWtleS1tYXRlcmlhbA=="},
+              ),
+          }
+          for fixture, (name, namespace, data) in fixtures.items():
+              resource = (
+                  "apiVersion: v1\nkind: ConfigMap\nmetadata:\n"
+                  f"  name: {name}\n  namespace: {namespace}\ndata:\n"
+                  + "".join(f"  {key}: {json.dumps(value)}\n" for key, value in sorted(data.items()))
+              )
+              (directory / f"{fixture}.yaml").write_text(resource, encoding="utf-8")
+          PY
+          docker run --rm \
+            --volume "$PWD:/workspace:ro" \
+            --volume "$RUNNER_TEMP:/scan" \
+            --volume "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" \
+            "$TRIVY_IMAGE" config \
+            --ignore-policy /workspace/.github/trivy/production-ignore.rego \
+            --severity HIGH,CRITICAL \
+            --skip-version-check \
+            --format json \
+            --output /scan/trivy-policy-fixtures.json \
+            /scan/trivy-policy-fixtures
+          POLICY_REPORT="$RUNNER_TEMP/trivy-policy-fixtures.json" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path(os.environ["POLICY_REPORT"]).read_text(encoding="utf-8"))
+          findings = {
+              Path(result["Target"]).stem: {
+                  finding["ID"] for finding in result.get("Misconfigurations", [])
+              }
+              for result in report.get("Results", [])
+          }
+          if "exact-public-identifier" not in findings:
+              raise SystemExit("the exact public identifier fixture was not scanned")
+          if "KSV-0109" in findings["exact-public-identifier"]:
+              raise SystemExit("the exact public identifier fixture was not accepted")
+          for fixture in (
+              "wrong-resource-name", "wrong-resource-namespace",
+              "secret-material-key", "secret-material-in-identifier",
+          ):
+              if "KSV-0109" not in findings.get(fixture, set()):
+                  raise SystemExit(f"the Trivy exception suppressed {fixture}")
+          PY
       - name: Scan the release container
         shell: bash
         run: |
