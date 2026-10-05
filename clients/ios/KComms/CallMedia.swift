@@ -21,7 +21,10 @@ import LiveKit
             AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) }
         }
         guard microphone else { throw NativeClientError.microphoneDenied }
-        if video && !(await AVCaptureDevice.requestAccess(for: .video)) { throw NativeClientError.cameraDenied }
+        if video {
+            let camera = await AVCaptureDevice.requestAccess(for: .video)
+            guard camera else { throw NativeClientError.cameraDenied }
+        }
     }
     func connect(_ admission: CallAdmission, authorize: @escaping @MainActor () async throws -> Void) async throws {
         guard admission.data.status == "active", let expiry = Wire.date(admission.data.expiresAt), expiry > Date() else { throw NativeClientError.invalidResponse }
