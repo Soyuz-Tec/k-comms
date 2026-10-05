@@ -30,19 +30,18 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
 
   test "the actual HTTP administrative lifecycle discloses only an explicit verified domain hint" do
     account = Fixtures.account_fixture()
-    token = account.access_token
     suffix = account.tenant.slug |> String.split("-") |> List.last()
 
-    assert authenticated(token) |> get("/api/v1/admin/workspace-domains") |> response(428)
+    assert authenticated(account) |> get("/api/v1/admin/workspace-domains") |> response(428)
 
-    assert authenticated(token)
+    assert authenticated(account)
            |> post("/api/v1/me/step-up", %{current_password: "correct-horse-battery-#{suffix}"})
            |> response(200)
 
     domain = "http-#{account.user.id}.company.com"
 
     claim =
-      authenticated(token)
+      authenticated(account)
       |> post("/api/v1/admin/workspace-domains", %{
         domain: domain,
         version: 0,
@@ -61,7 +60,7 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
     Application.put_env(:comms_core, :workspace_domain_http_txt, [claim["challenge_value"]])
 
     verified =
-      authenticated(token)
+      authenticated(account)
       |> post("/api/v1/admin/workspace-domains/#{claim["id"]}/verify", %{version: 1})
       |> json_response(200)
       |> Map.fetch!("data")
@@ -76,14 +75,14 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
              }
            }
 
-    assert authenticated(token)
+    assert authenticated(account)
            |> patch("/api/v1/admin/workspace-domains/#{claim["id"]}", %{
              version: 1,
              discovery_enabled: false
            })
            |> response(409)
 
-    assert authenticated(token)
+    assert authenticated(account)
            |> patch("/api/v1/admin/workspace-domains/#{claim["id"]}", %{
              version: 2,
              discovery_enabled: false
@@ -94,11 +93,11 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
              "data" => %{"available" => false, "sign_in_path" => nil}
            }
 
-    assert authenticated(token)
+    assert authenticated(account)
            |> delete("/api/v1/admin/workspace-domains/#{claim["id"]}", %{version: 3})
            |> response(200)
 
-    assert authenticated(token) |> get("/api/v1/admin/workspace-domains") |> json_response(200) ==
+    assert authenticated(account) |> get("/api/v1/admin/workspace-domains") |> json_response(200) ==
              %{"data" => [], "limits" => %{"domains" => 8}}
   end
 
@@ -135,7 +134,7 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
     other = Fixtures.account_fixture()
     Fixtures.step_up(other)
 
-    assert authenticated(other.access_token)
+    assert authenticated(other)
            |> post("/api/v1/admin/workspace-domains/#{claim.id}/challenge", %{version: 1})
            |> response(404)
 
@@ -143,11 +142,11 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
       set: [access_scope: :conversation_only]
     )
 
-    assert authenticated(account.access_token)
+    assert authenticated(account)
            |> get("/api/v1/admin/workspace-domains")
            |> response(403)
 
-    assert authenticated(account.access_token)
+    assert authenticated(account)
            |> post("/api/v1/admin/workspace-domains/#{claim.id}/verify", %{version: 1})
            |> response(403)
   end
@@ -164,7 +163,7 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
 
     # Missing resolver state causes a monitored technical worker failure. The
     # owner converts uncertainty to 503 and retains the original claim version.
-    assert authenticated(account.access_token)
+    assert authenticated(account)
            |> post("/api/v1/admin/workspace-domains/#{claim.id}/verify", %{version: 1})
            |> json_response(503)
            |> get_in(["error", "code"]) == "dns_unavailable"
@@ -175,8 +174,15 @@ defmodule CommsWeb.Administration.WorkspaceDomainControllerTest do
     assert {:ok, _grant} = Accounts.access_grant(Fixtures.subject(account))
   end
 
-  defp authenticated(token),
-    do: build_conn() |> put_req_header("authorization", "Bearer " <> token)
+  defp authenticated(account) do
+    token =
+      account
+      |> Fixtures.authentication_result()
+      |> CommsWeb.Token.issue()
+      |> Map.fetch!(:access_token)
+
+    build_conn() |> put_req_header("authorization", "Bearer " <> token)
+  end
 
   defp discover(attrs) do
     build_conn()
