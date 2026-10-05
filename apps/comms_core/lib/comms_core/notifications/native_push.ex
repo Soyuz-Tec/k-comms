@@ -282,6 +282,11 @@ defmodule CommsCore.Notifications.NativePush do
         if wake.status not in ["sent", "uncertain"] || not current?(wake) || wake.user_version != authority.user_version,
           do: Repo.rollback(:native_push_unavailable)
         request = call_request(wake, wake.owner, wake.call_id, wake.conversation_id, deadline)
+        case NativeWakePorts.authorize(request) do
+          {:ok, %DateTime{} = expiry} ->
+            if DateTime.compare(expiry, now()) != :gt, do: Repo.rollback(:native_push_unavailable)
+          _ -> Repo.rollback(:native_push_unavailable)
+        end
         case NativeWakePorts.admit(request, subject, issuer) do
           {:ok, result} ->
             save!(NativeCallWake.changeset(wake, %{status: "consumed", consumed_at: now()}))
