@@ -240,6 +240,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
 
   defp migration_error(:one_shot_runtime_required), do: "one_shot_runtime_required"
 
+  defp migration_error(:rollback_target_capabilities_invalid),
+    do:
+      "rollback target capabilities must contain unique known names without empty components or whitespace"
+
   defp migration_error(:rollback_target_revision_required),
     do: "K_COMMS_ROLLBACK_TARGET_REVISION must contain a safe target revision identifier"
 
