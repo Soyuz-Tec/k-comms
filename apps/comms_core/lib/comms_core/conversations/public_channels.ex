@@ -202,6 +202,15 @@ defmodule CommsCore.Conversations.PublicChannels do
             "membership_left"
           )
 
+          case CommsCore.Conversations.Federation.Commands.fence_member(
+                 conversation.tenant_id,
+                 conversation.id,
+                 left_membership.user_id
+               ) do
+            {:ok, _} -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
           %{conversation: conversation, membership: left_membership, replayed: false}
         end
       end)

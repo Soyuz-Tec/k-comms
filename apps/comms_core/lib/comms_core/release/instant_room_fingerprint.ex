@@ -59,7 +59,12 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :matrix_identities,
     :matrix_client_sessions,
     :private_matrix_rooms,
-    :opaque_private_events
+    :opaque_private_events,
+    :federation_trusts,
+    :federation_rooms,
+    :federation_participants,
+    :federation_commands,
+    :federation_event_receipts
   ]
 
   def run do

@@ -284,6 +284,162 @@ parse_json_list = fn value, name ->
 end
 
 if config_env() == :prod do
+  # ADR-0103 is opt-in and targets one operator-pinned maintained Matrix homeserver.
+  federation_secret = fn name ->
+    value = optional_secret.(name)
+    filename = System.get_env(name <> "_FILE")
+
+    if is_binary(filename) and filename != "" and File.read!(filename) != value,
+      do: raise("#{name}_FILE must contain exactly one token without trailing control bytes")
+
+    value
+  end
+
+  federation_domain? = fn value ->
+    if is_binary(value) and byte_size(value) in 4..253 and value == String.downcase(value) do
+      labels = String.split(value, ".")
+
+      length(labels) >= 2 and
+        Enum.all?(
+          labels,
+          &(byte_size(&1) in 1..63 and Regex.match?(~r/\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z/, &1))
+        ) and
+        not Enum.any?(
+          ["localhost", "local", "internal", "invalid", "test"],
+          &(List.last(labels) == &1)
+        ) and
+        match?({:error, _}, :inet.parse_address(String.to_charlist(value)))
+    else
+      false
+    end
+  end
+
+  federation_enabled =
+    case System.get_env("FEDERATION_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "FEDERATION_ENABLED must be exactly true or false"
+    end
+
+  federation_qualified =
+    case System.get_env("FEDERATION_PROVIDER_QUALIFIED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "FEDERATION_PROVIDER_QUALIFIED must be exactly true or false"
+    end
+
+  federation_key_encoded = federation_secret.("FEDERATION_ENVELOPE_KEY")
+
+  federation_key =
+    if federation_key_encoded do
+      case Base.decode64(federation_key_encoded) do
+        {:ok, key} when byte_size(key) == 32 ->
+          unless Base.encode64(key) == federation_key_encoded,
+            do: raise("FEDERATION_ENVELOPE_KEY must use canonical Base64")
+
+          key
+
+        _ ->
+          raise "FEDERATION_ENVELOPE_KEY must encode exactly 32 bytes"
+      end
+    end
+
+  federation_token = federation_secret.("FEDERATION_ACCESS_TOKEN")
+
+  if federation_token &&
+       (byte_size(federation_token) not in 16..4096 ||
+          Regex.match?(~r/[^\x21-\x7e]/, federation_token)),
+     do: raise("FEDERATION_ACCESS_TOKEN must contain one bounded printable token")
+
+  if federation_key do
+    foreign_materials =
+      System.get_env()
+      |> Enum.filter(fn {name, _} ->
+        name != "FEDERATION_ENVELOPE_KEY" and name != "FEDERATION_ENVELOPE_KEY_FILE" and
+          Regex.match?(~r/(SECRET|PASSWORD|TOKEN|KEY|KEYS|KEYRING)(?:$|_)/, name)
+      end)
+      |> Enum.flat_map(fn {name, value} ->
+        content =
+          if String.ends_with?(name, "_FILE"),
+            do: optional_secret.(String.trim_trailing(name, "_FILE")),
+            else: value
+
+        case Jason.decode(content || "") do
+          {:ok, keys} when is_map(keys) ->
+            [content | Enum.filter(Map.values(keys), &is_binary/1)]
+
+          _ ->
+            [
+              content
+              | Enum.map(
+                  String.split(content || "", ","),
+                  &List.last(String.split(&1, ":", parts: 2))
+                )
+            ]
+        end
+      end)
+      |> Enum.flat_map(fn value ->
+        case Base.decode64(value || "") do
+          {:ok, decoded} -> [value, decoded]
+          _ -> [value]
+        end
+      end)
+
+    if federation_key in foreign_materials or federation_key_encoded in foreign_materials,
+      do: raise("FEDERATION_ENVELOPE_KEY must use dedicated secret material")
+  end
+
+  federation_origin = System.get_env("FEDERATION_HOMESERVER_ORIGIN")
+  federation_server = System.get_env("FEDERATION_SERVER_NAME")
+  federation_bridge = System.get_env("FEDERATION_BRIDGE_USER")
+  federation_residency = System.get_env("FEDERATION_LOCAL_RESIDENCY")
+
+  if federation_enabled do
+    uri = URI.parse(federation_origin || "")
+    principal_prefix = "@"
+    principal_suffix = ":" <> to_string(federation_server)
+
+    principal_local =
+      if is_binary(federation_bridge) and String.starts_with?(federation_bridge, principal_prefix) and
+           String.ends_with?(federation_bridge, principal_suffix),
+         do:
+           String.slice(
+             federation_bridge,
+             1,
+             byte_size(federation_bridge) - byte_size(principal_suffix) - 1
+           ),
+         else: ""
+
+    unless federation_qualified && is_binary(federation_key) && is_binary(federation_token) &&
+             federation_domain?.(uri.host) && federation_origin == "https://" <> uri.host &&
+             federation_domain?.(federation_server) &&
+             is_binary(federation_bridge) && byte_size(federation_bridge) <= 255 &&
+             Regex.match?(~r/\A[a-z0-9._=\/-]{1,128}\z/, principal_local) &&
+             is_binary(federation_residency) && byte_size(federation_residency) in 2..80,
+           do:
+             raise(
+               "Federation requires reviewed provider qualification, pinned HTTPS DNS origin, canonical bridge principal, declared local residency and dedicated credentials"
+             )
+  end
+
+  config :comms_core,
+    federation_enabled: federation_enabled,
+    federation_homeserver_origin: federation_origin,
+    federation_server_name: federation_server,
+    federation_bridge_user: federation_bridge,
+    federation_envelope_key: federation_key
+
+  config :comms_integrations,
+    federation_matrix: %{
+      enabled: federation_enabled,
+      origin: federation_origin,
+      server_name: federation_server,
+      bridge_user: federation_bridge,
+      access_token: federation_token,
+      local_residency: federation_residency,
+      provider_qualified: federation_qualified
+    }
+
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
 

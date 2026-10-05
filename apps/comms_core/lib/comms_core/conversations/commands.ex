@@ -222,6 +222,14 @@ defmodule CommsCore.Conversations.Commands do
 
         revoke_call_access.(archived.tenant_id, archived.id, "conversation_archived")
 
+        case CommsCore.Conversations.Federation.Commands.fence_conversation(
+               archived.tenant_id,
+               archived.id
+             ) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
         archived
       end)
       |> transaction_result()

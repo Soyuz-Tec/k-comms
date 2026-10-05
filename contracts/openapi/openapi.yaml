@@ -10914,6 +10914,832 @@ paths:
           type: integer
           minimum: 0
           maximum: 10000
+  /api/v1/admin/federation/trusts:
+    get:
+      tags:
+      - Integrations
+      operationId: listFederationTrusts
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationTrustListResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+      - Integrations
+      operationId: putFederationTrust
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationTrustResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationTrustRequest'
+  /api/v1/conversations/{conversationId}/federation:
+    get:
+      tags:
+      - Integrations
+      operationId: getFederationRoom
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationRoomResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+      - Integrations
+      operationId: createFederationRoom
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '202':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationRoomResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationCreateRequest'
+    delete:
+      tags:
+      - Integrations
+      operationId: closeFederationRoom
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '202':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationRoomResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationCloseRequest'
+  /api/v1/conversations/{conversationId}/federation/consent:
+    put:
+      tags:
+      - Integrations
+      operationId: setFederationConsent
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationRoomResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationConsentRequest'
+  /api/v1/conversations/{conversationId}/federation/invitations:
+    post:
+      tags:
+      - Integrations
+      operationId: inviteFederationParticipant
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '202':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationRoomResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationInviteRequest'
+  /api/v1/conversations/{conversationId}/federation/messages:
+    post:
+      tags:
+      - Integrations
+      operationId: sendFederationMessage
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '202':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationQueuedMessageResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FederationSendRequest'
+    get:
+      tags:
+      - Integrations
+      operationId: getFederationTimeline
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationTimelineResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        description: AEAD-bound retained position for this exact tenant, room and participant.
+  /api/v1/conversations/{conversationId}/federation/export:
+    get:
+      tags:
+      - Integrations
+      operationId: exportFederationMetadata
+      security:
+      - bearerAuth: []
+      description: Explicit plaintext Matrix bridge. Current tenant/session/member authority and retained consent
+        are checked; provider credentials are never returned. Remote deletion remains unconfirmed.
+      responses:
+        '200':
+          description: Current owner projection; 202 queues a durable command and does not attest remote completion.
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                const: private, no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationMetadataExportResponse'
+        '401':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Current authorization, version, consent, quota, configuration or provider refusal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
 components:
   securitySchemes:
     telephonyIvrHmac:
@@ -21440,3 +22266,384 @@ components:
           type: integer
           minimum: 1
           maximum: 9007199254740991
+    FederationTrust:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - domain
+      - residency
+      - cross_border_reason
+      - enabled
+      - version
+      - residency_verified
+      properties:
+        id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+          minLength: 4
+          maxLength: 253
+          pattern: ^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\s\S])
+          allOf:
+          - not:
+              pattern: ^\d+(?:\.\d+){3}$
+          - not:
+              pattern: \.(?:localhost|local|internal|invalid|test)$
+        residency:
+          type: string
+          minLength: 2
+          maxLength: 80
+        cross_border_reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+        residency_verified:
+          const: false
+    FederationTrustRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - domain
+      - residency
+      - cross_border_reason
+      - enabled
+      properties:
+        domain:
+          type: string
+          minLength: 4
+          maxLength: 253
+          pattern: ^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\s\S])
+          allOf:
+          - not:
+              pattern: ^\d+(?:\.\d+){3}$
+          - not:
+              pattern: \.(?:localhost|local|internal|invalid|test)$
+        residency:
+          type: string
+          minLength: 2
+          maxLength: 80
+        cross_border_reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+        enabled:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+    FederationRoom:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - domain
+      - residency
+      - status
+      - version
+      - consent
+      - remote_cleanup_state
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+          minLength: 4
+          maxLength: 253
+          pattern: ^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\s\S])
+          allOf:
+          - not:
+              pattern: ^\d+(?:\.\d+){3}$
+          - not:
+              pattern: \.(?:localhost|local|internal|invalid|test)$
+        residency:
+          type: string
+          minLength: 2
+          maxLength: 80
+        status:
+          type: string
+          enum:
+          - creating
+          - active
+          - fenced
+        version:
+          type: integer
+          minimum: 1
+        consent:
+          type: string
+          enum:
+          - none
+          - invited
+          - accepted
+          - withdrawn
+        remote_cleanup_state:
+          type: string
+          enum:
+          - none
+          - pending
+          - remote_unconfirmed
+    FederationCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - domain
+      - plaintext_disclosure_accepted
+      properties:
+        domain:
+          type: string
+          minLength: 4
+          maxLength: 253
+          pattern: ^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\s\S])
+          allOf:
+          - not:
+              pattern: ^\d+(?:\.\d+){3}$
+          - not:
+              pattern: \.(?:localhost|local|internal|invalid|test)$
+        plaintext_disclosure_accepted:
+          const: true
+    FederationConsentRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - accept
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        accept:
+          type: boolean
+        plaintext_disclosure_accepted:
+          type: boolean
+      allOf:
+      - if:
+          properties:
+            accept:
+              const: true
+          required:
+          - accept
+        then:
+          properties:
+            plaintext_disclosure_accepted:
+              const: true
+          required:
+          - plaintext_disclosure_accepted
+    FederationInviteRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - matrix_user_id
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        matrix_user_id:
+          type: string
+          minLength: 4
+          maxLength: 255
+          pattern: ^@[a-z0-9._=/-]+:[a-z0-9.-]+$(?![\s\S])
+    FederationSendRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - body
+      - idempotency_key
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        idempotency_key:
+          type: string
+          format: uuid
+    FederationCloseRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    FederationQueuedMessage:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      - disclosure
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - pending
+          - prepared
+          - uncertain
+          - done
+          - cancelled
+          - cancelled_unknown
+        disclosure:
+          const: plaintext_bridge
+    FederationTimelineEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - sender
+      - body
+      - timestamp
+      - disclosure
+      properties:
+        id:
+          type: string
+          format: uuid
+        sender:
+          type: string
+          minLength: 1
+          maxLength: 255
+        body:
+          type: string
+          minLength: 1
+          maxLength: 16384
+        timestamp:
+          type: integer
+          minimum: 0
+        disclosure:
+          const: plaintext_bridge
+    FederationTimeline:
+      type: object
+      additionalProperties: false
+      required:
+      - events
+      - cursor
+      - remote_deletion_confirmed
+      properties:
+        events:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/FederationTimelineEvent'
+        cursor:
+          type:
+          - string
+          - 'null'
+          maxLength: 4096
+        remote_deletion_confirmed:
+          const: false
+    FederationExportReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - observed_at
+      - local_redaction_observed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        observed_at:
+          type: string
+          format: date-time
+        local_redaction_observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    FederationMetadataExport:
+      type: object
+      additionalProperties: false
+      required:
+      - room
+      - export_scope
+      - remote_deletion_confirmed
+      - incoming_content_persisted_locally
+      - truncated
+      - receipts
+      properties:
+        room:
+          $ref: '#/components/schemas/FederationRoom'
+        export_scope:
+          const: local_metadata_only
+        remote_deletion_confirmed:
+          const: false
+        incoming_content_persisted_locally:
+          const: false
+        truncated:
+          type: boolean
+        receipts:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/FederationExportReceipt'
+    FederationTrustResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/FederationTrust'
+    FederationRoomResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          anyOf:
+          - $ref: '#/components/schemas/FederationRoom'
+          - type: 'null'
+    FederationQueuedMessageResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/FederationQueuedMessage'
+    FederationTimelineResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/FederationTimeline'
+    FederationMetadataExportResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/FederationMetadataExport'
+    FederationTrustListResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          type: array
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/FederationTrust'

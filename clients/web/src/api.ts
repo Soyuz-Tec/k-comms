@@ -132,8 +132,10 @@ import { createPrivateRoomApi } from "./api/domains/private-rooms";
 import type { PrivateRoomApi } from "./features/private-rooms/types";
 
 import { createCalendarApi, type CalendarApi } from "./api/domains/calendar";
+import { createFederationApi, type FederationApi } from "./api/domains/federation";
 
 export class ApiClient {
+  private readonly federationApi: FederationApi;
   private readonly transport: MemberSessionTransport;
   readonly privateRoomApi: PrivateRoomApi;
   private readonly accountsApi: AccountsApi;
@@ -183,6 +185,7 @@ export class ApiClient {
     this.administrationApi = createAdministrationApi(request, download, { operationId });
     this.notificationsApi = createNotificationsApi(request);
     this.integrationsApi = createIntegrationsApi(request);
+    this.federationApi = createFederationApi(request);
     this.callsApi = createCallsApi(request);
     this.calendarApi = createCalendarApi(request);
     this.meetingsApi = createMeetingsApi(request);
@@ -200,6 +203,16 @@ export class ApiClient {
   calendarExports(...args: Parameters<CalendarApi["calendarExports"]>) { return this.calendarApi.calendarExports(...args); }
   createCalendarExport(...args: Parameters<CalendarApi["createCalendarExport"]>) { return this.calendarApi.createCalendarExport(...args); }
   resolveCalendarExport(...args: Parameters<CalendarApi["resolveCalendarExport"]>) { return this.calendarApi.resolveCalendarExport(...args); }
+  federationTrusts(...args: Parameters<FederationApi["federationTrusts"]>) { return this.federationApi.federationTrusts(...args); }
+  putFederationTrust(...args: Parameters<FederationApi["putFederationTrust"]>) { return this.federationApi.putFederationTrust(...args); }
+  federationRoom(...args: Parameters<FederationApi["federationRoom"]>) { return this.federationApi.federationRoom(...args); }
+  createFederationRoom(...args: Parameters<FederationApi["createFederationRoom"]>) { return this.federationApi.createFederationRoom(...args); }
+  federationConsent(...args: Parameters<FederationApi["federationConsent"]>) { return this.federationApi.federationConsent(...args); }
+  inviteFederationParticipant(...args: Parameters<FederationApi["inviteFederationParticipant"]>) { return this.federationApi.inviteFederationParticipant(...args); }
+  sendFederationMessage(...args: Parameters<FederationApi["sendFederationMessage"]>) { return this.federationApi.sendFederationMessage(...args); }
+  federationTimeline(...args: Parameters<FederationApi["federationTimeline"]>) { return this.federationApi.federationTimeline(...args); }
+  exportFederationMetadata(...args: Parameters<FederationApi["exportFederationMetadata"]>) { return this.federationApi.exportFederationMetadata(...args); }
+  closeFederationRoom(...args: Parameters<FederationApi["closeFederationRoom"]>) { return this.federationApi.closeFederationRoom(...args); }
 
   meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }
   createMeeting(conversationId: string, input: MeetingInput): Promise<Meeting> { return this.meetingsApi.createMeeting(conversationId, input); }

@@ -49,7 +49,12 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :matrix_identities,
     :matrix_client_sessions,
     :private_matrix_rooms,
-    :opaque_private_events
+    :opaque_private_events,
+    :federation_trusts,
+    :federation_rooms,
+    :federation_participants,
+    :federation_commands,
+    :federation_event_receipts
   ]
 
   defmodule ReadOnlyRepo do
@@ -100,7 +105,12 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "matrix_identities" => "matrix-identity-internal-id",
             "matrix_client_sessions" => "matrix-session-internal-id",
             "private_matrix_rooms" => "private-room-internal-id",
-            "opaque_private_events" => "opaque-event-internal-id"
+            "opaque_private_events" => "opaque-event-internal-id",
+            "federation_trusts" => "federation-trust-internal-id",
+            "federation_rooms" => "federation-room-internal-id",
+            "federation_participants" => "federation-participant-internal-id",
+            "federation_commands" => "federation-command-internal-id",
+            "federation_event_receipts" => "federation-event-receipt-internal-id"
           },
           table
         )
@@ -168,7 +178,12 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
           "user-internal-id",
           "message-internal-id",
           "call-internal-id",
-          "phone-receipt-internal-id"
+          "phone-receipt-internal-id",
+          "federation-trust-internal-id",
+          "federation-room-internal-id",
+          "federation-participant-internal-id",
+          "federation-command-internal-id",
+          "federation-event-receipt-internal-id"
         ] do
       refute output =~ forbidden
     end

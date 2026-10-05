@@ -89,6 +89,86 @@ class ServiceEnvironmentTest(unittest.TestCase):
                 self.assertNotIn(name, (self.destination / "current" / f"{service}.env").read_text())
         envs.check(self.values(), self.destination, self.owner)
 
+    def test_matrix_credentials_project_only_to_application_without_secret_diagnostics(self):
+        original = self.source.read_text()
+        controls = {
+            "PRIVATE_ROOMS_ENABLED": "false",
+            "MATRIX_CLIENT_PROVISIONING_ENABLED": "false",
+            "MATRIX_CONTROL_USER_ID": "@control:matrix.example.test",
+            "MATRIX_SERVER_NAME": "matrix.example.test",
+            "MATRIX_HOMESERVER_URL": "https://matrix.example.test",
+        }
+        credentials = {
+            "MATRIX_IDENTITY_ADMIN_TOKEN": "synthetic-identity-token-not-for-logging",
+            "MATRIX_CONTROL_ADMIN_TOKEN": "synthetic-control-token-not-for-logging",
+        }
+        credential_files = {}
+        for key, value in credentials.items():
+            path = self.root / (key.lower() + ".secret")
+            path.write_text(value)
+            path.chmod(0o600)
+            credential_files[key + "_FILE"] = str(path)
+        all_credentials = credentials | credential_files
+        for mode, selected in (("inline", credentials), ("file", credential_files)):
+            with self.subTest(mode=mode):
+                inputs = controls | selected
+                self.source.write_text(original + "\n" + "".join(
+                    f"{key}={value}\n" for key, value in inputs.items()))
+                self.generate()
+                values = self.values()
+                generation = envs.active_generation(self.destination, self.owner)
+                application_path = generation / "app.env"
+                application = dict(line.split("=", 1)
+                                   for line in application_path.read_text().splitlines())
+                self.assertEqual(generation.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(application_path.stat().st_mode & 0o777, 0o600)
+                for key, value in inputs.items():
+                    self.assertEqual(application[key], value)
+                self.assertFalse((all_credentials.keys() - selected.keys()) & application.keys())
+                envs.check(values, self.destination, self.owner)
+                launch = application | {
+                    "K_COMMS_ROLE": "all", "K_COMMS_RUNTIME_PURPOSE": "application",
+                    "K_COMMS_LOCAL_RELEASE": "true", "PORT": "4000",
+                }
+                envs.check_container(values, "app", [f"{key}={value}"
+                                                       for key, value in launch.items()])
+
+                for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+                    path = generation / f"{service}.env"
+                    restricted = path.read_text()
+                    for key in controls.keys() | all_credentials.keys():
+                        self.assertNotIn(key, restricted)
+                    for value in all_credentials.values():
+                        self.assertNotIn(value, restricted)
+                    entries = restricted.splitlines()
+                    if service in ("postgres", "minio", "livekit"):
+                        envs.check_container(values, service, entries)
+                    for key, value in all_credentials.items():
+                        with self.subTest(service=service, credential=key):
+                            # File checks cover every service, including one-shot jobs.
+                            path.write_text(restricted + f"{key}={value}\n")
+                            try:
+                                with self.assertRaises(envs.EnvironmentError) as error:
+                                    envs.check(values, self.destination, self.owner)
+                                for secret in all_credentials.values():
+                                    self.assertNotIn(secret, str(error.exception))
+                            finally:
+                                path.write_text(restricted)
+                            if service in ("postgres", "minio", "livekit"):
+                                with self.assertRaises(envs.EnvironmentError) as error:
+                                    envs.check_container(values, service, entries + [f"{key}={value}"])
+                                for secret in all_credentials.values():
+                                    self.assertNotIn(secret, str(error.exception))
+                envs.check(values, self.destination, self.owner)
+                previous = os.readlink(self.destination / "current")
+                with self.source.open("a") as stream:
+                    stream.write("MATRIX_UNDECLARED_TOKEN=" + credentials["MATRIX_IDENTITY_ADMIN_TOKEN"] + "\n")
+                with self.assertRaises(envs.EnvironmentError) as error:
+                    self.generate()
+                for secret in all_credentials.values():
+                    self.assertNotIn(secret, str(error.exception))
+                self.assertEqual(os.readlink(self.destination / "current"), previous)
+
     def test_short_history_cursor_key_refuses_rotation_without_secret_output(self):
         self.generate()
         previous = os.readlink(self.destination / "current")

@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 9c7de143b73a77ab95d04edd2cd1017a9c90a52009049ec722dd9e29dec633f5
+  sha256: ab3c8816a7a2f75307597ff2e76bc19a6a89ccab51b2a9d05508d3b073d96a82
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -55,6 +55,13 @@ enforcement:
     - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventPort.Contract
     - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventReceipt
     - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventView
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.Protection
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.ProtectionPort
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.ProviderAdapter
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.ProviderPort
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.ProviderReceipt
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.ProviderRequest
+    - context:conversations:public_contracts:add:CommsCore.Conversations.Federation.View
     - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasureCommand
     - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasurePort
     - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasureReceipt
@@ -72,6 +79,7 @@ enforcement:
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarSourceLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerGrant
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerLockQuery
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.FederationActorLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixAccessProtection
     - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixAccessProtectionPort
     - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixClientSessionView
@@ -124,14 +132,19 @@ enforcement:
     - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
     - context:trust_governance:public_facades:add:CommsCore.Governance.CalendarProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
+    - context:trust_governance:public_facades:add:CommsCore.Governance.FederationProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.MatrixAccessProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.PrivateRoomProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->9c7de143b73a77ab95d04edd2cd1017a9c90a52009049ec722dd9e29dec633f5
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->ab3c8816a7a2f75307597ff2e76bc19a6a89ccab51b2a9d05508d3b073d96a82
     - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
       acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve
       managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No
       foreign persistence access is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"calendar-governance-protection","implementation":"CommsCore.Governance.CalendarProtection","operations":[{"arity":1,"name":"protection"}],"port":"CommsCore.AudioCalls.CalendarSync.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.CalendarSync.ProtectionReceipt","transaction":"required"}
     - runtime_collaborations:call-artifact-governance-protection:callers:add:"CommsCore.AudioCalls.Artifacts.Summaries"
+    - runtime_collaborations:federation-governance-protection:add:{"binding":{"application":"comms_core","key":"federation_protection_adapter","module":"CommsCore.Governance.FederationProtection"},"callers":["CommsCore.Conversations.Federation.Commands"],"condition":"ADR-0103
+      acquires Governance FIRST before current identity, Trust, Conversation, Room and provider effects. Legal holds
+      prevent destructive cleanup. Matrix local redaction/leave never attests cross-server deletion; remote uncertainty
+      remains pending. No foreign persistence is authorized.","consumer":"conversations","graph_semantics":{"compile_dependency":"trust_governance_to_conversations","control_flow":"conversations_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"federation-governance-protection","implementation":"CommsCore.Governance.FederationProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.Conversations.Federation.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.Conversations.Federation.Protection","transaction":"required"}
     - runtime_collaborations:identity-notification-lifecycle:callers:add:"CommsCore.Accounts.GovernanceErasure"
     - runtime_collaborations:matrix-identity-governance-fence:add:{"binding":{"application":"comms_core","key":"matrix_access_protection_adapter","module":"CommsCore.Governance.MatrixAccessProtection"},"callers":["CommsCore.Accounts.MatrixSessions"],"condition":"ADR-0104
       permits only this exact consumer-owned DTO/operation on the retained caller transaction, with current Governance/identity
@@ -167,6 +180,11 @@ enforcement:
     - table:calendar_oauth_challenges:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.OAuthChallenge","owner":"calls","role":"source"}
     - table:calendar_sync_commands:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.SyncCommand","owner":"calls","role":"source"}
     - table:call_artifact_summaries:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Summary","owner":"calls","role":"source"}
+    - table:federation_commands:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.Federation.Command","owner":"conversations","role":"source"}
+    - table:federation_event_receipts:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.Federation.EventReceipt","owner":"conversations","role":"source"}
+    - table:federation_participants:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.Federation.Participant","owner":"conversations","role":"source"}
+    - table:federation_rooms:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.Federation.Room","owner":"conversations","role":"source"}
+    - table:federation_trusts:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.Federation.Trust","owner":"conversations","role":"source"}
     - table:matrix_client_sessions:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MatrixClientSession","owner":"identity_access","role":"source"}
     - table:matrix_identities:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MatrixIdentity","owner":"identity_access","role":"source"}
     - table:native_call_wakes:add:{"access":"owner_only","access_namespaces":["CommsCore.Notifications"],"canonical_schema":"CommsCore.Notifications.NativeCallWake","owner":"notification_delivery","role":"source"}
@@ -184,6 +202,10 @@ enforcement:
     - technical_interfaces:call-artifact-summarization:add:{"behaviour":"CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","binding":{"application":"comms_core","key":"artifact_summarization_adapter","module":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary"},"callers":["CommsCore.AudioCalls.Artifacts.Summaries"],"condition":"ADR-0102
       permits the exact bounded local selected-quote adapter, separately disclosed original-admission consent and
       immutable source digest. Source qualification does not establish runtime or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactSummarizationPort","CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","CommsCore.AudioCalls.ArtifactSummaryRequest","CommsCore.AudioCalls.ArtifactSummaryReceipt"],"dispatch":"configured","id":"call-artifact-summarization","implementation":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary","interface":"CommsCore.AudioCalls.ArtifactSummarizationPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"summarize"}],"owner":"calls","transaction":"independent"}
+    - technical_interfaces:federation-matrix-provider:add:{"behaviour":"CommsCore.Conversations.Federation.ProviderPort","binding":{"application":"comms_core","key":"federation_provider_adapter","module":"CommsIntegrations.Federation.Matrix"},"callers":["CommsCore.Conversations.Federation.Commands"],"condition":"ADR-0103
+      exact typed Matrix v3 client-server effects run under retained current authorization or cleanup-only fences
+      and one finite deadline. Existing DNS-pinned TLS transport, no redirects, fixed HTTPS origin and non-admin
+      bridge token. Encrypted rooms/events are refused; no foreign Messaging persistence or custom federation cryptography.","contracts":["CommsCore.Conversations.Federation.ProviderAdapter","CommsCore.Conversations.Federation.ProviderRequest","CommsCore.Conversations.Federation.ProviderReceipt","CommsCore.Conversations.Federation.ProviderPort"],"dispatch":"configured","id":"federation-matrix-provider","implementation":"CommsIntegrations.Federation.Matrix","interface":"CommsCore.Conversations.Federation.ProviderAdapter","operations":[{"arity":1,"name":"perform"}],"owner":"conversations","transaction":"required"}
     - technical_interfaces:matrix-device-client-authentication:add:{"behaviour":"CommsCore.Accounts.MatrixProvisioningPort.Contract","binding":{"application":"comms_core","key":"matrix_provisioning_adapter","module":"CommsIntegrations.SynapseIdentity"},"callers":["CommsCore.Accounts.MatrixSessions"],"condition":"ADR-0104
       permits only exact configured native Matrix protocol operations through maintained provider HTTPS APIs. DTOs
       bind retained owner identities, room/device/generation and actual native receipts; no plaintext, message private
@@ -525,6 +547,7 @@ contexts:
     - CommsCore.Accounts.MatrixEligibilityCommand
     - CommsCore.Accounts.MatrixEligibilityReceipt
     - CommsCore.Accounts.MatrixEligibilityPort
+    - CommsCore.Accounts.FederationActorLockQuery
     owned_modules:
     - CommsCore.Security.Password
     internal_namespaces:
@@ -632,6 +655,13 @@ contexts:
     - CommsCore.Conversations.WhiteboardReclamationPort
     - CommsCore.Conversations.WhiteboardReclamationReceipt
     - CommsCore.Conversations.PrivateRoomControlPort.Contract
+    - CommsCore.Conversations.Federation.View
+    - CommsCore.Conversations.Federation.ProviderReceipt
+    - CommsCore.Conversations.Federation.ProviderRequest
+    - CommsCore.Conversations.Federation.ProviderPort
+    - CommsCore.Conversations.Federation.ProviderAdapter
+    - CommsCore.Conversations.Federation.Protection
+    - CommsCore.Conversations.Federation.ProtectionPort
     internal_namespaces:
     - CommsCore.Conversations
     allowed_dependencies:
@@ -970,6 +1000,7 @@ contexts:
     - CommsCore.Governance.CalendarProtection
     - CommsCore.Governance.MatrixAccessProtection
     - CommsCore.Governance.PrivateRoomProtection
+    - CommsCore.Governance.FederationProtection
     public_contracts:
     - CommsCore.Governance.DeletionExecution
     - CommsCore.Governance.DeletionRequestView
@@ -1690,6 +1721,29 @@ runtime_collaborations:
   condition: ADR-0104 permits only local eligibility withdrawal after retained canonical sorted User locks, no Governance
     reentry or provider effects. Durable membership/epoch fencing and queued native bans preserve unknown client-key
     cleanup obligations.
+- id: federation-governance-protection
+  consumer: conversations
+  provider: trust_governance
+  port: CommsCore.Conversations.Federation.ProtectionPort
+  result_contract: CommsCore.Conversations.Federation.Protection
+  implementation: CommsCore.Governance.FederationProtection
+  callers:
+  - CommsCore.Conversations.Federation.Commands
+  operations:
+  - name: protection
+    arity: 3
+  binding:
+    application: comms_core
+    key: federation_protection_adapter
+    module: CommsCore.Governance.FederationProtection
+  transaction: required
+  graph_semantics:
+    control_flow: conversations_to_trust_governance
+    compile_dependency: trust_governance_to_conversations
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0103 acquires Governance FIRST before current identity, Trust, Conversation, Room and provider
+    effects. Legal holds prevent destructive cleanup. Matrix local redaction/leave never attests cross-server deletion;
+    remote uncertainty remains pending. No foreign persistence is authorized.
 technical_interfaces:
 - id: telephony-provider-webhook-verification
   owner: telephony
@@ -2282,6 +2336,30 @@ technical_interfaces:
     HTTPS APIs. DTOs bind retained owner identities, room/device/generation and actual native receipts; no plaintext,
     message private key, arbitrary provider configuration, provider activation or completed key-erasure assertion
     is authorized.
+- id: federation-matrix-provider
+  owner: conversations
+  interface: CommsCore.Conversations.Federation.ProviderAdapter
+  callers:
+  - CommsCore.Conversations.Federation.Commands
+  operations:
+  - name: perform
+    arity: 1
+  dispatch: configured
+  contracts:
+  - CommsCore.Conversations.Federation.ProviderAdapter
+  - CommsCore.Conversations.Federation.ProviderRequest
+  - CommsCore.Conversations.Federation.ProviderReceipt
+  - CommsCore.Conversations.Federation.ProviderPort
+  behaviour: CommsCore.Conversations.Federation.ProviderPort
+  implementation: CommsIntegrations.Federation.Matrix
+  binding:
+    application: comms_core
+    key: federation_provider_adapter
+    module: CommsIntegrations.Federation.Matrix
+  transaction: required
+  condition: ADR-0103 exact typed Matrix v3 client-server effects run under retained current authorization or cleanup-only
+    fences and one finite deadline. Existing DNS-pinned TLS transport, no redirects, fixed HTTPS origin and non-admin
+    bridge token. Encrypted rooms/events are refused; no foreign Messaging persistence or custom federation cryptography.
 retired_modules:
 - CommsCore.Authorization
 - CommsCore.InAppNotifications
@@ -2762,6 +2840,41 @@ tables:
     access: owner_only
     access_namespaces:
     - CommsCore.Messaging
+  federation_trusts:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.Federation.Trust
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
+  federation_rooms:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.Federation.Room
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
+  federation_participants:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.Federation.Participant
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
+  federation_commands:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.Federation.Command
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
+  federation_event_receipts:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.Federation.EventReceipt
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
 read_model_exceptions:
 - id: operations-cross-context-read-model
   module: CommsCore.Operations

@@ -256,21 +256,31 @@ contexts:
       - authorize_read/2
       - authorize_send_message/2
       - authorize_use_whiteboard/2
+      - cancel_stale_federation_command/2
       - change_member_role_view/4
       - close_ephemeral_presence/1
+      - close_federation_room/3
       - convert_guest_account/2
       - create_ephemeral_room/2
+      - create_federation_room/3
       - create_guest_link_view/3
       - create_private_room/2
       - create_view/2
+      - deliver_federation_command/3
       - discover_public_channel_views/2
       - ephemeral_room_for_conversation/2
       - expire_ephemeral_room/3
       - expire_guest_admission/2
+      - export_federation_metadata/2
+      - federation_consent/3
+      - federation_room/2
+      - federation_timeline/3
+      - federation_trusts/1
       - get_for_user_view/2
       - get_or_create_direct_view/2
       - guest_scope_for_session/1
       - heartbeat_ephemeral_presence/1
+      - invite_federation_participant/3
       - join_ephemeral_room/3
       - join_public_channel_view/2
       - leave_public_channel_view/3
@@ -282,17 +292,21 @@ contexts:
       - logout_guest_session/1
       - mark_read/3
       - open_ephemeral_presence/1
+      - prepare_federation_command/2
       - preview_ephemeral_room/1
       - preview_guest_link/1
       - private_room/2
+      - put_federation_trust/2
       - reconcile_ephemeral_room/3
       - reconcile_ephemeral_rooms/1
+      - reconcile_federation_commands/1
       - reconcile_private_room_purges/1
       - redeem_guest_link/2
       - remove_member_view/4
       - remove_private_room_member/4
       - resolve_guest_access/2
       - revoke_guest_link_view/3
+      - send_federation_message/3
       - update_view/3
       - usage_projection/2
       collaboration_operations:
@@ -308,6 +322,8 @@ contexts:
       - authorize_service_access/3
       - call_membership/3
       - create_initial_channel/1
+      - federation_erasure_pending?/3
+      - fence_federation_user/2
       - fetch_initial_channel/2
       - lock_call_conversation/3
       - lock_call_membership/3
@@ -315,12 +331,14 @@ contexts:
       - persisted_ephemeral_join_receipt_count/0
       - persisted_ephemeral_presence_lease_count/0
       - persisted_ephemeral_room_count/0
+      - prepare_federation_erasure/3
       - prepare_private_room_erasure/3
       - private_room_erasure_pending?/3
       - release_tenant_fingerprint_fragment/2
       - remove_user_memberships_for_erasure/3
       - reserve_message_slot/2
       - retention_scope_ids/1
+      - rollback_federation_hazard_count/0
       - rollback_private_room_hazard_count/0
       - validate_active_members/3
       - validate_reference/2
@@ -433,6 +451,7 @@ contexts:
       - lock_calendar_source_users/1
       - lock_calendar_worker/1
       - lock_content_write_grant/2
+      - lock_federation_actor/1
       - lock_guest_identity_parents/1
       - lock_matrix_participants/2
       - lock_native_push_authority/2
@@ -831,6 +850,11 @@ contexts:
       - protection/1
       owner_internal_operations: []
     CommsCore.Governance.DocumentProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.FederationProtection:
       public_operations: []
       collaboration_operations:
       - protection/3

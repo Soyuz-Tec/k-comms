@@ -5,6 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/component: configuration
 data:
+  FEDERATION_ENABLED: "false"
+  FEDERATION_PROVIDER_QUALIFIED: "false"
   # ADR-0107 provider effects require separate qualification; keep OFF.
   TELEPHONY_PROVISIONING_ENABLED: "false"
   TELEPHONY_PROVISIONING_BINDINGS: "{}"

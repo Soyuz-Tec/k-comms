@@ -311,6 +311,27 @@ defmodule CommsWeb.Router do
     delete("/private-rooms/:id/members/:user_id", PrivateRoomController, :remove_member)
     get("/private-rooms/:id/events", PrivateRoomController, :events)
     post("/private-rooms/:id/events", PrivateRoomController, :send_event)
+    get("/admin/federation/trusts", FederationController, :trusts)
+    put("/admin/federation/trusts", FederationController, :policy)
+    get("/conversations/:conversation_id/federation", FederationController, :show)
+    post("/conversations/:conversation_id/federation", FederationController, :create)
+    put("/conversations/:conversation_id/federation/consent", FederationController, :consent)
+    post("/conversations/:conversation_id/federation/invitations", FederationController, :invite)
+
+    post(
+      "/conversations/:conversation_id/federation/messages",
+      FederationController,
+      :send_message
+    )
+
+    get(
+      "/conversations/:conversation_id/federation/export",
+      FederationController,
+      :export_metadata
+    )
+
+    get("/conversations/:conversation_id/federation/messages", FederationController, :timeline)
+    delete("/conversations/:conversation_id/federation", FederationController, :close)
 
     get("/whiteboards", WhiteboardLibraryController, :index)
     put("/conversations/:conversation_id/whiteboard/title", WhiteboardLibraryController, :rename)

@@ -27,7 +27,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "phone_provider_provisioning_v1",
                                   "uc_recognition_summaries_v1",
                                   "native_call_wake_v1",
-                                  "private_rooms_v1"
+                                  "private_rooms_v1",
+                                  "workspace_federation_v1"
                                 ],
                                 ","
                               )
@@ -196,7 +197,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       private_matrix_rooms: 1,
       opaque_private_events: 1,
       active_matrix_device_jobs: 1,
-      active_private_purge_jobs: 1
+      active_private_purge_jobs: 1,
+      federation_state: 1,
+      active_federation_jobs: 1
     }
 
     compatible = %{
@@ -312,7 +315,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]},
           {"uc_recognition_summaries_v1", [:recognition_summary_state, :active_summary_jobs]},
           {"native_call_wake_v1",
-           [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
+           [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]},
+          {"workspace_federation_v1", [:federation_state, :active_federation_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

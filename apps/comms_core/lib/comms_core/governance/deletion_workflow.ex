@@ -472,6 +472,12 @@ defmodule CommsCore.Governance.DeletionWorkflow do
              request.tenant_id,
              request.target_type,
              target
+           ),
+         {:ok, _} <-
+           Conversations.prepare_federation_erasure(
+             request.tenant_id,
+             request.target_type,
+             target
            ) do
       :ok
     else
@@ -508,6 +514,12 @@ defmodule CommsCore.Governance.DeletionWorkflow do
              request.tenant_id,
              request.target_type,
              target
+           ),
+         {:ok, federation_pending} <-
+           Conversations.federation_erasure_pending?(
+             request.tenant_id,
+             request.target_type,
+             target
            ) do
       calendar_pending =
         case AudioCalls.calendar_governance_erasure_pending?(
@@ -520,6 +532,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
         end
 
       calls_pending or voicemail_pending or meetings_pending or calendar_pending or
+        federation_pending or
         private_pending or
         (request.target_type == :user and
            Accounts.matrix_identity_erasure_pending?(request.tenant_id, target))

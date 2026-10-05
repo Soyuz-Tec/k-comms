@@ -23,6 +23,8 @@ defmodule CommsCore.RuntimePorts do
     :erasure_reconciler,
     :ephemeral_room_lifecycle,
     :ephemeral_room_reconciler,
+    :federation_command,
+    :federation_reconcile,
     :guest_admission_expiry,
     :meeting_reminder,
     :native_call_wake,
