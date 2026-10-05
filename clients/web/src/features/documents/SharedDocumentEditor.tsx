@@ -20,7 +20,8 @@ export function SharedDocumentEditor({ content, atoms, readonly, peers, onEdit, 
   useEffect(() => {
     if (!host.current) return;
     const view = new EditorView({ parent: host.current, state: EditorState.create({ doc: content, extensions: [
-      markdown(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), EditorView.lineWrapping,
+      // Keep CR and CRLF scalar positions identical to the server atom graph.
+      EditorState.lineSeparator.of("\n"), markdown(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), EditorView.lineWrapping,
       EditorView.contentAttributes.of({ "aria-label": "Shared document content", spellcheck: "true" }),
       readOnly.current.of(EditorState.readOnly.of(readonly)),
       collaboratorSelection.current.of(EditorView.decorations.of(Decoration.none)),
