@@ -36,12 +36,12 @@ Declared runtime control flow (consumer -> provider).
 |---|---|
 | `calls` | `trust_governance` |
 | `collaboration` | `conversation_content` |
-| `conversations` | `calls`, `collaboration` |
-| `identity_access` | `calls`, `conversations`, `notification_delivery` |
+| `conversations` | `calls`, `collaboration`, `conversation_content`, `trust_governance` |
+| `identity_access` | `calls`, `conversations`, `notification_delivery`, `trust_governance` |
 | `telephony` | `trust_governance` |
 | `tenant_administration` | `calls`, `identity_access` |
 
-Edges: **10**. Strongly connected components: **0**.
+Edges: **13**. Strongly connected components: **0**.
 
 ### Combined graph
 
@@ -52,8 +52,8 @@ Union of compiled references and runtime control flow.
 | `calls` | `audit`, `conversations`, `identity_access`, `platform_eventing`, `telephony`, `tenant_administration`, `trust_governance` |
 | `collaboration` | `conversation_content`, `conversations`, `identity_access` |
 | `conversation_content` | `audit`, `collaboration`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
-| `conversations` | `audit`, `calls`, `collaboration`, `identity_access`, `platform_eventing`, `tenant_administration` |
-| `identity_access` | `audit`, `calls`, `conversations`, `notification_delivery`, `tenant_administration` |
+| `conversations` | `audit`, `calls`, `collaboration`, `conversation_content`, `identity_access`, `platform_eventing`, `tenant_administration`, `trust_governance` |
+| `identity_access` | `audit`, `calls`, `conversations`, `notification_delivery`, `tenant_administration`, `trust_governance` |
 | `notification_delivery` | `audit`, `conversations`, `identity_access`, `platform_eventing` |
 | `operations_read_model` | `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `telephony` | `audit`, `identity_access`, `platform_eventing`, `tenant_administration`, `trust_governance` |
@@ -61,6 +61,6 @@ Union of compiled references and runtime control flow.
 | `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `platform_eventing`, `telephony`, `tenant_administration`, `webhook_management` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **59**. Strongly connected components: **1**.
+Edges: **62**. Strongly connected components: **1**.
 
 - `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `telephony`, `tenant_administration`, `trust_governance`, `webhook_management`
