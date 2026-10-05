@@ -1505,6 +1505,11 @@ defmodule CommsCore.AudioCalls.Artifacts do
       ) || Repo.rollback(:not_found)
 
     if kind && snapshot.kind != kind, do: Repo.rollback(:artifact_not_available)
+
+    # An already withdrawn artifact preserves the existing unavailable response.
+    # This is a metadata-only denial; readable candidates still retain every
+    # Governance, original admission, lineage and final-disclosure fence below.
+    if not is_nil(snapshot.erasure_requested_at), do: Repo.rollback(:artifact_not_available)
     lineage = read_lineage!(snapshot)
     root = hd(lineage)
 

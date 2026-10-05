@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from "vitest";
-import { createClient, type MatrixClient } from "matrix-js-sdk";
+import { createClient, type MatrixClient } from "./matrixSdk";
 import { UserId, type OlmMachine } from "@matrix-org/matrix-sdk-crypto-wasm";
 import type { CryptoApi } from "matrix-js-sdk/lib/crypto-api";
 import { assertControlKeyAbsence, assertVerifiedParticipants } from "./MatrixPrivateClient";

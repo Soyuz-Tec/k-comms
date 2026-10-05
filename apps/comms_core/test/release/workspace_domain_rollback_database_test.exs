@@ -67,7 +67,7 @@ defmodule CommsCore.Release.WorkspaceDomainRollbackDatabaseTest do
     }
 
     assert ^hazards = Release.assert_communication_rollback_hazards!(hazards, compatible)
-    assert map_size(hazards) == 25
+    assert map_size(hazards) == 45
 
     for invalid <- [
           Map.delete(hazards, :workspace_domain_claims),
@@ -137,7 +137,12 @@ defmodule CommsCore.Release.WorkspaceDomainRollbackDatabaseTest do
       conversation_only_humans enterprise_identities scim_credentials retained_call_artifacts active_artifact_jobs
       voicemail_media active_voicemail_jobs advanced_controls active_control_jobs active_routing_jobs
       scheduled_meetings active_meeting_reminder_jobs rich_messages rich_whiteboards member_workspaces
-      governance_history_snapshots active_history_purge_jobs workspace_domain_claims)a,
+      governance_history_snapshots active_history_purge_jobs workspace_domain_claims
+      shared_documents ivr_state agent_queue_states active_ivr_jobs
+      calendar_owner_state calendar_erasure_state active_calendar_jobs retained_phone_provisioning_commands
+      recognition_summary_state active_summary_jobs native_push_registrations native_call_wake_intents
+      active_native_call_wake_jobs matrix_identities private_matrix_rooms opaque_private_events
+      active_matrix_device_jobs active_private_purge_jobs federation_state active_federation_jobs)a,
       &{&1, 0}
     )
   end

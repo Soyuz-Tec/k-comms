@@ -253,9 +253,7 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_private_purge_jobs: active_job_count(repo, :private_room_purge_reconciler),
       governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
       active_history_purge_jobs:
-        repo.active_continuation_oban_job_count!(
-          RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
-        ),
+        repo.active_oban_job_count!(RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)),
       retained_phone_provisioning_commands: Telephony.rollback_phone_provisioning_hazard_count(),
       active_native_call_wake_jobs:
         active_job_count(repo, :native_call_wake) +

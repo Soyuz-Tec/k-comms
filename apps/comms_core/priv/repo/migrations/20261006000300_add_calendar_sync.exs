@@ -383,6 +383,13 @@ defmodule CommsCore.Repo.Migrations.AddCalendarSync do
     # dedicated retained material. Refuse before any DDL when state remains.
     execute("""
     DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM oban_jobs
+        WHERE worker IN ('CommsWorkers.CalendarSyncWorker', 'CommsWorkers.CalendarSyncReconcilerWorker')
+          AND state::text IN ('available', 'scheduled', 'executing', 'retryable', 'suspended')
+      ) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: active owner workers';
+      END IF;
       IF EXISTS (SELECT 1 FROM calendar_connections LIMIT 1) THEN
         RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
       END IF;

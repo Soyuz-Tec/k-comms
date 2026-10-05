@@ -7,7 +7,9 @@
 // synthetic fixtures. This is not owner HTTP/concurrency, live provider, peer SAS,
 // or all-device/key-backup erasure qualification.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, MatrixEvent, Room, type MatrixClient } from "matrix-js-sdk";
+import { createClient, type MatrixClient } from "./matrixSdk";
+import { MatrixEvent } from "matrix-js-sdk/lib/models/event";
+import { Room } from "matrix-js-sdk/lib/models/room";
 import { OnlySignedDevicesIsolationMode, type CryptoApi } from "matrix-js-sdk/lib/crypto-api";
 import { MatrixPrivateClient } from "./MatrixPrivateClient";
 import type { MatrixClientSession, PrivateRoom, PrivateRoomApi } from "./types";

@@ -130,7 +130,12 @@ defmodule CommsCore.Release.PhoneProvisioningReleaseTest do
                conversation_only_humans enterprise_identities scim_credentials retained_call_artifacts
                active_artifact_jobs voicemail_media active_voicemail_jobs advanced_controls active_control_jobs
                active_routing_jobs scheduled_meetings active_meeting_reminder_jobs rich_messages rich_whiteboards
-               member_workspaces governance_history_snapshots active_history_purge_jobs retained_phone_provisioning_commands)a,
+               member_workspaces governance_history_snapshots active_history_purge_jobs retained_phone_provisioning_commands
+               shared_documents ivr_state agent_queue_states active_ivr_jobs workspace_domain_claims
+               calendar_owner_state calendar_erasure_state active_calendar_jobs recognition_summary_state active_summary_jobs
+               native_push_registrations native_call_wake_intents active_native_call_wake_jobs
+               matrix_identities private_matrix_rooms opaque_private_events active_matrix_device_jobs active_private_purge_jobs
+               federation_state active_federation_jobs)a,
       &{&1, 0}
     )
   end

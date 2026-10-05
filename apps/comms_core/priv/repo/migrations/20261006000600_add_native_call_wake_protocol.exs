@@ -111,7 +111,7 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
     DO $$ BEGIN
       IF EXISTS (SELECT 1 FROM native_push_registrations) OR
          EXISTS (SELECT 1 FROM native_call_wakes) OR
-         EXISTS (SELECT 1 FROM oban_jobs WHERE worker IN ('CommsWorkers.NativeCallWakeWorker','CommsWorkers.NativePushReconcilerWorker') AND state IN ('available','scheduled','executing','retryable')) THEN
+         EXISTS (SELECT 1 FROM oban_jobs WHERE worker IN ('CommsWorkers.NativeCallWakeWorker','CommsWorkers.NativePushReconcilerWorker') AND state IN ('available','scheduled','executing','retryable','suspended')) THEN
         RAISE EXCEPTION 'native_call_wake_v1 retained state or active jobs require a compatible binary or verified owner erasure';
       END IF;
     END $$

@@ -15,6 +15,18 @@ defmodule CommsCore.Repo.Migrations.AddCalendarExportPolicy do
   end
 
   def down do
+    execute("""
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM oban_jobs
+        WHERE worker IN ('CommsWorkers.CalendarSyncWorker', 'CommsWorkers.CalendarSyncReconcilerWorker')
+          AND state::text IN ('available', 'scheduled', 'executing', 'retryable', 'suspended')
+      ) THEN
+        RAISE EXCEPTION 'calendar policy rollback blocked: active owner workers';
+      END IF;
+    END $$;
+    """)
+
     # The public Calls inventory is checked before removing policy fields, so
     # a multi-step rollback cannot first commit a policy-only partial downgrade
     # and then discover retained Calendar state in the next migration.

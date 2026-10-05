@@ -101,7 +101,7 @@ defmodule CommsCore.Repo.Migrations.AddRecognitionSummaries do
       IF EXISTS (SELECT 1 FROM call_artifact_summaries) OR
          EXISTS (SELECT 1 FROM call_artifacts WHERE kind = 'summary' OR summary_requested OR summary_source_sha256 IS NOT NULL OR summary_provider_claimed_at IS NOT NULL OR summary_claim_fingerprint IS NOT NULL OR summary_effect_started_at IS NOT NULL OR recognition_provider_id IS NOT NULL OR recognition_model_sha256 IS NOT NULL OR recognition_source_sha256 IS NOT NULL) OR
          EXISTS (SELECT 1 FROM call_artifact_consents WHERE summary_accepted OR summary_policy_version IS NOT NULL OR summary_decided_at IS NOT NULL) OR
-         EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.CallSummaryWorker' AND state IN ('available','scheduled','executing','retryable')) THEN
+         EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.CallSummaryWorker' AND state IN ('available','scheduled','executing','retryable','suspended')) THEN
         RAISE EXCEPTION 'uc_recognition_summaries_v1 retained state or active jobs prevents downgrade';
       END IF;
     END $$;

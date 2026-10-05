@@ -108,13 +108,13 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
     end
   end
 
-  test "only active exact-worker true-boolean history purge continuations are rollback hazards" do
+  test "the continuation utility counts only exact-worker true-boolean jobs in five incomplete states" do
     worker = RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
     other_worker = "CommsWorkers.UnrelatedHistoryRollbackProbe"
     timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     initial = Repo.active_continuation_oban_job_count!(worker)
     initial_other = Repo.active_continuation_oban_job_count!(other_worker)
-    active_states = ~w(available scheduled executing retryable)
+    active_states = ~w(available scheduled executing retryable suspended)
 
     continuations =
       for state <- active_states do
@@ -132,10 +132,10 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
 
     insert_job(other_worker, "available", %{"continue" => true}, timestamp)
 
-    assert Repo.active_continuation_oban_job_count!(worker) == initial + 4
+    assert Repo.active_continuation_oban_job_count!(worker) == initial + 5
     assert Repo.active_continuation_oban_job_count!(other_worker) == initial_other + 1
 
-    hazards = clean_hazards() |> Map.put(:active_history_purge_jobs, initial + 4)
+    hazards = clean_hazards() |> Map.put(:active_history_purge_jobs, initial + 5)
 
     assert_raise RuntimeError,
                  ~r/governance_history_v1.*active_history_purge_jobs=/,

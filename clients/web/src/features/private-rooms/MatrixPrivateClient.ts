@@ -1,4 +1,4 @@
-import { createClient, ClientEvent, MatrixEventEvent, RoomEvent, type MatrixClient } from "matrix-js-sdk";
+import { createClient, ClientEvent, MatrixEventEvent, RoomEvent, type MatrixClient } from "./matrixSdk";
 import { CryptoEvent, EventShieldColour, OnlySignedDevicesIsolationMode, VerifierEvent, VerificationPhase, VerificationRequestEvent, decodeRecoveryKey, type CryptoApi, type GeneratedSecretStorageKey, type ShowSasCallbacks, type VerificationRequest } from "matrix-js-sdk/lib/crypto-api";
 import type { MatrixClientSession, OpaqueContent, PrivateRoom, PrivateRoomApi, MatrixIdentity } from "./types";
 

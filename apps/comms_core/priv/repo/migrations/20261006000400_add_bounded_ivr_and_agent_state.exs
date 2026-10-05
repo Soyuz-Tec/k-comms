@@ -167,7 +167,7 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
          OR EXISTS (SELECT 1 FROM telephony_agent_states)
          OR EXISTS (SELECT 1 FROM telephony_calls WHERE routing_status IN ('ivr', 'ivr_destination'))
          OR EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.TelephonyIvrWorker'
-                    AND state::text IN ('available', 'scheduled', 'executing', 'retryable')) THEN
+                    AND state::text IN ('available', 'scheduled', 'executing', 'retryable', 'suspended')) THEN
         RAISE EXCEPTION 'IVR or agent state is retained; destructive rollback is prohibited';
       END IF;
     END $$;

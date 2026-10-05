@@ -145,7 +145,8 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
              telephony_ivr_menus: [],
              telephony_ivr_runs: [],
              telephony_ivr_event_receipts: [],
-             telephony_agent_states: []
+             telephony_agent_states: [],
+             phone_provisioning_commands: []
            }
   end
 
