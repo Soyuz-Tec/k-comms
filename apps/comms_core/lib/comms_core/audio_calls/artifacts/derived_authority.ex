@@ -1,6 +1,6 @@
 defmodule CommsCore.AudioCalls.Artifacts.DerivedAuthority do
   @moduledoc false
-  import Ecto.Query
+  import Ecto.Query, except: [lock: 3]
   alias CommsCore.{Accounts, Conversations, Repo}
   alias CommsCore.Accounts.GuestIdentityParentsLockQuery
   alias CommsCore.AudioCalls.AudioCallParticipant

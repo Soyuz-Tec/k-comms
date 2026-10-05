@@ -92,7 +92,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
     )
 
     Application.put_env(:comms_core, :artifact_summarization_adapter, SyntheticSummary)
-    Application.put_env(:comms_core, :artifact_provider_adapter, EnabledCapture)
+    Application.put_env(:comms_core, :artifact_provider_adapter, __MODULE__.EnabledCapture)
     Application.put_env(:comms_core, :synthetic_summary_result, :ok)
     %{account: account, subject: subject, call: call}
   end
@@ -233,7 +233,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
     refute_receive :summary_session_revoked, 100
     send(effect_pid, :finish_summary_effect)
     assert {:ok, :summarized} = Task.await(producer, 5_000)
-    assert {:ok, _} = Task.await(revoker, 5_000)
+    assert :ok = Task.await(revoker, 5_000)
 
     assert {:error, :forbidden} =
              AudioCalls.artifact_summary(c.account.conversation.id, c.call.id, view.id, c.subject)
@@ -290,7 +290,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
   test "retained session revocation fences summary production before any effect", c do
     {_recording, transcript} = retained_source!(c)
     {:ok, view} = request_summary(c, transcript.id)
-    assert {:ok, _} = Accounts.revoke_session(c.subject.session_id, c.subject.user_id)
+    assert :ok = Accounts.revoke_session(c.subject.session_id, c.subject.user_id)
     assert {:error, :forbidden} = process_summary(view.id)
     refute_received {:synthetic_summary_called, _}
     refute Repo.exists?(from(s in Summary, where: s.artifact_id == ^view.id))

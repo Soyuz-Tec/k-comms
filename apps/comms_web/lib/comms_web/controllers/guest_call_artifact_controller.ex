@@ -40,6 +40,8 @@ defmodule CommsWeb.GuestCallArtifactController do
     })
   end
 
+  def consent(conn, _), do: CommsWeb.CallArtifactController.consent(conn, %{})
+
   def summary_consent(conn, %{"call_id" => call_id, "id" => id} = params) do
     conversation_id = conn.assigns.current_guest_claims["conversation_id"]
 
@@ -48,6 +50,4 @@ defmodule CommsWeb.GuestCallArtifactController do
       Map.merge(params, %{"conversation_id" => conversation_id, "call_id" => call_id, "id" => id})
     )
   end
-
-  def consent(conn, _), do: CommsWeb.CallArtifactController.consent(conn, %{})
 end

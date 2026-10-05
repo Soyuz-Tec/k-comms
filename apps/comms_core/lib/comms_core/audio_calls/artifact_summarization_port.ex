@@ -15,8 +15,7 @@ defmodule CommsCore.AudioCalls.ArtifactSummarizationPort do
          true <- receipt.model == "extractive-quotes-v1",
          true <- source_quotes?(receipt.text, request.text),
          true <- valid_text?(receipt.text),
-         true <- is_binary(receipt.provider_id) and byte_size(receipt.provider_id) in 1..200,
-         true <- is_binary(receipt.model) and byte_size(receipt.model) in 1..128 do
+         true <- is_binary(receipt.provider_id) and byte_size(receipt.provider_id) in 1..200 do
       {:ok, receipt}
     else
       {:error, _} = error -> error

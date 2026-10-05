@@ -35,7 +35,7 @@ describe("MeetingArtifactsPage", () => {
       expect(element).not.toBeNull();
       return element as HTMLElement;
     });
-    expect(row).toHaveTextContent("Transcript");
+    expect(row).toHaveTextContent("Post-recording transcript");
     await waitFor(() => expect(row).toHaveFocus());
     expect(api.artifactPlayback).not.toHaveBeenCalled();
     expect(api.artifactTranscript).not.toHaveBeenCalled();
