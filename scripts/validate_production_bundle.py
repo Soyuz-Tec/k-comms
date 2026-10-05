@@ -76,7 +76,7 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
     "private_rooms_v1": ("matrix_identities", "matrix_client_sessions", "private_matrix_rooms", "opaque_private_events", "CommsWorkers.MatrixDeviceReconcilerWorker", "CommsWorkers.PrivateRoomPurgeReconcilerWorker"),
-    "workspace_federation_v1": ("federation_trusts", "federation_rooms", "federation_participants", "federation_commands", "federation_event_receipts", "CommsWorkers.FederationCommandWorker"),
+    "workspace_federation_v1": ("federation_trusts", "federation_rooms", "federation_participants", "federation_commands", "federation_event_receipts", "CommsWorkers.FederationCommandWorker", "CommsWorkers.FederationReconcilerWorker"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

@@ -264,6 +264,13 @@ class ValidateProductionBundleTest(unittest.TestCase):
         self.assertIn("conversation_ephemeral_rooms", lifecycle_hazards)
         self.assertIn("conversation_ephemeral_join_receipts", lifecycle_hazards)
 
+    def test_federation_capability_covers_both_registered_job_workers(self) -> None:
+        hazards = COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS["workspace_federation_v1"]
+        self.assertEqual(
+            {hazard for hazard in hazards if hazard.startswith("CommsWorkers.")},
+            {"CommsWorkers.FederationCommandWorker", "CommsWorkers.FederationReconcilerWorker"},
+        )
+
     def test_accepts_rendered_guest_rollback_preflight_operation(self) -> None:
         documents = valid_documents()
         documents.append(guest_rollback_operation())

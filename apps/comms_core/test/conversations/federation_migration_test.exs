@@ -12,8 +12,22 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
 
   @moduletag :integration
   @moduletag :migration
+  @oban_version 20_260_711_000_200
   @version 20_261_006_000_900
+  @base_tables ~w(oban_jobs oban_peers schema_migrations)
   @tables ~w(federation_trusts federation_rooms federation_participants federation_commands federation_event_receipts)
+  @workers ~w(CommsWorkers.FederationCommandWorker CommsWorkers.FederationReconcilerWorker)
+  @active_states ~w(available scheduled executing retryable suspended)
+  @active_jobs for worker <- @workers, state <- @active_states, do: {worker, state}
+  @safe_jobs for(
+               worker <- @workers,
+               state <- ~w(completed cancelled discarded),
+               do: {worker, state}
+             ) ++
+               for(
+                 state <- ~w(available scheduled executing retryable),
+                 do: {"CommsWorkers.UnrelatedMigrationFixtureWorker", state}
+               )
   @retained_cases [
     {"federation_trusts", []},
     {"federation_rooms", ["federation_trusts"]},
@@ -23,8 +37,8 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
   ]
 
   setup_all do
-    # 00900 has only Federation-owned foreign keys. Run that exact migration in
-    # a new database; neither the parent nor the focus database is migrated here.
+    # Run the maintained historical Oban migration and exact owner 00900 in a
+    # new database; neither the parent nor focus database is migrated here.
     database =
       "k_comms_federation_migration_" <>
         Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
@@ -86,6 +100,14 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
     assert [[^database]] = SQL.query!(R, "SELECT current_database()", []).rows
     assert public_tables() == []
 
+    oban_path =
+      Application.app_dir(:comms_core, "priv/repo/migrations/20260711000200_add_oban_jobs.exs")
+
+    oban_migration = Module.concat(["CommsCore", "Repo", "Migrations", "AddObanJobs"])
+    unless Code.ensure_loaded?(oban_migration), do: Code.require_file(oban_path)
+    assert :ok = Ecto.Migrator.up(R, @oban_version, oban_migration, log: false)
+    assert public_tables() == Enum.sort(@base_tables)
+
     path =
       Application.app_dir(
         :comms_core,
@@ -101,9 +123,10 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
 
   setup %{database: database} do
     assert [[^database]] = SQL.query!(R, "SELECT current_database()", []).rows
-    assert public_tables() == Enum.sort(["schema_migrations" | @tables])
-    assert Ecto.Migrator.migrated_versions(R) == [@version]
+    assert public_tables() == Enum.sort(@base_tables ++ @tables)
+    assert Ecto.Migrator.migrated_versions(R) == [@oban_version, @version]
     assert Enum.all?(raw_snapshot(), fn {_table, result} -> result.rows == [] end)
+    assert raw_jobs().rows == []
     :ok
   end
 
@@ -114,14 +137,65 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
   } do
     assert federation_hazard_count(pid, database) == 0
     assert :ok = Ecto.Migrator.down(R, @version, migration, log: false)
-    assert public_tables() == ["schema_migrations"]
-    assert Ecto.Migrator.migrated_versions(R) == []
+    assert public_tables() == Enum.sort(@base_tables)
+    assert Ecto.Migrator.migrated_versions(R) == [@oban_version]
 
     assert :ok = Ecto.Migrator.up(R, @version, migration, log: false)
-    assert public_tables() == Enum.sort(["schema_migrations" | @tables])
-    assert Ecto.Migrator.migrated_versions(R) == [@version]
+    assert public_tables() == Enum.sort(@base_tables ++ @tables)
+    assert Ecto.Migrator.migrated_versions(R) == [@oban_version, @version]
     assert Enum.all?(raw_snapshot(), fn {_table, result} -> result.rows == [] end)
     assert federation_hazard_count(pid, database) == 0
+  end
+
+  for {worker, state} <- @active_jobs do
+    @tag :active_federation_job_down
+    @tag worker: worker, job_state: state
+    test "actual 00900 down refuses orphan #{worker} in #{state} before any DDL", c do
+      job = orphan_job!(c.worker, c.job_state, c.migration_module)
+      before_tables = raw_snapshot()
+      before_jobs = raw_jobs()
+      assert federation_hazard_count(c.repo_pid, c.database) == 0
+      assert length(before_jobs.rows) == 1
+
+      try do
+        assert_raise Postgrex.Error, ~r/Federation rollback refused: active bridge jobs/, fn ->
+          Ecto.Migrator.down(R, @version, c.migration_module, log: false)
+        end
+      after
+        # Record the actual pre-cleanup schema/job outcome even on the first red
+        # implementation. Teardown restores only 00900 in this isolated DB.
+        IO.puts(
+          "Federation orphan job proof: id=#{job.id} worker=#{c.worker} state=#{c.job_state} " <>
+            "owner_version_retained=#{@version in Ecto.Migrator.migrated_versions(R)} " <>
+            "raw_job_unchanged=#{raw_jobs() == before_jobs}"
+        )
+      end
+
+      assert raw_snapshot() == before_tables
+      assert raw_jobs() == before_jobs
+      assert Ecto.Migrator.migrated_versions(R) == [@oban_version, @version]
+      assert public_tables() == Enum.sort(@base_tables ++ @tables)
+    end
+  end
+
+  for {worker, state} <- @safe_jobs do
+    @tag worker: worker, job_state: state
+    test "actual empty 00900 down allows #{worker} in #{state} and retains its raw job", c do
+      orphan_job!(c.worker, c.job_state, c.migration_module)
+      before_jobs = raw_jobs()
+      assert federation_hazard_count(c.repo_pid, c.database) == 0
+
+      assert :ok = Ecto.Migrator.down(R, @version, c.migration_module, log: false)
+      assert public_tables() == Enum.sort(@base_tables)
+      assert Ecto.Migrator.migrated_versions(R) == [@oban_version]
+      assert raw_jobs() == before_jobs
+
+      assert :ok = Ecto.Migrator.up(R, @version, c.migration_module, log: false)
+      assert public_tables() == Enum.sort(@base_tables ++ @tables)
+      assert Ecto.Migrator.migrated_versions(R) == [@oban_version, @version]
+      assert raw_jobs() == before_jobs
+      assert Enum.all?(raw_snapshot(), fn {_table, result} -> result.rows == [] end)
+    end
   end
 
   for {table, dependencies} <- @retained_cases do
@@ -153,8 +227,8 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
                    fn -> Ecto.Migrator.down(R, @version, migration, log: false) end
 
       assert raw_snapshot() == before
-      assert Ecto.Migrator.migrated_versions(R) == [@version]
-      assert public_tables() == Enum.sort(["schema_migrations" | @tables])
+      assert Ecto.Migrator.migrated_versions(R) == [@oban_version, @version]
+      assert public_tables() == Enum.sort(@base_tables ++ @tables)
       assert federation_hazard_count(pid, database) == length(expected_tables)
     end
   end
@@ -271,6 +345,29 @@ defmodule CommsCore.Conversations.FederationMigrationTest do
       result = SQL.query!(R, "SELECT * FROM #{table} ORDER BY id", [])
       {table, %{columns: result.columns, rows: result.rows}}
     end)
+  end
+
+  defp raw_jobs do
+    result = SQL.query!(R, "SELECT * FROM oban_jobs ORDER BY id", [])
+    %{columns: result.columns, rows: result.rows}
+  end
+
+  defp orphan_job!(worker, state, migration) do
+    job =
+      %{"command_id" => Ecto.UUID.generate(), "migration_fixture" => Ecto.UUID.generate()}
+      |> Oban.Job.new(worker: worker, queue: :lifecycle)
+      |> Ecto.Changeset.put_change(:state, state)
+      |> R.insert!()
+
+    on_exit(fn ->
+      if @version not in Ecto.Migrator.migrated_versions(R) do
+        assert :ok = Ecto.Migrator.up(R, @version, migration, log: false)
+      end
+
+      assert %{num_rows: 1} = SQL.query!(R, "DELETE FROM oban_jobs WHERE id = $1", [job.id])
+    end)
+
+    job
   end
 
   defp public_tables do
