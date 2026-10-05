@@ -6927,6 +6927,164 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/summary-consent:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: &recognition_path_001
+        type: string
+        format: uuid
+    - name: callId
+      in: path
+      required: true
+      schema: *recognition_path_001
+    - name: artifactId
+      in: path
+      required: true
+      schema: *recognition_path_001
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: consentMeetingArtifactSummary
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Separate disclosed selected-quote summary consent for the actual
+        current server session. Acceptance never transfers to a rejoined admission;
+        withdrawal invalidates derived summary access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryConsent'
+  /api/v1/guest/conversation/calls/{callId}/artifacts/{artifactId}/summary-consent:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: &recognition_path_002
+        type: string
+        format: uuid
+    - name: artifactId
+      in: path
+      required: true
+      schema: *recognition_path_002
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: consentGuestMeetingArtifactSummary
+      security:
+      - guestBearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryConsent'
+      description: Separate disclosed selected-quote summary consent for the actual
+        current server session. Acceptance never transfers to a rejoined admission;
+        withdrawal invalidates derived summary access.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/summary:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: &recognition_path_003
+        type: string
+        format: uuid
+    - name: callId
+      in: path
+      required: true
+      schema: *recognition_path_003
+    - name: artifactId
+      in: path
+      required: true
+      schema: *recognition_path_003
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: getMeetingArtifactSummary
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactSummary'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Restricted selected transcript quotes. Revalidates current membership
+        and every original capture admission, disclosed consent, immutable transcript
+        digest, expiry and pending erasure under owner locks.
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -10608,6 +10766,7 @@ components:
           enum:
           - recording
           - transcript
+          - summary
         status:
           type: string
           enum:
@@ -10654,6 +10813,41 @@ components:
           enum:
           - video/mp4
           - application/json
+        summary_requested:
+          type: boolean
+        summary_policy_version:
+          type:
+          - string
+          - 'null'
+          enum:
+          - meeting-summary-v1
+          - null
+        summary_consent_required_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        summary_consent_accepted_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        my_summary_consent:
+          type:
+          - boolean
+          - 'null'
+        recognition_mode:
+          type:
+          - string
+          - 'null'
+          enum:
+          - post_recording
+          - null
+        recognition_model_sha256:
+          type:
+          - string
+          - 'null'
+          pattern: ^[a-f0-9]{64}$
+        can_withdraw_summary_consent:
+          type: boolean
     ArtifactCapabilities:
       type: object
       additionalProperties: false
@@ -10682,6 +10876,14 @@ components:
           const: provider_events_only
         automatic_capture:
           const: false
+        recognition_mode:
+          const: post_recording
+        explicit_summary:
+          type: boolean
+        summary_consent_required:
+          const: true
+        summary_post_call_only:
+          const: true
     MeetingArtifactList:
       type: object
       additionalProperties: false
@@ -10708,10 +10910,14 @@ components:
           enum:
           - recording
           - transcript
+          - summary
         idempotency_key:
           type: string
           minLength: 8
           maxLength: 120
+        summary_requested:
+          type: boolean
+          default: false
         source_artifact_id: *uc_anchor_11
       allOf:
       - if:
@@ -10719,7 +10925,7 @@ components:
           - kind
           properties:
             kind:
-              const: transcript
+              enum: [transcript, summary]
         then:
           required:
           - source_artifact_id
@@ -12726,3 +12932,53 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+    ArtifactSummaryView:
+      type: object
+      additionalProperties: false
+      required:
+      - method
+      - text
+      - source_artifact_id
+      - source_sha256
+      - summary_sha256
+      - policy_version
+      properties:
+        method:
+          const: extractive_quotes
+        text:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Selected unchanged transcript quotes; UTF-8 <=16384 bytes, no inferred
+            facts.
+        source_artifact_id:
+          type: string
+          format: uuid
+        source_sha256: &recognition_schema_001
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        summary_sha256: *recognition_schema_001
+        policy_version:
+          const: meeting-summary-v1
+    SummaryConsent:
+      type: object
+      additionalProperties: false
+      required:
+      - accepted
+      - policy_version
+      properties:
+        accepted:
+          type: boolean
+        policy_version:
+          const: meeting-summary-v1
+    ArtifactSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - summary
+      properties:
+        data:
+          $ref: '#/components/schemas/MeetingArtifact'
+        summary:
+          $ref: '#/components/schemas/ArtifactSummaryView'

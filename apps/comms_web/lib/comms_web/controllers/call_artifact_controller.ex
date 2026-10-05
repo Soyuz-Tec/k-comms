@@ -43,6 +43,33 @@ defmodule CommsWeb.CallArtifactController do
 
   def consent(conn, _), do: artifact_error(conn, :invalid_artifact_consent)
 
+  def summary_consent(
+        conn,
+        %{"conversation_id" => conversation_id, "call_id" => call_id, "id" => id} = params
+      ) do
+    respond(
+      conn,
+      AudioCalls.consent_artifact_summary(
+        conversation_id,
+        call_id,
+        id,
+        params,
+        conn.assigns.current_subject
+      )
+    )
+  end
+
+  def summary(conn, %{"conversation_id" => conversation_id, "call_id" => call_id, "id" => id}) do
+    with {:ok, result} <-
+           AudioCalls.artifact_summary(conversation_id, call_id, id, conn.assigns.current_subject) do
+      conn
+      |> put_resp_header("cache-control", "no-store")
+      |> json(%{data: present(result.artifact), summary: Map.from_struct(result.summary)})
+    else
+      {:error, reason} -> artifact_error(conn, reason)
+    end
+  end
+
   def start(conn, %{"conversation_id" => conversation_id, "call_id" => call_id, "id" => id}) do
     respond(
       conn,
@@ -117,6 +144,32 @@ defmodule CommsWeb.CallArtifactController do
   defp artifact_error(conn, reason) do
     {status, detail} =
       case reason do
+        :summarization_unavailable ->
+          {409,
+           "Summary generation requires separate privacy approval and qualified local processing."}
+
+        :summary_consent_required ->
+          {409,
+           "Every original capture admission must separately consent to selected-quote summaries."}
+
+        :summary_post_call_only ->
+          {409, "Summaries are available only after the call ends."}
+
+        :summary_not_disclosed ->
+          {409, "Summaries were not disclosed when recording was requested."}
+
+        :invalid_summary_consent ->
+          {422, "Choose explicit summary consent using the disclosed meeting-summary-v1 policy."}
+
+        :summary_source_too_large ->
+          {409, "This transcript exceeds the approved summary processing limit."}
+
+        :summary_source_changed ->
+          {409, "The retained source transcript proof changed."}
+
+        :idempotency_conflict ->
+          {409, "This request identifier belongs to another artifact decision."}
+
         :recording_disabled ->
           {403, "Recording requires workspace privacy approval and qualified provider opt-in."}
 

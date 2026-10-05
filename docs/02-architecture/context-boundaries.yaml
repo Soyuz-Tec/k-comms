@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
+  sha256: 30aec8f80cec194e408eb606fa74e1525270f6df7b6cdd9b65b97b156092e0bd
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -11,39 +11,23 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-administrative-evidence-owner-contracts
-    previous_manifest_sha256: 2ae4724b084c1f36b583fd1f864f551eb19dfa03b5da89bc386520ca9afc913c
+  - id: compose-post-recording-recognition-explicit-summary-owner-contracts
+    previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
-    adr: docs/02-architecture/adr/0093-private-member-organization-and-synchronized-setup.md
-    removal_condition: Remove this exact ADR-0093 through ADR-0096 transition after the member organization and administrative
-      evidence composition reviewed against protected parent 734c9e1daf48f2280789a13f977d220f250b9890 reaches the protected
-      branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummarizationPort
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryReceipt
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryRequest
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryView
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->30aec8f80cec194e408eb606fa74e1525270f6df7b6cdd9b65b97b156092e0bd
+    - runtime_collaborations:call-artifact-governance-protection:callers:add:"CommsCore.AudioCalls.Artifacts.Summaries"
+    - table:call_artifact_summaries:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Summary","owner":"calls","role":"source"}
+    - technical_interfaces:call-artifact-summarization:add:{"behaviour":"CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","binding":{"application":"comms_core","key":"artifact_summarization_adapter","module":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary"},"callers":["CommsCore.AudioCalls.Artifacts.Summaries"],"condition":"ADR-0102
+      permits the exact bounded local selected-quote adapter, separately disclosed original-admission consent and
+      immutable source digest. Source qualification does not establish runtime or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactSummarizationPort","CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","CommsCore.AudioCalls.ArtifactSummaryRequest","CommsCore.AudioCalls.ArtifactSummaryReceipt"],"dispatch":"configured","id":"call-artifact-summarization","implementation":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary","interface":"CommsCore.AudioCalls.ArtifactSummarizationPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"summarize"}],"owner":"calls","transaction":"independent"}
+    adr: docs/02-architecture/adr/0102-recognition-explicit-consent-summaries.md
+    removal_condition: Remove this exact frozen Phase2 to ADR-0102 transition after these owner contracts are protected;
+      it authorizes no later widening.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -449,6 +433,11 @@ contexts:
       - CommsCore.AudioCalls.ArtifactTranscriptionRequest
       - CommsCore.AudioCalls.ArtifactTranscript
       - CommsCore.AudioCalls.ArtifactTranscriptSegment
+      - CommsCore.AudioCalls.ArtifactSummaryView
+      - CommsCore.AudioCalls.ArtifactSummaryRequest
+      - CommsCore.AudioCalls.ArtifactSummaryReceipt
+      - CommsCore.AudioCalls.ArtifactSummarizationPort
+      - CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
       - CommsCore.AudioCalls.ArtifactProviderPort
       - CommsCore.AudioCalls.ArtifactProviderPort.Contract
       - CommsCore.AudioCalls.ArtifactStoragePort
@@ -862,6 +851,7 @@ runtime_collaborations:
     implementation: CommsCore.Governance.ArtifactProtection
     callers:
     - CommsCore.AudioCalls.Artifacts
+    - CommsCore.AudioCalls.Artifacts.Summaries
     - CommsCore.AudioCalls.MeetingErasure
     operations:
     - name: protection
@@ -1105,6 +1095,31 @@ technical_interfaces:
       dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
       provider capability does not establish live provider or production qualification.
 
+  - id: call-artifact-summarization
+    owner: calls
+    interface: CommsCore.AudioCalls.ArtifactSummarizationPort
+    callers:
+    - CommsCore.AudioCalls.Artifacts.Summaries
+    operations:
+    - name: configured?
+      arity: 0
+    - name: summarize
+      arity: 1
+    dispatch: configured
+    contracts:
+    - CommsCore.AudioCalls.ArtifactSummarizationPort
+    - CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+    - CommsCore.AudioCalls.ArtifactSummaryRequest
+    - CommsCore.AudioCalls.ArtifactSummaryReceipt
+    behaviour: CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+    implementation: CommsIntegrations.MeetingArtifacts.ExtractiveSummary
+    binding:
+      application: comms_core
+      key: artifact_summarization_adapter
+      module: CommsIntegrations.MeetingArtifacts.ExtractiveSummary
+    transaction: independent
+    condition: ADR-0102 permits the exact bounded local selected-quote adapter, separately disclosed original-admission consent and immutable source digest. Source qualification does not establish runtime or production qualification.
+
   - id: telephony-provider-controls
     owner: telephony
     interface: CommsCore.Telephony.ProviderControlPort
@@ -1286,6 +1301,7 @@ tables:
   call_artifact_consents: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Consent, role: source}
   call_artifact_provider_events: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.ProviderEvent, role: source}
   call_artifact_segments: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Segment, role: source}
+  call_artifact_summaries: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Summary, role: source}
   telephony_control_commands: {owner: telephony, canonical_schema: CommsCore.Telephony.ControlCommand, role: source}
   telephony_routes: {owner: telephony, canonical_schema: CommsCore.Telephony.Route, role: source}
   telephony_mailboxes: {owner: telephony, canonical_schema: CommsCore.Telephony.Mailbox, role: source}

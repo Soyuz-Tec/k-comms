@@ -205,6 +205,9 @@ export class ApiClient {
   meetingArtifacts(...args: Parameters<MeetingArtifactsApi["meetingArtifacts"]>) { return this.meetingArtifactsApi.meetingArtifacts(...args); }
   requestRecording(...args: Parameters<MeetingArtifactsApi["requestRecording"]>) { return this.meetingArtifactsApi.requestRecording(...args); }
   requestTranscript(...args: Parameters<MeetingArtifactsApi["requestTranscript"]>) { return this.meetingArtifactsApi.requestTranscript(...args); }
+  requestSummary(...args: Parameters<MeetingArtifactsApi["requestSummary"]>) { return this.meetingArtifactsApi.requestSummary(...args); }
+  consentSummary(...args: Parameters<MeetingArtifactsApi["consentSummary"]>) { return this.meetingArtifactsApi.consentSummary(...args); }
+  artifactSummary(...args: Parameters<MeetingArtifactsApi["artifactSummary"]>) { return this.meetingArtifactsApi.artifactSummary(...args); }
   consentRecording(...args: Parameters<MeetingArtifactsApi["consentRecording"]>) { return this.meetingArtifactsApi.consentRecording(...args); }
   startRecording(...args: Parameters<MeetingArtifactsApi["startRecording"]>) { return this.meetingArtifactsApi.startRecording(...args); }
   stopRecording(...args: Parameters<MeetingArtifactsApi["stopRecording"]>) { return this.meetingArtifactsApi.stopRecording(...args); }

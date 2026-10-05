@@ -22,10 +22,12 @@ contexts:
       - activity/3
       - artifact_playback/4
       - artifact_transcript/4
+      - artifact_summary/4
       - authorize_participant/3
       - cancel_meeting/3
       - claim_participant_eviction/2
       - consent_artifact/5
+      - consent_artifact_summary/5
       - delete_artifact/4
       - deliver_meeting_reminder/3
       - end_call/6
@@ -66,6 +68,7 @@ contexts:
       - revoke_conversation_access/1
       - revoke_for_conversation/3
       - rollback_artifact_hazard_count/0
+      - rollback_recognition_summary_hazard_count/0
       - rollback_meeting_hazard_count/0
       owner_internal_operations:
       - activity/2

@@ -172,3 +172,31 @@ and invalid owner counts also refuse proof. Before removing these owners, cancel
 retained schedules, end their policy-linked rooms, scrub retained authored meeting
 history through authorized held-scope-safe erasure and converge artifact erasure
 and clear active demand jobs through the authorized lifecycle.
+
+
+ADR-0102 adds a disabled source candidate for actual post-recording CPU recognition
+and separately consented selected-quote summaries. The maintained engine, pinned
+model/fixture digests, hard processing limits and opt-in actual waveform command
+are documented in [the recognition service runbook](../../services/recognition/README.md).
+This source integration establishes no actual waveform, HTTP service, browser,
+provider or production qualification. Live captions remain actual provider events.
+
+For summaries, the host first opts into a separate disclosure when requesting
+recording. Every actual capture admission must then accept recording/transcription
+and separately accept `meeting-summary-v1`; neither decision authorizes the other.
+After the call ends, the host requests selected quotes from an available retained
+transcript. The UI labels unchanged source quotes and their transcript digest.
+Withdraw summary consent on the original recording to close derived access and
+queue physical content erasure; legal holds may retain restricted content. A fresh
+current session may withdraw its user's old decision, but a rejoin never transfers
+acceptance to another admission. Expired or revoked original session authority
+blocks production and retrieval.
+
+The current source candidate declares `uc_recognition_summaries_v1` in addition to
+the frozen fourteen capabilities. Retained quote rows, disclosed/withdrawn consent
+metadata, pinned recognition proof metadata and every active summary job (including
+orphan work) require that capability. New job state uses the actual bound
+`CommsWorkers.CallSummaryWorker`; the prior artifact worker continues to own
+capture, source verification and transcripts. Unknown summary outcomes consume
+the durable intent and are never automatically repeated. Content erasure alone
+does not prove retained decision/claim metadata is rollback compatible.

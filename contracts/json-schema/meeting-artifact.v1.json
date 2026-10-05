@@ -71,7 +71,8 @@
           "type": "string",
           "enum": [
             "recording",
-            "transcript"
+            "transcript",
+            "summary"
           ]
         },
         "status": {
@@ -151,6 +152,55 @@
             "video/mp4",
             "application/json"
           ]
+        },
+        "summary_requested": {
+          "type": "boolean"
+        },
+        "summary_policy_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "meeting-summary-v1",
+            null
+          ]
+        },
+        "summary_consent_required_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "summary_consent_accepted_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "my_summary_consent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "recognition_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "post_recording",
+            null
+          ]
+        },
+        "recognition_model_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "can_withdraw_summary_consent": {
+          "type": "boolean"
         }
       }
     }

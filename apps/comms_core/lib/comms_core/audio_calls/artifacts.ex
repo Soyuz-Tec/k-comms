@@ -19,7 +19,16 @@ defmodule CommsCore.AudioCalls.Artifacts do
     ArtifactView
   }
 
-  alias CommsCore.AudioCalls.Artifacts.{Artifact, Consent, ProviderEvent, Segment}
+  alias CommsCore.AudioCalls.Artifacts.{
+    Artifact,
+    Consent,
+    DerivedAuthority,
+    ProviderEvent,
+    Segment,
+    Summary,
+    Summaries
+  }
+
   @capturing [:starting, :recording, :stopping]
 
   @doc false
@@ -68,6 +77,10 @@ defmodule CommsCore.AudioCalls.Artifacts do
       persistent_transcript: enabled and ArtifactTranscriptionPort.configured?(),
       persistent_transcript_reason: "qualified_transcription_provider_required",
       captions: "provider_events_only",
+      recognition_mode: "post_recording",
+      explicit_summary: enabled and Summaries.enabled?(value(subject, :tenant_id)),
+      summary_consent_required: true,
+      summary_post_call_only: true,
       automatic_capture: false
     }
   end
@@ -160,9 +173,16 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   def request(conversation_id, call_id, attrs, subject) when is_map(attrs) do
-    if value(attrs, :kind) in [:transcript, "transcript"],
-      do: request_transcript(conversation_id, call_id, attrs, subject),
-      else: request_recording(conversation_id, call_id, attrs, subject)
+    case value(attrs, :kind) do
+      kind when kind in [:transcript, "transcript"] ->
+        request_transcript(conversation_id, call_id, attrs, subject)
+
+      kind when kind in [:summary, "summary"] ->
+        Summaries.request(conversation_id, call_id, attrs, subject)
+
+      _ ->
+        request_recording(conversation_id, call_id, attrs, subject)
+    end
   end
 
   defp request_recording(conversation_id, call_id, attrs, subject) do
@@ -180,6 +200,14 @@ defmodule CommsCore.AudioCalls.Artifacts do
       if value(attrs, :kind) not in [nil, :recording, "recording"],
         do: Repo.rollback(:transcription_unavailable)
 
+      summary_requested = value(attrs, :summary_requested) == true
+
+      if summary_requested and not Summaries.enabled?(call.tenant_id),
+        do: Repo.rollback(:summarization_unavailable)
+
+      if value(attrs, :summary_requested) not in [nil, false, true],
+        do: Repo.rollback(:invalid_summary_consent)
+
       key = value(attrs, :idempotency_key)
 
       if not is_binary(key) or byte_size(key) not in 8..120,
@@ -191,6 +219,9 @@ defmodule CommsCore.AudioCalls.Artifacts do
              idempotency_key: key
            ) do
         %Artifact{kind: :recording} = existing ->
+          if existing.summary_requested != summary_requested,
+            do: Repo.rollback(:idempotency_conflict)
+
           view(existing, subject, call)
 
         %Artifact{} ->
@@ -224,6 +255,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
                 requested_by_device_id: value(subject, :device_id),
                 requested_by_session_id: value(subject, :session_id),
                 kind: :recording,
+                summary_requested: summary_requested,
                 provider_room: call.provider_room,
                 object_key: "#{call.tenant_id}/meeting-artifacts/#{call.id}/#{id}.mp4",
                 content_type: "video/mp4",
@@ -296,6 +328,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
                 requested_by_user_id: value(subject, :user_id),
                 requested_by_device_id: value(subject, :device_id),
                 requested_by_session_id: value(subject, :session_id),
+                summary_requested: source.summary_requested,
                 kind: :transcript,
                 status: :processing,
                 provider_room: source.provider_room,
@@ -315,6 +348,9 @@ defmodule CommsCore.AudioCalls.Artifacts do
                 user_id: c.user_id,
                 session_id: c.session_id,
                 accepted: true,
+                summary_accepted: c.summary_accepted,
+                summary_policy_version: c.summary_policy_version,
+                summary_decided_at: c.summary_decided_at,
                 decided_at: c.decided_at
               })
             )
@@ -330,6 +366,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
   def consent(conversation_id, call_id, artifact_id, accepted, subject)
       when is_boolean(accepted) do
     transaction(fn ->
+      protection!(value(subject, :tenant_id), conversation_id, [])
       call = locked_call!(conversation_id, call_id, subject)
       if accepted, do: active!(call)
       artifact = locked_artifact!(call, artifact_id)
@@ -346,6 +383,7 @@ defmodule CommsCore.AudioCalls.Artifacts do
           insert!(Consent.changeset(%Consent{}, consent_attrs(artifact, participant)))
 
       update!(Consent.changeset(consent, %{accepted: accepted, decided_at: now()}))
+      if not accepted, do: Summaries.invalidate(root_artifact_for_summary(artifact))
 
       artifact =
         if not accepted and artifact.status in @capturing,
@@ -366,6 +404,17 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   def consent(_, _, _, _, _), do: {:error, :invalid_artifact_consent}
+
+  @doc false
+  def summary_metadata(artifact, subject, call), do: view(artifact, subject, call)
+
+  def summary(conversation_id, call_id, id, subject),
+    do: Summaries.get(conversation_id, call_id, id, subject)
+
+  def summary_consent(conversation_id, call_id, id, attrs, subject),
+    do: Summaries.consent(conversation_id, call_id, id, attrs, subject)
+
+  def rollback_summary_hazard_count(), do: Summaries.rollback_hazard_count()
 
   def start(conversation_id, call_id, artifact_id, subject) do
     transaction(fn ->
@@ -528,13 +577,23 @@ defmodule CommsCore.AudioCalls.Artifacts do
       if artifact.status == :processing, do: Repo.rollback(:artifact_processing)
       if protection!(artifact).held, do: Repo.rollback(:artifact_legal_hold)
 
-      if artifact.kind == :recording do
+      if artifact.kind in [:recording, :transcript] do
+        direct_ids =
+          Repo.all(
+            from(a in Artifact,
+              where: a.tenant_id == ^artifact.tenant_id and a.source_artifact_id == ^artifact.id,
+              select: a.id
+            )
+          )
+
         children =
           Repo.all(
             from(a in Artifact,
               where:
-                a.tenant_id == ^artifact.tenant_id and a.source_artifact_id == ^artifact.id and
+                a.tenant_id == ^artifact.tenant_id and
+                  (a.source_artifact_id == ^artifact.id or a.source_artifact_id in ^direct_ids) and
                   a.status != :deleted,
+              order_by: [asc: a.inserted_at, asc: a.id],
               lock: "FOR UPDATE"
             )
           )
@@ -636,10 +695,18 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   def process(artifact_id, caller) do
-    if RuntimePorts.authorized_job_worker?(:call_artifact, caller) do
-      with {:ok, action} <- claim_action(artifact_id), do: perform_action(action)
-    else
-      {:error, :forbidden}
+    artifact = Repo.get(Artifact, artifact_id)
+    kind = if artifact && artifact.kind == :summary, do: :call_summary, else: :call_artifact
+
+    cond do
+      is_nil(artifact) and RuntimePorts.authorized_job_worker?(:call_summary, caller) ->
+        {:error, :not_found}
+
+      RuntimePorts.authorized_job_worker?(kind, caller) ->
+        with {:ok, action} <- claim_action(artifact_id), do: perform_action(action)
+
+      true ->
+        {:error, :forbidden}
     end
   end
 
@@ -761,29 +828,33 @@ defmodule CommsCore.AudioCalls.Artifacts do
           {:stop, provider_request(artifact)}
 
         :processing ->
-          if artifact.kind == :transcript do
-            source =
-              Repo.get_by(Artifact,
-                id: artifact.source_artifact_id,
-                tenant_id: artifact.tenant_id,
-                kind: :recording
-              ) || Repo.rollback(:artifact_not_available)
-
-            if source.status != :available or expired or
-                 not policy_enabled?(%{tenant_id: artifact.tenant_id}),
-               do: Repo.rollback(:artifact_not_available)
-
-            {:transcribe,
-             %ArtifactTranscriptionRequest{
-               tenant_id: artifact.tenant_id,
-               artifact_id: artifact.id,
-               source_artifact_id: source.id,
-               object: storage_object(source)
-             }}
+          if artifact.kind == :summary do
+            {:summarize, artifact.id}
           else
-            if is_integer(artifact.byte_size),
-              do: {:verify, artifact},
-              else: {:reconcile, provider_request(artifact)}
+            if artifact.kind == :transcript do
+              source =
+                Repo.get_by(Artifact,
+                  id: artifact.source_artifact_id,
+                  tenant_id: artifact.tenant_id,
+                  kind: :recording
+                ) || Repo.rollback(:artifact_not_available)
+
+              if source.status != :available or expired or
+                   not policy_enabled?(%{tenant_id: artifact.tenant_id}),
+                 do: Repo.rollback(:artifact_not_available)
+
+              {:transcribe,
+               %ArtifactTranscriptionRequest{
+                 tenant_id: artifact.tenant_id,
+                 artifact_id: artifact.id,
+                 source_artifact_id: source.id,
+                 object: storage_object(source)
+               }}
+            else
+              if is_integer(artifact.byte_size),
+                do: {:verify, artifact},
+                else: {:reconcile, provider_request(artifact)}
+            end
           end
 
         :deleting ->
@@ -794,6 +865,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
       end
     end)
   end
+
+  defp perform_action({:summarize, id}), do: Summaries.process(id)
 
   defp perform_action(:idle), do: {:ok, :idle}
   defp perform_action({:held, _}), do: {:ok, :held}
@@ -910,6 +983,21 @@ defmodule CommsCore.AudioCalls.Artifacts do
           session_id: snapshot.requested_by_session_id
         }
 
+        source_snapshot = Repo.get!(Artifact, request.source_artifact_id)
+
+        retained_authority =
+          DerivedAuthority.lock(
+            source_snapshot,
+            subject,
+            System.monotonic_time(:millisecond) + 15_000
+          )
+
+        original_subjects =
+          case retained_authority do
+            {:ok, {_, subjects}} -> subjects
+            _ -> []
+          end
+
         access = AuthorizationPolicy.lock_access(subject, snapshot.conversation_id, :share)
 
         call =
@@ -936,7 +1024,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
         effect_budget_available = effect_budget_available?(effect_deadline, 130_000)
 
         authorized =
-          effect_budget_available and match?({:ok, _}, access) and source.call_id == call.id and
+          effect_budget_available and match?({:ok, _}, retained_authority) and
+            match?({:ok, _}, access) and source.call_id == call.id and
             source.status == :available and is_nil(source.erasure_requested_at) and
             source.object_version_id == request.object.object_version_id and
             source.checksum_sha256 == request.object.checksum_sha256 and
@@ -945,7 +1034,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
             is_nil(artifact.erasure_requested_at) and
             not protection.capture_blocked and policy_enabled?(%{tenant_id: artifact.tenant_id}) and
             ArtifactTranscriptionPort.configured?() and
-            consents != [] and Enum.all?(consents, & &1.accepted)
+            consents != [] and Enum.all?(consents, & &1.accepted) and
+            DerivedAuthority.current?([subject | original_subjects], snapshot.conversation_id)
 
         cond do
           artifact.status != :processing ->
@@ -970,6 +1060,10 @@ defmodule CommsCore.AudioCalls.Artifacts do
             case ArtifactTranscriptionPort.transcribe(request) do
               {:ok, transcript} ->
                 if DateTime.compare(artifact.expires_at, now()) != :gt or
+                     not DerivedAuthority.current?(
+                       [subject | original_subjects],
+                       snapshot.conversation_id
+                     ) or
                      not policy_enabled?(%{tenant_id: artifact.tenant_id}),
                    do: Repo.rollback(:artifact_not_available)
 
@@ -997,6 +1091,9 @@ defmodule CommsCore.AudioCalls.Artifacts do
                     status: :available,
                     failure_code: nil,
                     transcript_language: transcript.language,
+                    recognition_provider_id: transcript.provider_id,
+                    recognition_model_sha256: transcript.model_sha256,
+                    recognition_source_sha256: transcript.source_sha256,
                     ended_at: now()
                   })
                 )
@@ -1045,19 +1142,29 @@ defmodule CommsCore.AudioCalls.Artifacts do
 
         if artifact.status == :deleting do
           result =
-            if artifact.kind == :transcript do
+            if artifact.kind == :summary do
               Repo.delete_all(
-                from(s in Segment,
+                from(s in Summary,
                   where: s.tenant_id == ^artifact.tenant_id and s.artifact_id == ^artifact.id
                 )
               )
 
               :ok
             else
-              if not effect_budget_available?(effect_deadline, 65_000),
-                do: Repo.rollback(:artifact_processing_budget_exhausted)
+              if artifact.kind == :transcript do
+                Repo.delete_all(
+                  from(s in Segment,
+                    where: s.tenant_id == ^artifact.tenant_id and s.artifact_id == ^artifact.id
+                  )
+                )
 
-              ArtifactStoragePort.delete(storage_object(artifact))
+                :ok
+              else
+                if not effect_budget_available?(effect_deadline, 65_000),
+                  do: Repo.rollback(:artifact_processing_budget_exhausted)
+
+                ArtifactStoragePort.delete(storage_object(artifact))
+              end
             end
 
           case result do
@@ -1087,7 +1194,25 @@ defmodule CommsCore.AudioCalls.Artifacts do
       transaction(
         fn ->
           snapshot = Repo.get(Artifact, request.artifact_id) || Repo.rollback(:not_found)
+          identity_deadline = System.monotonic_time(:millisecond) + 15_000
           protection = protection!(snapshot)
+
+          subject = %{
+            tenant_id: snapshot.tenant_id,
+            user_id: snapshot.requested_by_user_id,
+            device_id: snapshot.requested_by_device_id,
+            session_id: snapshot.requested_by_session_id
+          }
+
+          retained_authority = DerivedAuthority.lock(snapshot, subject, identity_deadline)
+
+          retained_subjects =
+            case retained_authority do
+              {:ok, {_, subjects}} -> subjects
+              _ -> []
+            end
+
+          access = AuthorizationPolicy.lock_access(subject, snapshot.conversation_id, :share)
 
           call =
             Repo.one!(
@@ -1100,7 +1225,11 @@ defmodule CommsCore.AudioCalls.Artifacts do
           artifact = lock_id!(request.artifact_id)
           participants = admitted(call)
 
-          current_access = current_participant_access?(participants)
+          current_access =
+            match?({:ok, _}, retained_authority) and match?({:ok, _}, access) and
+              current_participant_access?(participants) and
+              DerivedAuthority.current?([subject | retained_subjects], snapshot.conversation_id)
+
           effect_budget_available = effect_budget_available?(effect_deadline, 25_000)
 
           if effect_budget_available and artifact.status == :starting and
@@ -1204,7 +1333,11 @@ defmodule CommsCore.AudioCalls.Artifacts do
     query =
       from(a in Artifact,
         where: a.tenant_id == ^tenant_id and a.status != :deleted,
-        order_by: [asc: a.id]
+        order_by: [
+          asc:
+            fragment("CASE ? WHEN 'recording' THEN 0 WHEN 'transcript' THEN 1 ELSE 2 END", a.kind),
+          asc: a.id
+        ]
       )
 
     case target_type do
@@ -1363,7 +1496,10 @@ defmodule CommsCore.AudioCalls.Artifacts do
     accepted =
       Repo.all(
         from(c in Consent,
-          where: c.artifact_id == ^artifact.id and c.accepted == true,
+          where:
+            c.artifact_id == ^artifact.id and c.accepted == true and
+              (not (^artifact.summary_requested) or
+                 (c.summary_accepted and c.summary_policy_version == "meeting-summary-v1")),
           select: c.participant_id
         )
       )
@@ -1455,6 +1591,17 @@ defmodule CommsCore.AudioCalls.Artifacts do
       meeting_id: a.meeting_id,
       source_artifact_id: a.source_artifact_id,
       transcript_language: a.transcript_language,
+      summary_requested: a.summary_requested,
+      summary_policy_version: if(a.summary_requested, do: Summaries.policy_version(), else: nil),
+      summary_consent_required_count:
+        if(a.summary_requested, do: max(length(current), length(participants)), else: 0),
+      summary_consent_accepted_count: Enum.count(current, & &1.summary_accepted),
+      my_summary_consent: if(own, do: own.summary_accepted, else: nil),
+      can_withdraw_summary_consent:
+        a.kind == :recording and a.summary_requested and
+          Enum.any?(consents, &(&1.user_id == value(subject, :user_id) and &1.summary_accepted)),
+      recognition_mode: if(a.kind == :transcript, do: "post_recording", else: nil),
+      recognition_model_sha256: a.recognition_model_sha256,
       kind: a.kind,
       status: a.status,
       created_at: a.inserted_at,
@@ -1477,6 +1624,13 @@ defmodule CommsCore.AudioCalls.Artifacts do
       byte_size: a.byte_size,
       content_type: a.content_type
     }
+  end
+
+  defp root_artifact_for_summary(%Artifact{kind: :recording} = a), do: a
+
+  defp root_artifact_for_summary(a) do
+    source = Repo.get!(Artifact, a.source_artifact_id)
+    root_artifact_for_summary(source)
   end
 
   defp valid_callback(event) do
@@ -1543,7 +1697,10 @@ defmodule CommsCore.AudioCalls.Artifacts do
   end
 
   defp enqueue!(artifact) do
-    worker = RuntimePorts.job_worker_name!(:call_artifact)
+    worker =
+      RuntimePorts.job_worker_name!(
+        if(artifact.kind == :summary, do: :call_summary, else: :call_artifact)
+      )
 
     changeset =
       Oban.Job.new(%{artifact_id: artifact.id},

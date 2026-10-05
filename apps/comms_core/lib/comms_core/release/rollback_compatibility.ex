@@ -33,7 +33,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
-    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+    {"uc_recognition_summaries_v1", [:recognition_summary_state, :active_summary_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -198,6 +199,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
       conversation_only_humans: Accounts.persisted_conversation_only_human_count(),
       enterprise_identities: Accounts.rollback_enterprise_identity_hazard_count(),
       scim_credentials: ServiceAccounts.rollback_scim_credential_hazard_count(),
+      recognition_summary_state: AudioCalls.rollback_recognition_summary_hazard_count(),
+      active_summary_jobs: active_job_count(repo, :call_summary),
       retained_call_artifacts: AudioCalls.rollback_artifact_hazard_count(),
       active_artifact_jobs: active_job_count(repo, :call_artifact),
       voicemail_media: Telephony.rollback_voicemail_hazard_count(),
