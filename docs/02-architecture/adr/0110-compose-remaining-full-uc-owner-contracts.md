@@ -20,6 +20,12 @@ existing phone-provider resource administration, native and desktop clients,
 background call wake, saved recognition and separately consented quote summaries,
 explicit plaintext federation and separate private encrypted rooms.
 
+Include the bounded audit CSV disclosure correction: retain the initiating
+current session and role through evidence reads and final disclosure under one
+absolute deadline, with private response headers before acceptance and auth.
+Keep the existing browser CSV export pipeline and the independent identity read
+operation while declaring the exact caller-transaction locking operation.
+
 Each source remains with its existing domain owner. Combine the immutable public
 facade inventory and exact technical interface declarations without exposing
 foreign schemas or adding generic access. Preserve the boundary baseline and

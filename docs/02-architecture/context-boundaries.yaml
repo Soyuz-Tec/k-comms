@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: b6e791db70f73d04382dcde28c0d1ba77ffa3425198fb4747aa19edcaf177cf1
+  sha256: 9c7de143b73a77ab95d04edd2cd1017a9c90a52009049ec722dd9e29dec633f5
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -126,7 +126,7 @@ enforcement:
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.MatrixAccessProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.PrivateRoomProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->b6e791db70f73d04382dcde28c0d1ba77ffa3425198fb4747aa19edcaf177cf1
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->9c7de143b73a77ab95d04edd2cd1017a9c90a52009049ec722dd9e29dec633f5
     - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
       acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve
       managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No
@@ -152,6 +152,8 @@ enforcement:
     - runtime_collaborations:shared-document-governance-protection:add:{"binding":{"application":"comms_core","key":"shared_document_protection_adapter","module":"CommsCore.Governance.DocumentProtection"},"callers":["CommsCore.SharedDocuments.Authority"],"condition":"ADR-0101
       retains Governance tenant protection first; the exact Collaboration projection denies pending author/conversation
       erasure and blocks held erasure without foreign schema or Repo access. Authority is the sole port caller.","consumer":"collaboration","graph_semantics":{"compile_dependency":"trust_governance_to_collaboration","control_flow":"collaboration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"shared-document-governance-protection","implementation":"CommsCore.Governance.DocumentProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.SharedDocuments.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.SharedDocuments.Protection","transaction":"required"}
+    - runtime_collaborations:tenant-identity-access:callers:add:"CommsCore.AuditExport"
+    - runtime_collaborations:tenant-identity-access:operations:add:{"arity":2,"name":"lock_access"}
     - runtime_collaborations:workspace-domain-governance-fence:add:{"binding":{"application":"comms_core","key":"workspace_domain_governance_adapter","module":"CommsCore.Governance"},"callers":["CommsCore.Administration.WorkspaceDomains"],"condition":"ADR-0097
       requires the exact governance tenant advisory fence before admission/tenant/user/session locks so personal
       DNS challenges cannot survive governed user erasure; the receipt exposes only the matching tenant ID.","consumer":"tenant_administration","graph_semantics":{"compile_dependency":"trust_governance_to_tenant_administration","control_flow":"tenant_administration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"workspace-domain-governance-fence","implementation":"CommsCore.Governance","operations":[{"arity":1,"name":"lock_workspace_domain_fence"}],"port":"CommsCore.Administration.WorkspaceDomainGovernancePort","provider":"trust_governance","result_contract":"CommsCore.Administration.DomainGovernanceFenceReceipt","transaction":"required"}
@@ -1307,9 +1309,12 @@ runtime_collaborations:
   implementation: CommsCore.Accounts
   callers:
   - CommsCore.Administration.AuthorizationPolicy
+  - CommsCore.AuditExport
   operations:
   - name: resolve_access
     arity: 1
+  - name: lock_access
+    arity: 2
   binding:
     application: comms_core
     key: tenant_identity_access_adapter
@@ -1319,8 +1324,11 @@ runtime_collaborations:
     control_flow: tenant_administration_to_identity_access
     compile_dependency: identity_access_to_tenant_administration
     static_cycle_policy: dependency_inversion
-  condition: TenantAdministration owns the bounded access-grant query contract while IdentityAccess verifies canonical
-    user, tenant, device, and session state; callers may not bypass this exact query port.
+  condition: TenantAdministration owns this exact access-grant contract; resolve_access/1 remains an independent
+    read, while lock_access/2 requires a caller transaction and one caller-supplied absolute monotonic deadline,
+    retaining canonical active tenant, human workspace user, device and exact initiating session before AuditExport
+    evidence reads and final disclosure rechecks; IdentityAccess verifies persisted role and step-up state and callers
+    may not bypass the configured port (ADR0109).
 - id: tenant-authorization-actor
   consumer: tenant_administration
   provider: identity_access

@@ -2,16 +2,20 @@ defmodule CommsCore.Administration.IdentityAccessPort do
   @moduledoc """
   TenantAdministration-owned read port for verified identity facts.
 
-  IdentityAccess implements this contract at the composition root. These
-  bounded reads are independent of a caller transaction; invitation mutations
-  use the separate transaction-required invitation identity port.
+  IdentityAccess implements this contract at the composition root.
+  resolve_access/1 remains independent of a caller transaction. lock_access/2
+  explicitly retains current initiating-session authority in a caller transaction
+  under its one absolute deadline; invitation mutations use their separate port.
   """
 
   alias CommsCore.Administration.IdentityGrant
+  alias CommsCore.Repo
 
   @roles [:owner, :admin, :moderator, :member, :compliance_admin, :security_admin]
 
   @callback resolve_access(map()) :: {:ok, IdentityGrant.t()} | {:error, :forbidden}
+  @callback lock_access(map(), integer()) ::
+              {:ok, IdentityGrant.t()} | {:error, :forbidden | :transaction_required}
 
   @spec resolve_access(map()) :: {:ok, IdentityGrant.t()} | {:error, :forbidden}
   def resolve_access(subject) when is_map(subject) do
@@ -21,6 +25,20 @@ defmodule CommsCore.Administration.IdentityAccessPort do
   end
 
   def resolve_access(_subject), do: {:error, :forbidden}
+
+  @spec lock_access(map(), integer()) ::
+          {:ok, IdentityGrant.t()} | {:error, :forbidden | :transaction_required}
+  def lock_access(subject, deadline) when is_map(subject) and is_integer(deadline) do
+    if Repo.in_transaction?() do
+      :lock_access
+      |> dispatch([subject, deadline], :forbidden)
+      |> validate_grant(subject)
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_access(_subject, _deadline), do: {:error, :forbidden}
 
   defp dispatch(operation, args, unavailable_reason) do
     with {:ok, adapter} <-
