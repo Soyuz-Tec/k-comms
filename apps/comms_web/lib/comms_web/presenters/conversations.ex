@@ -16,6 +16,7 @@ defmodule CommsWeb.Presenters.Conversations do
       id: conversation.id,
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
+      content_mode: conversation.content_mode,
       title: conversation.title,
       counterpart_user_id: conversation.counterpart_user_id,
       counterpart_display_name: conversation.counterpart_display_name,

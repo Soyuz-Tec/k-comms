@@ -40,6 +40,18 @@ describe("PWA request cache boundaries", () => {
     expect(classifyRequestStrategy(`${origin}/app/assets/index.js`, origin)).toBe("network-only");
   });
 
+  it("caches only the public hashed crypto binary, never delegated auth or private-room API responses", () => {
+    const wasm = `${origin}/app/assets/matrix_sdk_crypto_wasm_bg-D1uUpLo2.wasm`;
+    expect(classifyRequestStrategy(wasm, origin)).toBe("cache-first");
+    expect(isCacheableResponse(wasm, new Response(new Uint8Array([0, 97, 115, 109]), { headers: { "content-type": "application/wasm" } }), origin)).toBe(true);
+    expect(isCacheableResponse(wasm, new Response("sign-in", { headers: { "content-type": "text/html" } }), origin)).toBe(false);
+    const authenticated = { method: "GET", url: wasm, headers: new Headers({ authorization: "Bearer synthetic-auth" }) };
+    expect(classifyRequestStrategy(authenticated, origin)).toBe("network-only");
+    for (const path of ["/api/v1/me/matrix/session", "/api/v1/private-rooms", "/api/v1/private-rooms/synthetic/events"]) {
+      expect(classifyRequestStrategy(`${origin}${path}`, origin)).toBe("network-only");
+    }
+  });
+
   it("uses network-first only for same-origin application navigations", () => {
     const navigation = {
       method: "GET",

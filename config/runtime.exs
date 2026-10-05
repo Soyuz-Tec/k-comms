@@ -143,6 +143,75 @@ optional_secret = fn name ->
   end
 end
 
+# Identity authentication secrets are server-custodied. Matrix encryption,
+# cross-signing private and recovery keys are never configured on K-Comms.
+if System.get_env("MATRIX_HOMESERVER_URL") do
+  issuer = System.fetch_env!("MATRIX_HOMESERVER_URL") |> String.trim_trailing("/")
+  server_name = System.fetch_env!("MATRIX_SERVER_NAME")
+  control_user = System.fetch_env!("MATRIX_CONTROL_USER_ID")
+  uri = URI.parse(issuer)
+
+  unless uri.scheme == "https" and is_binary(uri.host) and uri.userinfo == nil and
+           uri.query == nil and uri.fragment == nil and uri.path in [nil, "", "/"] and
+           Regex.match?(~r/\A[A-Za-z0-9.-]+(?::[0-9]{1,5})?\z/, server_name) and
+           not Regex.match?(~r/[\x00-\x20\x7F]/u, issuer <> server_name <> control_user) and
+           Regex.match?(~r/\A@[^\s:]+:[^\s]+\z/u, control_user) and
+           String.ends_with?(control_user, ":" <> server_name),
+         do:
+           raise(
+             "Matrix provider must be an explicitly configured HTTPS origin and canonical server name"
+           )
+
+  identity_token = optional_secret.("MATRIX_IDENTITY_ADMIN_TOKEN")
+  control_token = optional_secret.("MATRIX_CONTROL_ADMIN_TOKEN")
+
+  unless Enum.all?(
+           [identity_token, control_token],
+           &(is_binary(&1) and byte_size(&1) in 1..8192 and
+               not Regex.match?(~r/[\x00-\x20\x7f]/u, &1))
+         ),
+         do:
+           raise(
+             "Matrix provider requires bounded single-line protected authentication credentials"
+           )
+
+  provisioning =
+    case System.get_env("MATRIX_CLIENT_PROVISIONING_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "MATRIX_CLIENT_PROVISIONING_ENABLED must be true or false"
+    end
+
+  private_rooms =
+    case System.get_env("PRIVATE_ROOMS_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "PRIVATE_ROOMS_ENABLED must be true or false"
+    end
+
+  config :comms_core,
+    matrix_client_provisioning_enabled: provisioning,
+    private_rooms_enabled: provisioning and private_rooms,
+    matrix_identity_provider: %{
+      issuer: issuer,
+      server_name: server_name,
+      control_user_id: control_user
+    }
+
+  config :comms_integrations, :synapse_identity, %{
+    homeserver_url: issuer,
+    server_name: server_name,
+    admin_token: identity_token
+  }
+
+  config :comms_integrations, :synapse_private_rooms, %{
+    homeserver_url: issuer,
+    server_name: server_name,
+    control_user_id: control_user,
+    control_token: control_token
+  }
+end
+
 csv_values = fn name ->
   values = System.get_env(name, "") |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
 

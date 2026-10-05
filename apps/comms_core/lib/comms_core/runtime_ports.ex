@@ -22,6 +22,8 @@ defmodule CommsCore.RuntimePorts do
     :ephemeral_room_reconciler,
     :guest_admission_expiry,
     :meeting_reminder,
+    :matrix_device_reconciler,
+    :private_room_purge_reconciler,
     :notification_delivery,
     :outbox_publication,
     :personal_content_cleanup,

@@ -28,7 +28,9 @@ defmodule CommsCore.Conversations.CallAccess do
                membership.tenant_id == ^tenant_id and
                  membership.conversation_id == ^conversation_id and
                  membership.user_id == ^user_id and is_nil(membership.left_at) and
-                 conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at) and
+                 conversation.tenant_id == ^tenant_id and
+                 conversation.content_mode == :server_readable and
+                 is_nil(conversation.archived_at) and
                  conversation.id not in subquery(unavailable_conversations),
              select: %{
                tenant_id: membership.tenant_id,
@@ -56,6 +58,7 @@ defmodule CommsCore.Conversations.CallAccess do
         from(conversation in Conversation,
           where:
             conversation.id == ^conversation_id and conversation.tenant_id == ^tenant_id and
+              conversation.content_mode == :server_readable and
               is_nil(conversation.archived_at) and
               conversation.id not in subquery(unavailable_conversations),
           select: %{id: conversation.id, tenant_id: conversation.tenant_id}

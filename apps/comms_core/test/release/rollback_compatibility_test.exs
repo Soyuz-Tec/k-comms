@@ -18,7 +18,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "scheduled_meeting_lifecycle_v1",
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
-                                  "governance_history_v1"
+                                  "governance_history_v1",
+                                  "private_rooms_v1"
                                 ],
                                 ","
                               )
@@ -90,7 +91,12 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       rich_whiteboards: 1,
       member_workspaces: 1,
       governance_history_snapshots: 1,
-      active_history_purge_jobs: 1
+      active_history_purge_jobs: 1,
+      matrix_identities: 1,
+      private_matrix_rooms: 1,
+      opaque_private_events: 1,
+      active_matrix_device_jobs: 1,
+      active_private_purge_jobs: 1
     }
 
     compatible = %{

@@ -2,7 +2,7 @@ import { NavLink } from "react-router";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
 type MemberDestination = {
-  label: "Inbox" | "Calls" | "Meetings" | "Saved items" | "Whiteboard" | "Directory" | "Files" | "You";
+  label: "Inbox" | "Calls" | "Meetings" | "Saved items" | "Whiteboard" | "Directory" | "Files" | "You" | "Private rooms";
   path: string;
   icon: AppIconName;
   group: "Communicate" | "Collaborate" | "Personal";
@@ -22,6 +22,7 @@ type MemberDestination = {
 };
 
 export const memberDestinations: MemberDestination[] = [
+  { label: "Private rooms", path: "/app/private", icon: "message", group: "Communicate", mobilePrimary: false },
   {
     label: "Inbox",
     path: "/app/",

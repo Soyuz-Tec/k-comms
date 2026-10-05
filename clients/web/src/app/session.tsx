@@ -73,6 +73,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const next = policy.accountActionsAllowed ? candidate : null;
     if (!next && retainedPrevious) {
       clearDrafts(retainedPrevious.tenant.id, retainedPrevious.user.id);
+      void import("../features/private-rooms/MatrixPrivateClient").then(({ clearPrivateCryptoForIdentity }) => clearPrivateCryptoForIdentity(retainedPrevious.tenant.id, retainedPrevious.user.id));
     }
     retainedSessionRef.current = next;
     if (next) rememberWorkspaceSlug(next.tenant.slug);

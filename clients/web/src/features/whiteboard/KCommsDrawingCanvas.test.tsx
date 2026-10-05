@@ -88,6 +88,7 @@ describe("KCommsDrawingCanvas", () => {
       screen.getByRole("button", { name: "Canvas background" })
     ).toBeVisible();
     expect(screen.getByTestId("drawing-sidebar-trigger")).not.toBeVisible();
+    expect(drawingEngineHarness.props?.langCode).toBe("en");
     expect(drawingEngineHarness.props?.UIOptions).toEqual({
       canvasActions: {
         changeViewBackgroundColor: false,

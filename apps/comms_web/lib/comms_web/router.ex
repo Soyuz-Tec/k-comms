@@ -247,6 +247,15 @@ defmodule CommsWeb.Router do
   scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
 
+    post("/me/matrix/session", PrivateRoomController, :matrix_session)
+    post("/me/matrix/public-signing-keys", PrivateRoomController, :signing_keys)
+    get("/private-rooms", PrivateRoomController, :index)
+    post("/private-rooms", PrivateRoomController, :create)
+    get("/private-rooms/:id", PrivateRoomController, :show)
+    delete("/private-rooms/:id/members/:user_id", PrivateRoomController, :remove_member)
+    get("/private-rooms/:id/events", PrivateRoomController, :events)
+    post("/private-rooms/:id/events", PrivateRoomController, :send_event)
+
     get("/whiteboards", WhiteboardLibraryController, :index)
     put("/conversations/:conversation_id/whiteboard/title", WhiteboardLibraryController, :rename)
 

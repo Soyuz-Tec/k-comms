@@ -18,7 +18,8 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "scheduled_meeting_lifecycle_v1",
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
-                                  "governance_history_v1"
+                                  "governance_history_v1",
+                                  "private_rooms_v1"
                                 ],
                                 ","
                               )

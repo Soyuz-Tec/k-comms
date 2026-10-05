@@ -9,5 +9,7 @@ configure({ asyncUtilTimeout: 3_000 });
 
 afterEach(() => cleanup());
 
-Object.defineProperty(window, "scrollTo", { value: () => undefined, writable: true });
-Element.prototype.scrollIntoView = () => undefined;
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", { value: () => undefined, writable: true });
+  Element.prototype.scrollIntoView = () => undefined;
+}

@@ -42,6 +42,12 @@ defmodule CommsCore.Accounts.ReleaseInventory do
   end
 
   @spec member_workspace_hazard_count(module()) :: non_neg_integer()
+  @spec matrix_identity_hazard_count(module()) :: non_neg_integer()
+  def matrix_identity_hazard_count(repo),
+    do:
+      repo.aggregate(CommsCore.Accounts.MatrixIdentity, :count) +
+        repo.aggregate(CommsCore.Accounts.MatrixClientSession, :count)
+
   def member_workspace_hazard_count(repo) when is_atom(repo),
     do: repo.aggregate(MemberWorkspace, :count)
 
@@ -59,6 +65,20 @@ defmodule CommsCore.Accounts.ReleaseInventory do
           from(user in User,
             where: user.tenant_id == ^tenant_id,
             select: user.id
+          )
+        ),
+      matrix_identities:
+        repo.all(
+          from(i in CommsCore.Accounts.MatrixIdentity,
+            where: i.tenant_id == ^tenant_id,
+            select: i.id
+          )
+        ),
+      matrix_client_sessions:
+        repo.all(
+          from(s in CommsCore.Accounts.MatrixClientSession,
+            where: s.tenant_id == ^tenant_id,
+            select: s.id
           )
         ),
       sessions:

@@ -32,3 +32,9 @@ clients/web/dist/
 *.pfx
 *.jks
 certs/private/
+
+# Isolated ADR-0104 dependency preparation cache.
+/.npm-private-e2ee-cache/
+
+# Retained diagnostic tool cache from the first wrong-directory web test.
+/node_modules/

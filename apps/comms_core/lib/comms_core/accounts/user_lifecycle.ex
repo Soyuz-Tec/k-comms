@@ -414,6 +414,19 @@ defmodule CommsCore.Accounts.UserLifecycle do
     )
     |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
 
+    CommsCore.Accounts.MatrixSessions.revoke_sessions(user.tenant_id, session_ids)
+
+    case CommsCore.Accounts.MatrixEligibilityPort.withdraw_user(
+           %CommsCore.Accounts.MatrixEligibilityCommand{
+             tenant_id: user.tenant_id,
+             user_id: user.id,
+             timestamp: timestamp
+           }
+         ) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     NotificationCommand.user_access_revoked(
       user.tenant_id,
       user.id,

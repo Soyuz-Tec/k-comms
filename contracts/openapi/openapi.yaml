@@ -20,6 +20,7 @@ tags:
   - name: Governance
   - name: Integrations
   - name: Operations
+  - name: Private Rooms
   - name: Service API
 paths:
   /health/live:
@@ -6927,6 +6928,278 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/me/matrix/session:
+    post:
+      tags:
+      - Private Rooms
+      operationId: matrixClientSession
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatrixClientSessionViewResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/me/matrix/public-signing-keys:
+    post:
+      tags:
+      - Private Rooms
+      operationId: matrixPublicSigningKeys
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Public signing keys accepted
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatrixPublicSigningKeys'
+  /api/v1/private-rooms:
+    get:
+      tags:
+      - Private Rooms
+      operationId: privateRoomList
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateRoomListResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - Private Rooms
+      operationId: createPrivateRoom
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateRoomViewResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePrivateRoom'
+  /api/v1/private-rooms/{id}:
+    get:
+      tags:
+      - Private Rooms
+      operationId: privateRoom
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateRoomViewResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /api/v1/private-rooms/{id}/members/{user_id}:
+    delete:
+      tags:
+      - Private Rooms
+      operationId: removePrivateRoomMember
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateRoomViewResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemovePrivateRoomMember'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /api/v1/private-rooms/{id}/events:
+    post:
+      tags:
+      - Private Rooms
+      operationId: sendPrivateEvent
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateEventResultResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendPrivateEvent'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+      - Private Rooms
+      operationId: replayPrivateEvents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current retained private-room authority; token/ciphertext responses
+            are private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateReplayPageResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: membership_epoch
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+      - name: generation
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+      - name: after_sequence
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 10000
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -8552,6 +8825,7 @@ components:
       type: object
       required: [id, tenant_id, kind, title, counterpart_user_id, counterpart_display_name, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
       properties:
+        content_mode: {type: string, enum: [server_readable, matrix_e2ee]}
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         kind: {enum: [direct, group, channel]}
@@ -12726,3 +13000,425 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+
+    MatrixIdentityView:
+      type: object
+      additionalProperties: false
+      required:
+      - tenant_id
+      - user_id
+      - issuer
+      - matrix_user_id
+      - provisioning_state
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        issuer:
+          type: string
+          format: uri
+        matrix_user_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        provisioning_state:
+          const: ready
+    MatrixClientSessionView:
+      type: object
+      additionalProperties: false
+      required:
+      - homeserver_url
+      - matrix_user_id
+      - matrix_device_id
+      - access_token
+      - expires_at
+      - k_session_id
+      - control_matrix_user_id
+      properties:
+        homeserver_url:
+          type: string
+          format: uri
+        matrix_user_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        matrix_device_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        access_token:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        expires_at:
+          type: string
+          format: date-time
+        k_session_id:
+          type: string
+          format: uuid
+        control_matrix_user_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+    PrivateRoomView:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - tenant_id
+      - title
+      - matrix_room_id
+      - control_matrix_user_id
+      - state
+      - membership_epoch
+      - generation
+      - role
+      - members
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        matrix_room_id:
+          type:
+          - string
+          - 'null'
+          maxLength: 512
+        control_matrix_user_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        state:
+          enum:
+          - provisioning
+          - active
+          - rekey_pending
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        generation:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        role:
+          enum:
+          - owner
+          - member
+        members:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/MatrixIdentityView'
+    CreatePrivateRoom:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - member_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        member_ids:
+          type: array
+          minItems: 1
+          maxItems: 19
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    OpaquePrivateContent:
+      type: object
+      additionalProperties: false
+      required:
+      - algorithm
+      - ciphertext
+      - session_id
+      properties:
+        algorithm:
+          const: m.megolm.v1.aes-sha2
+        ciphertext:
+          type: string
+          minLength: 43
+          maxLength: 65536
+          pattern: ^[A-Za-z0-9+/]+$
+        session_id:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: ^[A-Za-z0-9+/]+$
+        device_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        sender_key:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: ^[A-Za-z0-9+/]+$
+    SendPrivateEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - transaction_id
+      - membership_epoch
+      - generation
+      - content
+      properties:
+        transaction_id:
+          type: string
+          pattern: ^[A-Za-z0-9_.-]{1,128}$
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        generation:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        content:
+          $ref: '#/components/schemas/OpaquePrivateContent'
+    PrivateEventView:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - sequence
+      - matrix_event_id
+      - matrix_room_id
+      - matrix_sender
+      - author_user_id
+      - membership_epoch
+      - generation
+      - content
+      - state
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        matrix_event_id:
+          type:
+          - string
+          - 'null'
+          maxLength: 512
+        matrix_room_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        matrix_sender:
+          type: string
+          minLength: 1
+          maxLength: 512
+        author_user_id:
+          type: string
+          format: uuid
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        generation:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        content:
+          oneOf:
+          - $ref: '#/components/schemas/OpaquePrivateContent'
+          - type: 'null'
+        state:
+          enum:
+          - pending
+          - retained
+          - erased
+    PrivateEventIntentView:
+      type: object
+      additionalProperties: false
+      required:
+      - transaction_id
+      - content
+      - membership_epoch
+      - generation
+      properties:
+        transaction_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        content:
+          $ref: '#/components/schemas/OpaquePrivateContent'
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        generation:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+    PrivateReplayPage:
+      type: object
+      additionalProperties: false
+      required:
+      - events
+      - pending_intents
+      - has_more
+      - generation
+      - membership_epoch
+      properties:
+        events:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PrivateEventView'
+        pending_intents:
+          type: array
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/PrivateEventIntentView'
+        has_more:
+          type: boolean
+        generation:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991
+    PrivateEventResult:
+      type: object
+      additionalProperties: false
+      required:
+      - event
+      - replayed
+      properties:
+        event:
+          $ref: '#/components/schemas/PrivateEventView'
+        replayed:
+          type: boolean
+    MatrixPublicSigningKey:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - usage
+      - keys
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        usage:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            enum:
+            - master
+            - self_signing
+            - user_signing
+        keys:
+          type: object
+          minProperties: 1
+          maxProperties: 1
+          additionalProperties:
+            type: string
+            minLength: 1
+            maxLength: 256
+        signatures:
+          type: object
+          maxProperties: 20
+          additionalProperties:
+            type: object
+            minProperties: 1
+            maxProperties: 20
+            additionalProperties:
+              type: string
+              minLength: 1
+              maxLength: 88
+    MatrixPublicSigningKeys:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        master_key:
+          $ref: '#/components/schemas/MatrixPublicSigningKey'
+        self_signing_key:
+          $ref: '#/components/schemas/MatrixPublicSigningKey'
+        user_signing_key:
+          $ref: '#/components/schemas/MatrixPublicSigningKey'
+      minProperties: 1
+    MatrixClientSessionViewResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/MatrixClientSessionView'
+    PrivateRoomViewResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/PrivateRoomView'
+    PrivateReplayPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/PrivateReplayPage'
+    PrivateEventResultResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/PrivateEventResult'
+    PrivateRoomListResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/PrivateRoomView'
+    RemovePrivateRoomMember:
+      type: object
+      additionalProperties: false
+      required:
+      - membership_epoch
+      properties:
+        membership_epoch:
+          type: integer
+          minimum: 1
+          maximum: 9007199254740991

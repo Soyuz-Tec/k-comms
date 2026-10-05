@@ -9,6 +9,7 @@ const routeLabels: Record<string, string> = {
   "/app/directory": "Directory",
   "/app/files": "Files",
   "/app/whiteboard": "Whiteboard",
+  "/app/private": "Private rooms",
   "/app/you": "You",
   "/app/settings": "Profile and settings",
   "/join": "Join conversation",

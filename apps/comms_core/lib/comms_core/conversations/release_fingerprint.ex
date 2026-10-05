@@ -22,6 +22,13 @@ defmodule CommsCore.Conversations.ReleaseFingerprint do
             select: conversation.id
           )
         ),
+      private_matrix_rooms:
+        repo.all(
+          from(r in CommsCore.Conversations.PrivateRoom,
+            where: r.tenant_id == ^tenant_id,
+            select: r.id
+          )
+        ),
       memberships:
         repo.all(
           from(membership in Membership,
