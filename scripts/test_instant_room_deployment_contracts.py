@@ -95,6 +95,14 @@ class InstantRoomDeploymentContractTest(unittest.TestCase):
                 ROLLBACK_CAPABILITIES,
             )
 
+    def test_federation_switches_are_closed_configmap_data_and_default_off(self) -> None:
+        config = load_yaml(K8S / "base" / "configmap.yaml")
+        self.assertEqual(config["kind"], "ConfigMap")
+        for key in ("FEDERATION_ENABLED", "FEDERATION_PROVIDER_QUALIFIED"):
+            with self.subTest(key=key):
+                self.assertNotIn(key, config["metadata"])
+                self.assertEqual(config["data"][key], "false")
+
     def test_environment_profiles_are_explicit_and_production_fails_closed(
         self,
     ) -> None:

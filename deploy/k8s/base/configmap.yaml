@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  FEDERATION_ENABLED: "false"
-  FEDERATION_PROVIDER_QUALIFIED: "false"
   name: k-comms-config
   labels:
     app.kubernetes.io/component: configuration
 data:
+  FEDERATION_ENABLED: "false"
+  FEDERATION_PROVIDER_QUALIFIED: "false"
   PORT: "4000"
   PHX_HOST: k-comms.example.invalid
   PUBLIC_APP_URL: https://k-comms.example.invalid
