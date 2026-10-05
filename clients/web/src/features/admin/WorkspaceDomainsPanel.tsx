@@ -142,7 +142,7 @@ function DomainsContent({ api }: { api: DomainsApi }) {
   }
 
   return <section className="data-card workspace-domains" aria-label="Workspace domain settings">
-    <div className="card-heading"><div><h2>Workspace domains</h2><p>Verify domain ownership and choose whether to show public workspace sign-in hints.</p></div><button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => void load()}>Reload domain inventory</button></div>
+    <div className="card-heading"><h2>Workspace domains</h2><button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => void load()}>Reload domain inventory</button></div>
     <p>This does not enroll people, verify their email, grant workspace access or choose an identity provider.</p>
     <details className="workspace-domain-guide"><summary>Verification and discovery requirements</summary><p>TXT challenges last 30 minutes; verified proof leases last seven days. Each subdomain needs its own claim. Keep your current workspace address available to members when discovery is off or expired.</p></details>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{loading && <p role="status">Loading domain inventory…</p>}
@@ -164,10 +164,10 @@ function DomainsContent({ api }: { api: DomainsApi }) {
             <dl><dt>TXT name</dt><dd><code>{claim.challenge_name}</code></dd><dt>TXT value</dt><dd><code>{claim.challenge_value}</code></dd><dt>Challenge expiry</dt><dd>{formatDateTime(claim.challenge_expires_at)}</dd></dl>
           </details> : <p>{claim.challenge_value ? "The TXT challenge has expired. Create a new challenge before verification." : "No live TXT challenge is shown. Create a new challenge to verify or renew the proof lease."}</p>}
           <div className="workspace-domain-actions">
-            <button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "renew" }); }}>New challenge for {claim.domain}</button>
-            <button type="button" className="button secondary compact" disabled={loading || saving || !liveChallenge} onClick={() => { setError(null); setPending({ id: claim.id, kind: "verify" }); }}>Verify DNS for {claim.domain}</button>
-            <button type="button" className="button ghost compact" disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "discovery", enabled: !claim.discovery_enabled }); }}>{claim.discovery_enabled ? "Disable" : "Enable"} discovery for {claim.domain}</button>
-            <button type="button" className="button danger compact" disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "remove" }); }}>Remove {claim.domain}</button>
+            <button type="button" className="button ghost compact" aria-label={`New challenge for ${claim.domain}`} disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "renew" }); }}>New challenge</button>
+            <button type="button" className="button secondary compact" aria-label={`Verify DNS for ${claim.domain}`} disabled={loading || saving || !liveChallenge} onClick={() => { setError(null); setPending({ id: claim.id, kind: "verify" }); }}>Verify DNS</button>
+            <button type="button" className="button ghost compact" aria-label={`${claim.discovery_enabled ? "Disable" : "Enable"} discovery for ${claim.domain}`} disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "discovery", enabled: !claim.discovery_enabled }); }}>{claim.discovery_enabled ? "Disable" : "Enable"} discovery</button>
+            <button type="button" className="button danger compact" aria-label={`Remove ${claim.domain}`} disabled={loading || saving} onClick={() => { setError(null); setPending({ id: claim.id, kind: "remove" }); }}>Remove</button>
           </div>
         </li>;
       })}</ul>

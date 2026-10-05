@@ -7,9 +7,12 @@
  */
 
 .workspace-sidebar,
-.mobile-primary-nav,
-.window-titlebar-drag-region {
+.mobile-primary-nav {
   display: none;
+}
+
+:root {
+  --desktop-shell-header-height: max(44px, env(titlebar-area-height, 0px));
 }
 
 .workspace-mark {
@@ -33,14 +36,14 @@
 .member-page {
   width: min(100%, 1320px);
   margin-inline: auto;
-  padding: var(--space-5) clamp(1rem, 3vw, 3rem);
+  padding: var(--space-5) clamp(1rem, 2.5vw, 2.5rem);
 }
 
 .page-heading,
 .member-page-heading {
   align-items: center;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -59,7 +62,7 @@
 .member-page-heading p {
   max-width: 46rem;
   color: var(--text-secondary);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   line-height: 1.55;
 }
 
@@ -124,7 +127,7 @@
   gap: .35rem;
   padding: .25rem;
   border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--surface-canvas);
 }
 
@@ -137,7 +140,7 @@
   gap: var(--space-2);
   padding: .55rem .7rem;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: transparent;
   font: inherit;
@@ -146,9 +149,9 @@
 }
 
 .settings-section-tabs button[aria-selected="true"] {
-  color: var(--accent-text);
-  background: var(--accent-quiet);
-  box-shadow: inset 0 -2px var(--accent-solid);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  box-shadow: none;
 }
 
 .settings-section-tabs .app-icon {
@@ -205,10 +208,7 @@
 /* Forms and entry controls use the same quiet surface treatment on phones. */
 .button.primary { box-shadow: none; }
 .button:not(:disabled):hover { transform: none; }
-.instant-draft-room-details { background: var(--surface-canvas); }
-.instant-draft-workflow li { border-color: transparent; background: transparent; }
-.instant-draft-workflow li.current { border-color: var(--accent-border); }
-.auth-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-raised); }
+.auth-card { border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgb(var(--shadow-color) / 8%); }
 
 .settings-page [role="tabpanel"],
 .settings-security-inventories {
@@ -291,34 +291,35 @@
 @media (min-width: 761px) and (min-height: 561px) {
   :root {
     --desktop-rail-width: 48px;
+    --desktop-activity-width: 52px;
     --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
   }
 
   .app-shell {
     min-width: 0;
-    padding-left: 0;
+    padding-left: var(--desktop-activity-width);
     background: var(--surface-raised);
   }
 
   .app-shell.workspace-navigation-pinned {
-    padding-left: var(--desktop-sidebar-expanded-width);
+    padding-left: calc(var(--desktop-activity-width) + var(--desktop-sidebar-expanded-width));
   }
 
-  .workspace-navigation-pinned .workspace-sidebar {
-    inset: max(0px, env(titlebar-area-height, 0px)) auto 0 0;
+  .app-shell.workspace-navigation-pinned .workspace-sidebar {
+    inset: var(--desktop-shell-header-height) auto 0 var(--desktop-activity-width);
     max-height: none;
     margin-block: 0;
-    border-right: 1px solid var(--border-default);
+    border-right: 1px solid var(--border-subtle);
     border-radius: 0;
-    background: var(--surface-canvas);
+    background: var(--surface-rail);
     box-shadow: none;
   }
 
   .workspace-sidebar {
     position: fixed;
     z-index: 40;
-    inset: max(8px, env(titlebar-area-height, 0px)) auto 8px 0;
+    inset: calc(var(--desktop-shell-header-height) + 8px) auto 8px var(--desktop-activity-width);
     width: var(--desktop-rail-width);
     max-height: 600px;
     margin-block: auto;
@@ -326,7 +327,7 @@
     overflow: hidden auto;
     flex-direction: column;
     gap: .3rem;
-    padding: .72rem .78rem;
+    padding: var(--space-3);
     border: 0;
     border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
     color: var(--text-primary);
@@ -336,7 +337,7 @@
 
   .workspace-sidebar.is-expanded {
     width: var(--desktop-sidebar-expanded-width);
-    background: var(--surface-overlay);
+    background: var(--surface-rail);
     box-shadow: 8px 0 32px rgb(var(--shadow-color) / 12%);
   }
 
@@ -352,7 +353,7 @@
     position: fixed;
     z-index: 40;
     top: calc(50% - 22px);
-    left: 0;
+    left: var(--desktop-activity-width);
     width: 44px;
     height: 44px;
     padding: 0;
@@ -384,41 +385,11 @@
     outline-offset: -2px;
   }
 
-  .workspace-sidebar.is-expanded .workspace-sidebar-toggle {
-    display: grid;
-  }
-
   .workspace-sidebar-header {
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
-    gap: .4rem;
-  }
-
-  .workspace-sidebar-toggle {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    background: transparent;
-  }
-
-  .workspace-sidebar-toggle:hover {
-    color: var(--accent-text);
-    border-color: var(--border-default);
-    background: var(--surface-hover);
-  }
-
-  .workspace-sidebar-toggle:focus-visible {
-    outline: 3px solid var(--focus-ring);
-    outline-offset: 2px;
   }
 
   .workspace-sidebar-identity,
@@ -570,16 +541,68 @@
   }
 
   .workspace-sidebar-nav a.active {
-    border-color: var(--accent-border);
+    border-color: transparent;
     color: var(--accent-text);
-    background: var(--accent-quiet);
-    box-shadow: inset 3px 0 var(--accent-solid);
+    background: var(--surface-sunken);
+    box-shadow: none;
+    font-weight: 600;
   }
 
   .workspace-sidebar-nav .member-nav-icon {
     width: 20px;
     height: 20px;
     flex: 0 0 20px;
+  }
+
+  .workspace-context-navigation { min-width: 0; width: 100%; }
+  .workspace-context-navigation .admin-section-nav,
+  .workspace-context-navigation .ops-section-nav {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .workspace-context-navigation .admin-nav-group { display: grid; gap: var(--space-1); }
+  .workspace-context-navigation .admin-nav-group-label {
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+  .workspace-context-navigation .admin-section-nav button,
+  .workspace-context-navigation .ops-section-nav a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    background: transparent;
+    text-decoration: none;
+    text-align: left;
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+  .workspace-context-navigation .admin-section-nav button:hover,
+  .workspace-context-navigation .ops-section-nav a:hover { background: var(--surface-hover); }
+  .workspace-context-navigation .admin-section-nav button[aria-current="page"] {
+    color: var(--accent-text);
+    background: var(--surface-hover);
+    font-weight: 600;
+  }
+  .workspace-context-navigation .app-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+  .workspace-sidebar.is-collapsed .workspace-context-navigation .admin-nav-group-label,
+  .workspace-sidebar.is-collapsed .workspace-context-navigation button > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .workspace-sidebar.is-collapsed .workspace-context-navigation button,
+  .workspace-sidebar.is-collapsed .workspace-context-navigation .ops-section-nav a {
+    min-width: 44px; width: 44px; justify-content: center; padding: 0; font-size: 0;
   }
 
   .workspace-sidebar-spacer {
@@ -614,10 +637,29 @@
   }
 
   .workspace-account-trigger {
+    cursor: pointer;
     width: 100%;
     grid-template-columns: auto minmax(0, 1fr) auto;
     justify-items: start;
     list-style: none;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-trigger {
+    width: 44px;
+    height: 44px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-copy,
+  .desktop-activity-identity-slot .workspace-account-chevron {
+    display: none;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-trigger .avatar {
+    width: 28px;
+    height: 28px;
+    font-size: var(--text-xs);
   }
 
   .workspace-account-trigger::-webkit-details-marker {
@@ -634,8 +676,8 @@
     width: 36px;
     height: 36px;
     border-radius: var(--radius-full);
-    color: var(--text-on-accent);
-    background: var(--accent-solid);
+    color: var(--text-secondary);
+    background: var(--surface-selected);
   }
 
   .workspace-account-chevron {
@@ -646,10 +688,11 @@
 
   .workspace-account-menu .desktop-account-panel {
     position: fixed;
-    left: calc(var(--desktop-rail-width) + 8px);
+    z-index: 60;
+    left: calc(var(--desktop-activity-width) + 8px);
     bottom: 16px;
-    width: min(340px, calc(100vw - var(--desktop-sidebar-expanded-width) - 24px));
-    max-height: calc(100dvh - 32px);
+    width: min(340px, calc(100vw - var(--desktop-activity-width) - 24px));
+    max-height: calc(100dvh - var(--desktop-shell-header-height) - 32px);
     overflow-y: auto;
     padding: var(--space-3);
     border: 1px solid var(--border-default);
@@ -692,9 +735,6 @@
     background: var(--surface-hover);
   }
 
-  .workspace-sidebar.is-expanded .desktop-account-panel {
-    left: calc(var(--desktop-sidebar-expanded-width) + 8px);
-  }
 
   /*
    * The notification portal is a sibling of .app-shell, so it is positioned
@@ -718,10 +758,6 @@
   .workspace-sidebar.is-collapsed {
     align-items: center;
     padding: 6px 2px;
-  }
-
-  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
-    display: grid;
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-header {
@@ -760,7 +796,7 @@
   }
 
   /* The dock is transparent, but controls must remain legible over drawings. */
-  .workspace-sidebar.is-collapsed :is(.workspace-sidebar-nav a:not(.active), .workspace-sidebar-toggle, .notification-trigger):not(:hover) {
+  .workspace-sidebar.is-collapsed :is(.workspace-sidebar-nav a:not(.active), .notification-trigger):not(:hover) {
     background: color-mix(in srgb, var(--surface-overlay) 88%, transparent);
     backdrop-filter: blur(8px);
   }
@@ -902,10 +938,6 @@
     width: 100%;
     grid-template-columns: 1fr;
     justify-items: center;
-  }
-
-  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
-    display: grid;
   }
 
   .workspace-sidebar.is-collapsed .workspace-identity-copy,
@@ -1227,36 +1259,30 @@
   }
 }
 
-/*
- * Installed desktop Chromium PWAs may opt into the Window Controls Overlay.
- * The two rules that used to sit here reserved the operating system control
- * area inside the top bar and re-enabled pointer events on its controls. There
- * is no top bar any more, so the shell itself takes the inset at every window
- * size and the drag region below covers the reserved strip.
- */
-@media (display-mode: window-controls-overlay) {
-  .app-shell {
-    padding-top: env(titlebar-area-height, 0px);
-  }
+/* The actual desktop header owns the drag area and control exclusion zones. */
+.public-desktop-shell {
+  display: contents;
 }
 
-@media (display-mode: window-controls-overlay) and (min-width: 761px) and (min-height: 561px) {
+.public-desktop-shell.native-public-shell {
+  display: block;
+}
 
-  .window-titlebar-drag-region {
+.app-shell.desktop-chrome,
+.native-public-shell {
+  padding-top: var(--desktop-shell-header-height, 44px);
+}
+
+.native-public-shell > .public-workspace-landing {
+  height: calc(var(--app-viewport-height) - var(--desktop-shell-header-height, 44px));
+}
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .desktop-activity-rail {
     position: fixed;
-    z-index: 45;
-    top: env(titlebar-area-y, 0px);
-    left: env(titlebar-area-x, 0px);
-    width: env(titlebar-area-width, 100vw);
-    height: env(titlebar-area-height, 0px);
-    display: block;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-overlay);
-    -webkit-app-region: drag;
-  }
-
-  .workspace-sidebar {
-    top: env(titlebar-area-height, 0px);
+    z-index: 42;
+    inset: var(--desktop-shell-header-height) auto 0 0;
+    height: auto;
   }
 }
 
@@ -1397,7 +1423,7 @@
    */
   .settings-section-tabs button[aria-selected="true"] {
     color: var(--accent-text);
-    background: var(--accent-quiet);
+    background: var(--surface-sunken);
     box-shadow: none;
     font-weight: 600;
   }
@@ -1595,13 +1621,13 @@
 }
 
 @media (min-width: 761px) and (min-height: 561px) {
-  .workspace-sidebar .workspace-instant-room { color: var(--accent-text); background: var(--accent-quiet); border-color: var(--accent-border); }
-  .workspace-sidebar .workspace-instant-room:hover { background: var(--accent-quiet-hover); }
+  .workspace-sidebar .workspace-instant-room { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-default); }
+  .workspace-sidebar .workspace-instant-room:hover { background: var(--surface-hover); }
   .workspace-sidebar-nav { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
   .workspace-sidebar-spacer { flex: 0; }
   .workspace-sidebar.is-expanded .member-nav-group-label { position: static; width: auto; height: auto; margin: var(--space-3) 0 var(--space-1); padding: 0 var(--space-3); overflow: visible; clip: auto; clip-path: none; white-space: normal; font-size: var(--text-xs); letter-spacing: .04em; }
   .workspace-sidebar.is-expanded .workspace-sidebar-nav a { min-height: 40px; padding-block: var(--space-2); }
   .administration-shell .workspace-sidebar.is-expanded .workspace-identity-copy small { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; color: var(--text-secondary); font-size: var(--text-xs); }
-  .administration-destinations { margin-top: var(--space-3); }
+  .administration-destinations { flex: 0 0 auto; margin-top: var(--space-3); }
+  .administration-shell .workspace-context-navigation { flex: 1; min-height: 0; overflow-y: auto; }
 }
-.administration-mobile-context { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--text-secondary); font-size: var(--text-xs); border-bottom: 1px solid var(--border-subtle); }

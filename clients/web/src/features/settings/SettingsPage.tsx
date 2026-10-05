@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
-import { canAdministerTenant } from "../../lib/roles";
+import { canAdministerTenant, roleLabel } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { AvatarBadge } from "../../components/AvatarBadge";
@@ -391,7 +391,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         <form key={profileIdentity} className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
           <div className="profile-identity">
             <AvatarBadge name={session.user.display_name} avatarUrl={session.user.avatar_url} />
-            <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name}</small></div>
+            <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name} · {roleLabel(session.user.role)}</small></div>
           </div>
           <label className="field">Display name<input name="display_name" value={displayName} onChange={(event) => setProfileDraft({
             identity: profileIdentity,

@@ -56,7 +56,15 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
   const primaryYou = page.getByRole("navigation", { name: "Primary navigation" })
     .getByRole("link", { name: "You", exact: true });
   if (await primaryYou.isVisible()) await primaryYou.click();
-  else await page.getByRole("link", { name: "You", exact: true }).click();
+  else {
+    const accountMenu = page.getByRole("navigation", { name: "Workspace shortcuts" })
+      .getByRole("button", { name: "Account menu for Ada Lovelace", exact: true });
+    await expect(accountMenu).toHaveCount(1);
+    await accountMenu.click();
+    await page.getByRole("region", { name: "Signed-in account", exact: true })
+      .getByRole("link", { name: "Profile & settings", exact: true })
+      .click();
+  }
   await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
   /*
    * Role tools reach the phone from the You screen this test already opened —
@@ -71,8 +79,10 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
       .getByRole("link", { name: "Workspace administration", exact: true })
       .click();
   } else {
-    await page.locator("summary.workspace-account-trigger").click();
-    await page.locator(".desktop-account-panel")
+    await page.getByRole("navigation", { name: "Workspace shortcuts" })
+      .getByRole("button", { name: "Account menu for Ada Lovelace", exact: true })
+      .click();
+    await page.getByRole("region", { name: "Signed-in account", exact: true })
       .getByRole("link", { name: "Workspace administration", exact: true })
       .click();
   }

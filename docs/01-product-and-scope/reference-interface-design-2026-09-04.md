@@ -13,6 +13,8 @@ That contract supersedes the initial presentation-only scope for the additive
 notification pagination API and the specific layout refinements it records.
 
 Current presentation refinement: [Workspace interface redesign](workspace-ui-redesign-2026-09-07.md).
+The [calm enterprise refinement](calm-enterprise-refinement-2026-10-05.md)
+defines the current palette, density, and presentation acceptance criteria.
 It replaces the earlier persistent navigation presentation with the approved
 adaptive dock and switcher, and refines the shared screen hierarchy. Feature
 and security behavior remains governed by the existing contracts.

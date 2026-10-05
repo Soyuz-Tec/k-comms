@@ -7,7 +7,7 @@
   margin: .65rem 0;
   padding: .75rem;
   border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--surface-sunken);
 }
 
@@ -75,7 +75,7 @@
   overflow-y: auto;
   padding: .85rem;
   border: 1px solid var(--border-default);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   background: var(--surface-raised);
   scrollbar-width: thin;
@@ -98,9 +98,9 @@
   display: grid;
   flex: 0 0 38px;
   place-items: center;
-  border-radius: 12px;
-  color: var(--accent-text);
-  background: var(--accent-quiet);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
 }
 
 .call-readiness-progress {
@@ -189,7 +189,7 @@
   overflow: hidden;
   margin: .15rem 0 0;
   font-size: .8rem;
-  font-weight: 750;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -203,7 +203,7 @@
   margin-top: .75rem;
   padding: .7rem;
   border: 1px solid var(--border-default);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-sunken);
 }
 

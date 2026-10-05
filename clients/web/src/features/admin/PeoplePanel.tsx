@@ -250,7 +250,7 @@ export function PeoplePanel({
       onConfirm={(reason) => void confirmPendingAction(reason)}
     />}
     <section className="data-card" aria-labelledby="people-title">
-      <div className="card-heading"><div><span className="eyebrow">Directory and access</span><h2 id="people-title">People, roles and sessions</h2></div><span className="status-pill neutral">{users.length} accounts</span></div>
+      <div className="card-heading"><div><span className="eyebrow">Directory and access</span><h2 id="people-title">People, roles and sessions</h2></div></div>
       <div className="people-filters">
         <label className="field people-search">Search people<input type="search" value={peopleQuery} onChange={(event) => setPeopleQuery(event.target.value)} placeholder="Name, email, role or status" /></label>
         <label className="field">Filter by role<select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as UserRole | "all")}><option value="all">All roles</option>{peopleRoles.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}</select></label>

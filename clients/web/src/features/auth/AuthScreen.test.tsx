@@ -108,6 +108,7 @@ describe("AuthScreen", () => {
       screen.queryByRole("heading", { name: /Chat, call, and share files/i })
     ).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in to your workspace", level: 1 })).toBeVisible();
+    expect(screen.getByLabelText("Workspace address")).toHaveAccessibleDescription("The short address from your invitation, such as acme.");
     expect(
       screen.getByRole("link", { name: /Start an instant room/i })
     ).toHaveAttribute("href", "/");

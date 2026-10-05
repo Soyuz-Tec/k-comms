@@ -43,6 +43,23 @@ beforeEach(() => {
 });
 
 describe("Workspace domain administration", () => {
+  it("keeps compact actions associated with their domain and reviews the selected version before removing", async () => {
+    const second = { ...claim, id: "claim-2", domain: "other.example.org", version: 7 };
+    const api = apiFixture([claim, second]);
+    api.removeWorkspaceDomain.mockResolvedValue({ ...second, version: 8, status: "expired", discovery_enabled: false, challenge_value: null });
+    renderPanel(api);
+
+    const remove = await screen.findByRole("button", { name: "Remove other.example.org" });
+    expect(remove).toHaveTextContent(/^Remove$/);
+    expect(screen.getByRole("button", { name: "Remove team.example.org" })).toBeVisible();
+    await userEvent.click(remove);
+    const dialog = screen.getByRole("alertdialog", { name: "Remove domain claim?" });
+    expect(dialog).toHaveTextContent("other.example.org · Current version 7.");
+    expect(api.removeWorkspaceDomain).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove claim" }));
+    await waitFor(() => expect(api.removeWorkspaceDomain).toHaveBeenCalledWith("claim-2", 7));
+  });
+
   it("loads the current inventory after StrictMode replay and ignores the canceled request while that load is pending", async () => {
     const obsolete = deferred<{ data: WorkspaceDomainClaim[]; limits: { domains: number } }>();
     const current = deferred<{ data: WorkspaceDomainClaim[]; limits: { domains: number } }>();

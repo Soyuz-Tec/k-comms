@@ -1,34 +1,37 @@
 .meetings-page { display: flex; flex-direction: column; gap: 1rem; }
 .meetings-page .member-page-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.meetings-page .member-page-heading p { margin: .5rem 0 0; color: var(--text-muted); }
-.meetings-toolbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.meetings-page .member-page-heading p { margin: .35rem 0 0; color: var(--text-muted); }
+.meetings-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
 .meetings-toolbar .field { margin: 0; }
-.meetings-toolbar > span { color: var(--text-muted); font-size: .85rem; }
-.meetings-next { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-inline-start: 3px solid var(--accent-solid); }
-.meetings-next h2 { font-size: var(--text-sm); color: var(--text-muted); margin: 0 0 .5rem; }
-.meetings-next strong { font-size: var(--text-lg); }
-.meetings-next p { font-size: var(--text-sm); color: var(--text-muted); margin: .5rem 0 0; }
+.meetings-toolbar > span { color: var(--text-muted); font-size: var(--text-xs); }
+.meetings-next { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: var(--surface-canvas); }
+.meetings-next h2 { font-family: var(--font-body); font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); margin: 0 0 .35rem; }
+.meetings-next strong { font-size: var(--text-base); font-weight: 600; }
+.meetings-next p { font-size: var(--text-sm); color: var(--text-muted); margin: .35rem 0 0; }
 .meetings-next-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-.meetings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .75rem; }
-.meeting-row { border: 1px solid var(--border-default); border-radius: 1rem; padding: 1.2rem; display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; background: var(--surface-raised); }
-.meeting-row h2 { font-size: 1rem; margin: 0 0 .5rem; }
-.meeting-row p { font-size: .875rem; margin: .35rem 0; }
+.meetings-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); }
+.meeting-row { border: 0; border-block-end: 1px solid var(--border-subtle); border-radius: 0; padding: 1rem; display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; background: transparent; }
+.meeting-row:first-child { border-start-start-radius: var(--radius-md); border-start-end-radius: var(--radius-md); }
+.meeting-row:last-child { border-block-end: 0; border-end-start-radius: var(--radius-md); border-end-end-radius: var(--radius-md); }
+.meeting-row h2 { font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; margin: 0 0 .35rem; }
+.meeting-row p { font-size: var(--text-sm); margin: .25rem 0; }
 .meeting-policy, .meeting-status { color: var(--text-muted); font-size: .8rem; }
 .meeting-row.cancelled h2, .meetings-calendar-day .cancelled { text-decoration: line-through; }
-.meeting-row[aria-current="true"] { outline: 2px solid var(--focus-color, #526ac8); outline-offset: .2rem; }
-.meeting-row.is-next { border-color: var(--accent-border); }
-.meeting-row:focus-visible { outline: 2px solid var(--accent-text); outline-offset: .2rem; }
+.meeting-row[aria-current="true"], .meeting-row:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: -3px; }
+.meeting-row.is-next { background: var(--surface-canvas); }
+.meeting-row details { margin-top: .5rem; padding: 0; border: 0; background: transparent; }
+.meeting-row details > summary { min-height: 44px; display: list-item; padding-block: .7rem; font-size: var(--text-sm); font-weight: 500; }
 .meeting-row-actions { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; max-width: 24rem; }
 .meetings-day-heading { display: flex; align-items: center; gap: 1rem; justify-content: space-between; }
 .meetings-day-heading h2 { font-size: 1rem; }
-.meetings-calendar { border: 1px solid var(--border-default); border-radius: .75rem; overflow: hidden; }
+.meetings-calendar { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
 .meetings-calendar-weekdays, .meetings-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.meetings-calendar-weekdays span { text-align: center; padding: .5rem; font-size: .8rem; color: var(--text-muted); }
+.meetings-calendar-weekdays span { text-align: center; padding: .5rem; font-size: var(--text-xs); color: var(--text-muted); }
 .meetings-calendar-day, .meetings-calendar-blank { min-height: 5rem; border: 1px solid var(--border-default); border-radius: 0; padding: .5rem; }
 .meetings-calendar-day { display: flex; align-items: flex-start; flex-direction: column; gap: .4rem; background: var(--surface-raised); color: inherit; text-align: left; overflow: hidden; }
 .meetings-calendar-day[aria-pressed="true"] { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-.meetings-calendar-day span { font-size: .75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
-.meetings-calendar-day small { font-size: .7rem; }
+.meetings-calendar-day span { font-size: var(--text-xs); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+.meetings-calendar-day small { font-size: var(--text-xs); }
 .meeting-editor { width: min(42rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; }
 .meeting-editor fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
 .meeting-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
@@ -40,6 +43,9 @@
   .meetings-page .member-page-heading, .meeting-row, .meetings-next { flex-direction: column; align-items: stretch; }
   .meeting-row-actions { justify-content: flex-start; max-width: none; }
   .meetings-calendar-day, .meetings-calendar-blank { min-height: 5rem; padding: .25rem; }
-  .meetings-calendar-day span { font-size: .65rem; }
   .meeting-form-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 360px) {
+  /* Seven dates still need 44px targets at 320px; borrow the page gutter. */
+  .meetings-calendar { margin-inline: -.75rem; }
 }

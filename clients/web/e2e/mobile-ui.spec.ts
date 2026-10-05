@@ -358,7 +358,10 @@ test.describe("authenticated mobile web acceptance", () => {
     const workspaceBeforeExpand = await page.locator(".workspace-grid").boundingBox();
     expect(workspaceBeforeExpand).not.toBeNull();
 
-    await page.getByRole("button", { name: "Keep navigation open" }).click();
+    const navigationToggle = page.getByRole("button", { name: "Toggle workspace navigation", exact: true });
+    await expect(navigationToggle).toHaveCount(1);
+    await expect(navigationToggle).toHaveAttribute("aria-expanded", "false");
+    await navigationToggle.click();
     await expect.poll(async () => (await rail.boundingBox())?.width ?? 0).toBeGreaterThan(200);
     const expandedRailBox = await rail.boundingBox();
     expect(expandedRailBox).not.toBeNull();
@@ -367,8 +370,7 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(workspaceAfterExpand!.x).toBeGreaterThanOrEqual(expandedRailBox!.x + expandedRailBox!.width);
     expect(workspaceAfterExpand!.width).toBeLessThan(workspaceBeforeExpand!.width);
     expect(workspaceAfterExpand!.x + workspaceAfterExpand!.width).toBeCloseTo(workspaceBeforeExpand!.x + workspaceBeforeExpand!.width, 0);
-    await expect(page.getByRole("button", { name: "Use compact navigation" }))
-      .toHaveAttribute("aria-pressed", "true");
+    await expect(navigationToggle).toHaveAttribute("aria-expanded", "true");
 
     const separator = page.getByRole("separator", { name: "Resize conversation list" });
     await expect(separator).toBeVisible();
@@ -398,7 +400,8 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(conversationHeaderBox!.height).toBeLessThanOrEqual(112);
 
     await page.reload();
-    await expect(page.getByRole("button", { name: "Use compact navigation" })).toBeVisible();
+    await expect(navigationToggle).toBeVisible();
+    await expect(navigationToggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("separator", { name: "Resize conversation list" }))
       .toHaveAttribute("aria-valuenow", String(startingWidth + 56));
     await expectNoDocumentOverflow(page);

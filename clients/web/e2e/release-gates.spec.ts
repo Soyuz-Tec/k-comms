@@ -63,11 +63,22 @@ test("moderators can load moderation without owner-only attachment administratio
 
 test("compliance administrators receive only their scoped admin areas", async ({ page }) => {
   await mockWorkspace(page, "compliance_admin");
-  await page.route("**/api/v1/moderation/cases", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/moderation/cases**", (route) => route.fulfill({ json: { data: [] } }));
+  const forbiddenRequests: string[] = [];
+  await page.route(/\/api\/v1\/admin\/(?:tenant|workspace-domains|webhooks|service-accounts)(?:[/?]|$)/, (route) => {
+    forbiddenRequests.push(route.request().url());
+    return route.fulfill({ status: 403, json: { error: { detail: "forbidden" } } });
+  });
   await openClientRoute(page, "/admin");
-  await expect(page.getByRole("button", { name: "Governance" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Audit" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Workspace" })).toHaveCount(0);
+  const sections = page.getByRole("navigation", { name: "Administration sections", exact: true });
+  await expect(sections.getByRole("button")).toHaveText(["Safety", "Governance", "Audit"]);
+  await expect(sections.getByRole("button", { name: "Governance", exact: true })).toBeVisible();
+  await expect(sections.getByRole("button", { name: "Audit", exact: true })).toBeVisible();
+  await expect(sections.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await openClientRoute(page, "/admin?section=workspace");
+  await expect(page).toHaveURL(/\/admin\?section=safety$/);
+  await expect(page.getByRole("heading", { name: "Moderation cases", exact: true })).toBeVisible();
+  expect(forbiddenRequests).toEqual([]);
 });
 
 test("security administrators receive session and audit controls without governance", async ({ page }) => {

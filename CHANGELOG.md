@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Kept contact search within the available tablet workspace width and condensed
+  the mobile Files header so the first file stays near the top of the page,
+  with visible search labels and full-size controls.
 - Let staging qualification rehearse a rollback after a retried deployment. A
   deploy that succeeds behind a qualification that does not -- a dropped SSH
   session mid-rehearsal is enough -- leaves the candidate receipt naming itself
@@ -14,6 +17,18 @@
 
 ### Changed
 
+- Reduced repeated interface details: primary areas stay in the activity rail,
+  related workspace tools and administration sections use one sidebar, and the
+  account has one menu. Condensed repeated headings, next-meeting summaries,
+  form instructions and empty inventories while retaining mobile navigation,
+  accessible targets, permission scope and recovery guidance.
+- Refined public, workspace, and administration screens with quieter neutral
+  navigation, restrained purple accents, consistent typography and smaller
+  panel radii. Flattened repeated cards and policy groups, aligned secondary
+  actions and profile fields, and preserved accessible narrow-screen controls.
+- Added a desktop activity rail and compact application menu/header with known
+  route history and keyboard navigation. The Electron evaluation client uses
+  genuine OS window controls and Edit menus through a finite, validated bridge.
 - Standardized workspace page headings, controls, status meanings, and navigation.
   Phone, recordings, and shared documents now have direct desktop destinations;
   You exposes every destination outside the five-item mobile navigation.

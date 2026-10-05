@@ -1,0 +1,91 @@
+.desktop-activity-rail {
+  width: 52px;
+  min-width: 52px;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 8px 3px 8px 4px;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  background: var(--surface-rail);
+  -webkit-app-region: no-drag;
+}
+
+.desktop-activity-shortcuts,
+.desktop-activity-role-shortcuts {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.desktop-activity-role-shortcuts {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.desktop-activity-link {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  background: transparent;
+  text-decoration: none;
+}
+
+.desktop-activity-link > .app-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.7;
+}
+
+.desktop-activity-link:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.desktop-activity-link[aria-current="page"] {
+  color: var(--accent-text);
+  background: var(--surface-selected);
+}
+
+.desktop-activity-link:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.desktop-activity-identity-slot {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+
+.desktop-activity-identity .member-avatar {
+  width: 28px;
+  height: 28px;
+  color: var(--text-secondary);
+  background: var(--surface-selected);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .desktop-activity-link[aria-current="page"] {
+    border-color: Highlight;
+    color: Highlight;
+    background: Canvas;
+  }
+
+  .desktop-activity-link:focus-visible {
+    outline-color: Highlight;
+  }
+}

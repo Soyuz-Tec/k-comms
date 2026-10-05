@@ -8,9 +8,10 @@ import { useLiveCaptions } from "./useLiveCaptions";
 import "./MeetingArtifactsPanel.css";
 
 export type MeetingCaptureStatus = "pending_consent" | "starting" | "recording" | "stopping" | null;
-export function MeetingArtifactsPanel({ api, conversationId, callId, artifactId, joined = false, canManage = false, room = null, captureAllowed = true, onCaptureStatus }: {
+export function MeetingArtifactsPanel({ api, conversationId, callId, artifactId, standalone = false, joined = false, canManage = false, room = null, captureAllowed = true, onCaptureStatus }: {
   api: Partial<MeetingArtifactsApi>; conversationId: string; callId: string;
   artifactId?: string;
+  standalone?: boolean;
   joined?: boolean; canManage?: boolean; room?: Room | null; captureAllowed?: boolean;
   onCaptureStatus?: (status: MeetingCaptureStatus) => void;
 }) {
@@ -109,7 +110,7 @@ export function MeetingArtifactsPanel({ api, conversationId, callId, artifactId,
     }
   }, [artifactId, callId, conversationId, savedKind, selectedArtifact]);
   return <section className="meeting-artifacts" aria-label="Recording, captions and transcripts">
-    <h3>{joined ? "Recording and captions" : "Call artifacts"}</h3>
+    {standalone ? <h2>Saved content</h2> : <h3>{joined ? "Recording and captions" : "Call artifacts"}</h3>}
     {joined && <>
       <button className="button ghost compact" type="button" aria-pressed={captionsEnabled} onClick={() => setCaptionsEnabled(enabled => !enabled)}>{captionsEnabled ? "Hide captions" : "Show captions"}</button>
       {captionsEnabled && <div className="meeting-live-captions" role="log" aria-live="polite" aria-label="Live captions">
@@ -146,7 +147,7 @@ export function MeetingArtifactsPanel({ api, conversationId, callId, artifactId,
       {active.can_manage && active.status !== "stopping" && <button className="button ghost compact" type="button" disabled={busy || !api.stopRecording} onClick={() => void act(() => api.stopRecording!(conversationId, callId, active.id))}>{active.status === "pending_consent" ? "Cancel recording request" : "Stop recording"}</button>}
       {active.status === "stopping" && <p>Stop requested. The indicator stays visible until the provider confirms capture has ended.</p>}
     </div>}
-    <div className="meeting-saved-heading"><h4>Saved recordings and transcripts</h4>{saved.length > 0 && <label className="field">Show saved content<select value={savedKind} onChange={event => setSavedKind(event.currentTarget.value)}><option value="all">All content</option><option value="recording">Recordings</option><option value="transcript">Transcripts</option><option value="summary">Selected-quote summaries</option></select></label>}</div>
+    {(!standalone || saved.length > 0) && <div className="meeting-saved-heading">{!standalone && <h4>Saved recordings and transcripts</h4>}{saved.length > 0 && <label className="field">Show saved content<select value={savedKind} onChange={event => setSavedKind(event.currentTarget.value)}><option value="all">All content</option><option value="recording">Recordings</option><option value="transcript">Transcripts</option><option value="summary">Selected-quote summaries</option></select></label>}</div>}
     {capability?.recognition_mode === "post_recording" && <small>Recognition produces saved transcripts after recording. Selected-quote summaries require separate disclosed consent and an ended call.</small>}
     {page && artifactId && !selectedArtifact && <p role="alert">The linked recording or transcript is unavailable. It may have expired, been deleted, or changed access.</p>}
     {page && saved.length === 0 && <div className="surface-empty"><strong>No saved artifacts for this call.</strong><p>Completed recordings and their transcripts appear here after processing and verification.</p></div>}

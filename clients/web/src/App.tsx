@@ -3,6 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { ProductShell } from "./app/ProductShell";
 import { RouteOrientation } from "./app/RouteOrientation";
 import { RouteRecoveryBoundary } from "./app/RouteRecoveryBoundary";
+import { RouterHistoryProvider } from "./app/router-history";
+import { PublicDesktopShell } from "./app/PublicDesktopShell";
+import { DesktopThemeSync } from "./app/DesktopThemeSync";
 import { SessionProvider, useSession } from "./app/session";
 import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
@@ -69,7 +72,10 @@ export default function App() {
   return (
     <SessionProvider>
       <BrowserRouter>
-        <RouteRecoveryBoundary><ApplicationRoutes /></RouteRecoveryBoundary>
+        <RouterHistoryProvider trackBrowserIndex>
+          <DesktopThemeSync />
+          <RouteRecoveryBoundary><PublicDesktopShell><ApplicationRoutes /></PublicDesktopShell></RouteRecoveryBoundary>
+        </RouterHistoryProvider>
       </BrowserRouter>
     </SessionProvider>
   );

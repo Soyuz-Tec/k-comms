@@ -138,8 +138,18 @@ for (const width of [761, 1024, 1280, 390]) {
     await expectControlToFit(page.getByRole("button", { name: "Use number" }));
     await expectControlToFit(page.getByRole("button", { name: "Call number" }));
     await expectContentToFit(page, ".phone-page");
-    const columns = await page.locator(".phone-workspace").evaluate((element) => getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/).length);
-    expect(columns).toBe(width <= 761 ? 1 : 2);
+    const dialer = await page.getByRole("region", { name: "Dial a number", exact: true }).boundingBox();
+    const history = await page.getByRole("region", { name: "Call history", exact: true }).boundingBox();
+    // The activity rail and pinned sidebar reduce usable space at 1024px.
+    // Verify the readable panel arrangement rather than assuming viewport
+    // width alone determines the number of CSS grid tracks.
+    if (width <= 1024) {
+      expect(history!.y).toBeGreaterThanOrEqual(dialer!.y + dialer!.height);
+      expect(Math.abs(history!.x - dialer!.x)).toBeLessThanOrEqual(1);
+    } else {
+      expect(history!.x).toBeGreaterThanOrEqual(dialer!.x + dialer!.width);
+      expect(Math.abs(history!.y - dialer!.y)).toBeLessThanOrEqual(1);
+    }
     expect(await page.getByLabel("Show calls").evaluate((element) => element.clientWidth)).toBeGreaterThan(160);
   });
 }

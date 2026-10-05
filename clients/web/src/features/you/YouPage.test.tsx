@@ -1,14 +1,19 @@
 import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { YouPage } from "./YouPage";
 
 const harness = vi.hoisted(() => ({
   role: "member",
   accessScope: "workspace" as "workspace" | "conversation_only",
   platformRole: null as string | null,
-  platformRoleExpiresAt: null as string | null
+  platformRoleExpiresAt: null as string | null,
+  hasSidebarNavigation: false
+}));
+
+vi.mock("../../app/ContextualNavigation", () => ({
+  useContextualNavigation: () => ({ hasSidebarNavigation: harness.hasSidebarNavigation })
 }));
 
 vi.mock("../../app/session", () => ({
@@ -44,6 +49,10 @@ vi.mock("../settings/SettingsPage", () => ({
 }));
 
 describe("YouPage", () => {
+  beforeEach(() => {
+    harness.hasSidebarNavigation = false;
+  });
+
   it("keeps personal settings while hiding every admin shortcut for a limited legacy owner", () => {
     harness.role = "owner";
     harness.accessScope = "conversation_only";
@@ -85,6 +94,39 @@ describe("YouPage", () => {
     expect(within(workspace).getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
     expect(within(workspace).getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
     expect(within(workspace).getByRole("link", { name: "Private rooms" })).toHaveAttribute("href", "/app/private");
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
+    expect(screen.queryByText("User", { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("Role", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("uses visible sidebar navigation while retaining account and calendar access", () => {
+    harness.role = "member";
+    harness.accessScope = "workspace";
+    harness.platformRole = null;
+    harness.platformRoleExpiresAt = null;
+    harness.hasSidebarNavigation = true;
+    const view = render(<MemoryRouter><YouPage /></MemoryRouter>);
+
+    expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
+    expect(screen.getByText("Connected calendars")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
+
+    harness.hasSidebarNavigation = false;
+    view.rerender(<MemoryRouter><YouPage /></MemoryRouter>);
+    expect(screen.getByRole("navigation", { name: "Workspace" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start instant room" })).toBeVisible();
+  });
+
+  it.each(["moderator", "compliance_admin"])("keeps %s safety tools reachable with contextual navigation", (role) => {
+    harness.role = role;
+    harness.accessScope = "workspace";
+    harness.platformRole = null;
+    harness.platformRoleExpiresAt = null;
+    harness.hasSidebarNavigation = true;
+    render(<MemoryRouter><YouPage /></MemoryRouter>);
+
+    expect(screen.getByRole("link", { name: "Safety review" })).toHaveAttribute("href", "/admin?section=safety");
+    expect(screen.getByRole("link", { name: "Workspace administration" })).toHaveAttribute("href", "/admin");
   });
 
   it("provides direct role-gated people, safety and operations entries", () => {

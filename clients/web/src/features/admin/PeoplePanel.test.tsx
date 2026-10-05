@@ -250,7 +250,6 @@ describe("PeoplePanel", () => {
     ];
     const user = userEvent.setup();
     renderPanel({ invitations: vi.fn().mockResolvedValue([]) }, users);
-    expect(screen.getByText("3 accounts")).toBeVisible();
     expect(screen.getByText("Showing 3 of 3 accounts · 2 active in this workspace")).toBeVisible();
     const table = screen.getByRole("region", { name: "Workspace people" });
     const names = () => Array.from(table.querySelectorAll(".people-identity strong")).map((node) => node.textContent?.trim());

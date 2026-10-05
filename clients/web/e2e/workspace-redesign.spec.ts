@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page, TestInfo } from "@playwright/test";
+import type { Page, Route, TestInfo } from "@playwright/test";
 import type { Session } from "../src/types";
 import { expect, test } from "./fixtures";
 import {
@@ -104,7 +104,7 @@ test("workspace switcher opens a screen with pointer selection", async ({ page }
 test("browser history dismisses the switcher instead of leaving a modal over the previous screen", async ({ page }) => {
   await installWorkspace(page);
   await page.goto(`/app/?conversation=${conversationId}`);
-  await page.getByRole("link", { name: "Calls", exact: true }).click();
+  await page.getByRole("navigation", { name: "Workspace shortcuts" }).getByRole("link", { name: "Open Calls", exact: true }).click();
   await expect(page).toHaveURL("/app/calls");
   await revealNavigation(page);
   await page.getByRole("button", { name: "Switch conversation or screen" }).click();
@@ -115,6 +115,49 @@ test("browser history dismisses the switcher instead of leaving a modal over the
   await expect(page).toHaveURL(`/app/?conversation=${conversationId}`);
   await expect(page.getByRole("dialog", { name: "Go to…", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
+});
+
+test("browser history dismisses the switcher while the next screen is still loading", async ({ page }) => {
+  const state = await installWorkspace(page);
+  const moduleUrl = /\/src\/features\/calls\/CallsPage\.tsx(?:\?.*)?$/;
+  let releaseModule = () => {};
+  const moduleGate = new Promise<void>((resolve) => { releaseModule = resolve; });
+  let moduleHeld = false;
+  let pendingResponse: Promise<void> | null = null;
+  const holdModule = (route: Route) => {
+    pendingResponse = (async () => {
+      const response = await route.fetch();
+      moduleHeld = true;
+      await moduleGate;
+      await route.fulfill({ response });
+    })();
+    return pendingResponse;
+  };
+  await page.route(moduleUrl, holdModule, { times: 1 });
+
+  try {
+    await page.goto(`/app/?conversation=${conversationId}`);
+    await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
+    await page.getByRole("navigation", { name: "Workspace shortcuts" })
+      .getByRole("link", { name: "Open Calls", exact: true }).click();
+    await expect(page).toHaveURL("/app/calls");
+    await expect.poll(() => moduleHeld).toBe(true);
+    // The browser URL has advanced, but the lazy Calls route cannot commit.
+    await expect(page.getByRole("heading", { name: "Calls", exact: true })).toHaveCount(0);
+    await revealNavigation(page);
+    await page.getByRole("button", { name: "Switch conversation or screen" }).click();
+    const dialog = page.getByRole("dialog", { name: "Go to…", exact: true });
+    await expect(dialog).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(`/app/?conversation=${conversationId}`);
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
+    expect(state.unexpectedRequests).toEqual([]);
+  } finally {
+    releaseModule();
+    if (pendingResponse) await pendingResponse;
+    await page.unroute(moduleUrl, holdModule);
+  }
 });
 
 test("password controls remain aligned when field text grows", async ({ page }, info) => {

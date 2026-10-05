@@ -2,11 +2,11 @@
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  gap: .65rem;
-  margin-bottom: 1rem;
+  gap: .6rem;
+  margin-bottom: 1.25rem;
   color: var(--text-primary);
   font-size: var(--text-lg);
-  font-weight: 750;
+  font-weight: 650;
   letter-spacing: -.025em;
   text-decoration: none;
 }
@@ -15,7 +15,7 @@
   width: 34px;
   height: 34px;
   padding: 7px;
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--text-on-accent);
   background: var(--accent-solid);
 }
@@ -29,9 +29,65 @@
   line-height: 1.3;
 }
 
+.auth-card h1 + .auth-form {
+  margin-top: 1.25rem;
+}
+
 .auth-card .auth-login-actions {
   grid-template-columns: minmax(0, 1fr);
-  gap: .5rem;
+  gap: .65rem;
+}
+
+.auth-card > .eyebrow {
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+
+.auth-card > .muted {
+  margin-bottom: 1.25rem;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.auth-card .auth-form {
+  gap: .75rem;
+}
+
+.auth-card .auth-form > .button,
+.auth-card .auth-login-actions .button {
+  min-height: 44px;
+}
+
+.auth-card .auth-login-actions .button.secondary {
+  background: var(--surface-sunken);
+  border-color: var(--border-default);
+}
+
+.auth-card .auth-login-actions .button.secondary:hover {
+  background: var(--surface-hover);
+}
+
+.auth-card .auth-entry-options {
+  margin-top: .75rem;
+  padding-top: .75rem;
+  border-color: var(--border-subtle);
+}
+
+.auth-card .auth-entry-options button,
+.auth-card .auth-back-button,
+.auth-card .password-visibility {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.auth-card .auth-entry-options button {
+  border-color: var(--border-default);
+  background: transparent;
+}
+
+.auth-card .auth-entry-options button:hover {
+  background: var(--surface-hover);
 }
 
 .auth-method-divider {
@@ -48,7 +104,7 @@
 .auth-method-divider::after {
   height: 1px;
   flex: 1;
-  background: var(--border-default);
+  background: var(--border-subtle);
   content: "";
 }
 
@@ -56,12 +112,13 @@
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   gap: .15rem;
-  margin: 1.25rem 0 0;
+  margin: 1rem 0 0;
   padding: .75rem 0 0;
   border: 0;
-  border-top: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-subtle);
   border-radius: 0;
   background: transparent;
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -73,6 +130,7 @@
 
 .auth-card .auth-workspace-summary {
   margin-bottom: 0;
+  border-color: var(--border-default);
   background: var(--surface-sunken);
 }
 
@@ -94,7 +152,7 @@
   .auth-card > .eyebrow {
     display: inline-block;
     margin-left: .75rem;
-    font-size: .65rem;
+    font-size: var(--text-xs);
     vertical-align: middle;
   }
 

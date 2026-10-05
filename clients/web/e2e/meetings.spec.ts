@@ -56,9 +56,13 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     await editor.getByRole("button", { name: "Schedule meeting", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Planning review", exact: true })).toBeVisible();
     expect(createInput).toMatchObject({ timezone: "America/New_York", local_start: "2026-10-07T10:00", recurrence: { frequency: "weekly", interval: 1, count: 3 }, reminder_minutes: 15 });
+    await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Calendar", exact: true }).click();
     const next = page.getByRole("region", { name: "Up next" });
     await expect(next).toContainText("Planning review");
     await next.getByRole("button", { name: "View next meeting" }).click();
+    await expect(page.getByRole("button", { name: "Agenda", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("region", { name: /meeting calendar/ })).toHaveCount(0);
     await expect(page.locator("#meeting-synthetic-occurrence")).toBeFocused();
     await expect(page.getByRole("button", { name: "Start meeting", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "Calendar", exact: true }).click();

@@ -54,6 +54,7 @@ const harness = vi.hoisted(() => {
     audioCallsAvailable: true,
     videoCallsAvailable: true,
     workspaceLoading: false,
+    hasSidebarNavigation: false,
     capabilities: {
       allow_audio_calls: true,
       allow_video_calls: true,
@@ -113,6 +114,10 @@ vi.mock("../../app/workspace-data", () => ({
   })
 }));
 
+vi.mock("../../app/ContextualNavigation", () => ({
+  useContextualNavigation: () => ({ hasSidebarNavigation: harness.hasSidebarNavigation })
+}));
+
 describe("CallsPage", () => {
   beforeEach(() => {
     harness.calls.mockReset().mockResolvedValue({
@@ -124,6 +129,7 @@ describe("CallsPage", () => {
     harness.audioCallsAvailable = true;
     harness.videoCallsAvailable = true;
     harness.workspaceLoading = false;
+    harness.hasSidebarNavigation = false;
     harness.capabilities.allow_audio_calls = true;
     harness.capabilities.allow_video_calls = true;
   });
@@ -178,6 +184,7 @@ describe("CallsPage", () => {
       "href",
       "/app/directory"
     );
+    expect(screen.queryByRole("link", { name: "View contacts" })).not.toBeInTheDocument();
 
     await user.click(within(launcher).getByRole("button", { name: "Audio call Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
@@ -207,6 +214,19 @@ describe("CallsPage", () => {
       "aria-expanded",
       "false"
     );
+  });
+
+  it("uses sidebar destinations when present and restores page navigation when unavailable", async () => {
+    harness.hasSidebarNavigation = true;
+    const view = render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await screen.findByText("Active room");
+    expect(screen.queryByRole("navigation", { name: "Calling destinations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse directory" })).toHaveAttribute("href", "/app/directory");
+
+    harness.hasSidebarNavigation = false;
+    view.rerender(<MemoryRouter><CallsPage /></MemoryRouter>);
+    expect(screen.getByRole("navigation", { name: "Calling destinations" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
   });
 
   it("keeps starter attribution when a different member ended the room", async () => {

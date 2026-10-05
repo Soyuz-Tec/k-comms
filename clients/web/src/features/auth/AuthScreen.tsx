@@ -275,7 +275,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
   const manualInvitation = mode === "invite" && !invitationToken;
   const eyebrow =
     mode === "login"
-      ? "Welcome back"
+      ? null
       : mode === "invite"
         ? "You’re invited"
         : "Workspace setup";
@@ -289,7 +289,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
         : "Create your workspace";
   const description =
     mode === "login"
-      ? "Enter your email and password to continue."
+      ? null
       : mode === "invite"
         ? manualInvitation
           ? "Enter the code and workspace address supplied by your administrator."
@@ -307,9 +307,9 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
             <AppIcon name="messages" />
             <span>K-Comms</span>
           </Link>
-          <span className="eyebrow">{eyebrow}</span>
+          {eyebrow && <span className="eyebrow">{eyebrow}</span>}
           <h1 id="auth-heading" data-route-focus>{heading}</h1>
-          <p className="muted">{description}</p>
+          {description && <p className="muted">{description}</p>}
           {accountActionsUnavailable && (
             <div
               className="transport-warning"

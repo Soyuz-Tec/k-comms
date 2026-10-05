@@ -164,7 +164,7 @@ export function FilesPage() {
 
   return (
     <main className="page-shell files-page" id="main-content">
-      <SurfaceHeader title="Files" description="Find and revisit files shared in your conversations." className="files-page-heading" actions={<div className="files-heading-actions">
+      <SurfaceHeader title="Files" className="files-page-heading" actions={<div className="files-heading-actions">
           <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
             <AppIcon name="paperclip" />Share a file
           </button>
@@ -226,7 +226,7 @@ export function FilesPage() {
         setQuery(next);
       }}>
         <label className="field grow-field"><span className="files-search-label">Search filenames</span>
-          <input type="search" value={searchText} maxLength={160} placeholder="Search filenames" onChange={(event) => setSearchText(event.currentTarget.value)} aria-invalid={Boolean(searchError)} aria-describedby={searchError ? "files-search-error" : undefined} />
+          <input type="search" value={searchText} maxLength={160} onChange={(event) => setSearchText(event.currentTarget.value)} aria-invalid={Boolean(searchError)} aria-describedby={searchError ? "files-search-error" : undefined} />
         </label>
         <button className="button ghost files-search-submit" type="submit"><AppIcon name="search" /><span>Search files</span></button>
         <label className="field files-mobile-type-picker"><span className="files-search-label">File type</span>
@@ -239,11 +239,8 @@ export function FilesPage() {
       </form>
       {searchError && <p id="files-search-error" role="alert">{searchError}</p>}
       <section className="files-surface" aria-labelledby="files-list-heading">
+        <h2 id="files-list-heading" className="sr-only">Shared files</h2>
         <div className="files-toolbar">
-          <div className="files-toolbar-heading">
-            <span className="eyebrow">Conversation library</span>
-            <h2 id="files-list-heading">Shared files</h2>
-          </div>
           <fieldset className="files-category-tabs">
             <legend className="sr-only">File type</legend>
             {([

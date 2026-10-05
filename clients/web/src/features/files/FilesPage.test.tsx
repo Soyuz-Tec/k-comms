@@ -277,12 +277,13 @@ describe("FilesPage", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><FilesPage /></MemoryRouter>);
     await screen.findByText("forecast.xlsx");
-    await user.type(screen.getByRole("searchbox", { name: "Search filenames" }), "f");
+    expect(screen.getByRole("region", { name: "Shared files" })).toContainElement(screen.getByText("forecast.xlsx"));
+    const search = screen.getByRole("searchbox", { name: "Search filenames" });
+    await user.type(search, "f");
     await user.click(screen.getByRole("button", { name: "Search files" }));
     expect(screen.getByRole("alert")).toHaveTextContent("between 2 and 160");
     expect(harness.files).toHaveBeenCalledTimes(1);
-    await user.type(screen.getByRole("searchbox", { name: "Search filenames" }), "orecast");
-    await user.click(screen.getByRole("button", { name: "Search files" }));
+    await user.type(search, "orecast{Enter}");
     await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ q: "forecast", cursor: undefined })));
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ q: undefined })));

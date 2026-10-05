@@ -44,13 +44,23 @@ test('sandbox and CSP keep code and native authority restricted', () => {
   assert.equal(secureWebPreferences.sandbox, true); assert.equal(secureWebPreferences.contextIsolation, true); assert.equal(secureWebPreferences.nodeIntegration, false); assert.equal(secureWebPreferences.webviewTag, false);
   const header = csp(config); assert(header.includes('script-src ' + config.serviceOrigin + '/app/assets/;')); assert(!header.includes("script-src 'self'")); assert(!header.includes('unsafe-eval')); assert(!header.includes('https://*')); assert(header.includes("frame-src 'none'"));
 });
-test('actual sandbox preload exports three narrow calls and no event, shell, filesystem or network passthrough', async () => {
-  const calls = []; let exposed;
+test('actual sandbox preload exports narrow credential and native-menu calls without generic IPC or window commands', async () => {
+  const calls = []; const listeners = new Map(); const removals = []; let exposed;
   const source = await readFile(new URL('../src/preload.cjs', import.meta.url), 'utf8');
-  vm.runInNewContext(source, { require: name => { assert.equal(name, 'electron'); return { contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, 'kCommsDesktop'); exposed = value; } }, ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve(); } } }; } });
-  assert.deepEqual(Object.keys(exposed).sort(), ['credentials', 'getState', 'version']);
+  vm.runInNewContext(source, { require: name => { assert.equal(name, 'electron'); return { contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, 'kCommsDesktop'); exposed = value; } }, ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve(); }, on: (channel, listener) => listeners.set(channel, listener), removeListener: (channel, listener) => { removals.push(channel); assert.equal(listeners.get(channel), listener); listeners.delete(channel); } } }; } });
+  assert.deepEqual(Object.keys(exposed).sort(), ['credentials', 'getState', 'shell', 'version']);
   assert.deepEqual(Object.keys(exposed.credentials).sort(), ['load', 'replace']);
+  assert.deepEqual(Object.keys(exposed.shell).sort(), ['getState', 'setTheme', 'showMenu', 'subscribe']);
   exposed.getState(); exposed.credentials.load(); exposed.credentials.replace({ generation: 1, kind: null, value: null });
-  assert.deepEqual(calls.map(call => call[0]), ['desktop:state:v1', 'desktop:credentials:load:v1', 'desktop:credentials:replace:v1']);
-  assert(Object.isFrozen(exposed)); assert(Object.isFrozen(exposed.credentials));
+  exposed.shell.getState(); exposed.shell.showMenu('edit'); exposed.shell.setTheme('dark');
+  assert.deepEqual(calls.map(call => call[0]), ['desktop:state:v1', 'desktop:credentials:load:v1', 'desktop:credentials:replace:v1', 'desktop:shell:state:v1', 'desktop:shell:menu:v1', 'desktop:shell:theme:v1']);
+  const actions = []; const unsubscribe = exposed.shell.subscribe(action => actions.push(action));
+  const listener = listeners.get('desktop:shell:action:v1');
+  const sensitiveEvent = { sender: { privileged: true } };
+  listener(sensitiveEvent, 'open-search'); listener(sensitiveEvent, 'toggle-sidebar');
+  for (const args of [[], ['close'], ['open-search', 'extra'], [{ action: 'open-search' }]]) listener(sensitiveEvent, ...args);
+  assert.deepEqual(actions, ['open-search', 'toggle-sidebar']);
+  unsubscribe(); unsubscribe(); assert.deepEqual(removals, ['desktop:shell:action:v1']);
+  assert.throws(() => exposed.shell.subscribe({}), /must be a function/);
+  assert(Object.isFrozen(exposed)); assert(Object.isFrozen(exposed.credentials)); assert(Object.isFrozen(exposed.shell));
 });

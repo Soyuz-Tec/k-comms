@@ -85,9 +85,27 @@ describe("private room task guidance", () => {
     expect(screen.getByText(/Room titles, membership and timing remain visible/)).toBeVisible();
     expect(screen.getByText(/Backup and device-key erasure is not confirmed/)).toBeVisible();
     expect(screen.getByLabelText("Private room setup steps")).toHaveTextContent("Verify everyone in your room");
+    expect(screen.getByLabelText("Local crypto-store password", { exact: true })).toHaveAttribute("minLength", "12");
+    expect(screen.getByText(/This protects this browser's encrypted store and stays on this device/)).toBeVisible();
+    expect(screen.getByText(/K-Comms cannot recover it for you/)).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Encrypted conversation" })).not.toBeInTheDocument();
     await user.click(screen.getByText("Create a new encrypted room"));
     expect(screen.getByRole("button", { name: "Create encrypted room" })).toBeDisabled();
     expect(harness.runtime.unlock).not.toHaveBeenCalled();
+  });
+
+  it("shows empty room inventory while locked and offers conversation guidance after unlocking", async () => {
+    harness.api.privateRoomApi.privateRooms.mockResolvedValueOnce([]);
+    const user = userEvent.setup(); openPage();
+    expect(await screen.findByText("No private rooms yet.")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Encrypted conversation" })).not.toBeInTheDocument();
+    await unlock(user);
+    const conversation = screen.getByRole("region", { name: "Encrypted conversation" });
+    expect(conversation).toHaveTextContent("Verify every participant before you send a message.");
+    await user.click(screen.getByRole("button", { name: "Lock device" }));
+    await screen.findByRole("button", { name: "Unlock encrypted device" });
+    expect(screen.queryByRole("region", { name: "Encrypted conversation" })).not.toBeInTheDocument();
+    expect(screen.getByText("No private rooms yet.")).toBeVisible();
   });
 
   it("opens the requested room only after unlocking and uses exact selected identities for verification", async () => {

@@ -1,14 +1,15 @@
-import { app, BrowserWindow, session, ipcMain, safeStorage, dialog, systemPreferences, desktopCapturer } from 'electron';
+import { app, BrowserWindow, session, ipcMain, safeStorage, dialog, systemPreferences, desktopCapturer, Menu, nativeTheme } from 'electron';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateConfig, allowedNetworkUrl, ownedUiUrl, localAssetPath, trustedSender, secureWebPreferences, csp, CHANNELS } from './policy.mjs';
 import { CredentialVault } from './credentials.mjs';
 import { MediaPolicy } from './media.mjs';
+import { DesktopShell, desktopWindowChrome } from './shell.mjs';
 
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 const assetDirectory = path.resolve(sourceDirectory, '../web-dist');
-let window; let vault; let media; let policy; let profile;
+let window; let vault; let media; let policy; let profile; let shell;
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.webp': 'image/webp', '.avif': 'image/avif', '.wasm': 'application/wasm' };
 for (const flag of ['no-sandbox', 'disable-web-security', 'remote-debugging-port', 'remote-debugging-pipe']) if (app.commandLine.hasSwitch(flag)) throw new Error('Unsafe Electron launch flag refused');
 app.enableSandbox();
@@ -26,7 +27,7 @@ async function start() {
   // Non-persistent Chromium partition: cookies, browser credential storage and
   // service-worker caches never become a second plaintext credential vault.
   profile = session.fromPartition('k-comms-desktop-v1');
-  vault = new CredentialVault({ storage: safeStorage, platform: process.platform, directory: path.join(app.getPath('userData'), 'encrypted-session'), origin: policy.serviceOrigin, onIdentityChanged: () => { media?.revoke(); void profile.clearStorageData(); } });
+  vault = new CredentialVault({ storage: safeStorage, platform: process.platform, directory: path.join(app.getPath('userData'), 'encrypted-session'), origin: policy.serviceOrigin, onIdentityChanged: () => { media?.revoke(); shell?.refreshMenu(); void profile.clearStorageData(); } });
   await vault.load();
   profile.webRequest.onBeforeRequest((details, callback) => {
     const allowed = allowedNetworkUrl(details.url, policy);
@@ -54,8 +55,9 @@ async function start() {
       } });
     } catch { return new Response('', { status: 404 }); }
   });
-  window = new BrowserWindow({ width: 1280, height: 860, minWidth: 360, minHeight: 600, show: false, title: 'K-Comms · Unsigned evaluation', autoHideMenuBar: true, webPreferences: { ...secureWebPreferences, session: profile, preload: path.join(sourceDirectory, 'preload.cjs') } });
-  window.setMenu(null);
+  window = new BrowserWindow({ width: 1280, height: 860, minWidth: 360, minHeight: 600, show: false, title: 'K-Comms · Unsigned evaluation', autoHideMenuBar: true, ...desktopWindowChrome(process.platform, nativeTheme.shouldUseDarkColors), webPreferences: { ...secureWebPreferences, session: profile, preload: path.join(sourceDirectory, 'preload.cjs') } });
+  shell = new DesktopShell({ Menu, app, dialog, nativeTheme, getWindow: () => window, config: policy, platform: process.platform, canUseWorkspace: () => vault.state.kind === 'member' });
+  shell.install(ipcMain);
   media = new MediaPolicy({ session: profile, getWindow: () => window, vault, config: policy, dialog, systemPreferences, desktopCapturer, platform: process.platform });
   media.install();
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -77,7 +79,7 @@ async function start() {
   ipcMain.handle(CHANNELS.load, (event, ...args) => { authorize(event); if (args.length) throw new Error('Unexpected load arguments'); vault.requireEncryption(); return vault.snapshot(); });
   ipcMain.handle(CHANNELS.replace, (event, ...args) => { authorize(event); if (args.length !== 1) throw new Error('Unexpected credential arguments'); return vault.replace(args[0]); });
   window.once('ready-to-show', () => window.show());
-  window.on('closed', () => { media.revoke(); window = null; });
+  window.on('closed', () => { shell.dispose(); media.revoke(); window = null; });
   await window.loadURL(policy.serviceOrigin + '/app/');
   // No feed, checkForUpdates, unsigned update installer, shell opener, protocol
   // launcher or arbitrary renderer filesystem/network command exists.
