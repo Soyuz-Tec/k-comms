@@ -21,7 +21,7 @@ function FederationPanelScope({ api, conversationId, canManage }: FederationPane
   const [disclosure, setDisclosure] = useState(false);
   const [denied, setDenied] = useState(false);
   const [withdrawalPending, setWithdrawalPending] = useState(false);
-  const [pending, setPending] = useState<{ key: string; body: string } | null>(null);
+  const [pending, setPending] = useState<{ key: string; body: string; version: number } | null>(null);
   async function run(operation: () => Promise<void>) {
     if (busy || !current.current) return;
     setBusy(true); setError(null);
@@ -75,9 +75,9 @@ function FederationPanelScope({ api, conversationId, canManage }: FederationPane
     if (!room) return;
     const form = event.currentTarget;
     const body = String(new FormData(form).get("body") || "");
-    const request = pending ?? { key: crypto.randomUUID(), body };
+    const request = pending ?? { key: crypto.randomUUID(), body, version: room.version };
     setPending(request);
-    await run(async () => { await api.sendFederationMessage(conversationId, room.version, request.body, request.key); if (current.current) { setPending(null); form.reset(); } });
+    await run(async () => { await api.sendFederationMessage(conversationId, request.version, request.body, request.key); if (current.current) { setPending(null); form.reset(); } });
   }
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!room) return;
