@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../types";
 import { ProductShell } from "./ProductShell";
+import { RouterHistoryProvider } from "./router-history";
 
 const harness = vi.hoisted(() => {
   const session: Session = {
@@ -98,6 +99,7 @@ vi.mock("../pwa/PwaProvider", () => ({
 function productShellTree(initialEntry = "/app") {
   return (
     <MemoryRouter initialEntries={[initialEntry]}>
+      <RouterHistoryProvider>
       <Routes>
         <Route path="/app" element={<ProductShell />}>
           <Route index element={<main id="main-content"><h1>Inbox</h1></main>} />
@@ -106,6 +108,7 @@ function productShellTree(initialEntry = "/app") {
           <Route index element={<main id="main-content"><h1>Workspace settings</h1></main>} />
         </Route>
       </Routes>
+      </RouterHistoryProvider>
     </MemoryRouter>
   );
 }
@@ -208,7 +211,7 @@ describe("ProductShell", () => {
     expect(harness.pwa.applyUpdate).not.toHaveBeenCalled();
   });
 
-  it("renders a desktop-only safe drag region for Window Controls Overlay", () => {
+  it("renders desktop workspace controls and persistent shortcuts without browser window buttons", () => {
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query === "(min-width: 761px) and (min-height: 561px)",
       media: query,
@@ -221,16 +224,30 @@ describe("ProductShell", () => {
     }));
 
     const { container } = renderProductShell();
-    expect(container.querySelector(".window-titlebar-drag-region")).toHaveAttribute(
-      "aria-hidden",
-      "true"
-    );
+    expect(container.querySelector(".desktop-shell-header")).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Workspace shortcuts" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Calls" })).toHaveAttribute("href", "/app/calls");
+    expect(screen.queryByRole("button", { name: "Minimize" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", {
       name: "Workspace navigation"
     })).toBeVisible();
     expect(screen.queryByRole("button", {
       name: "Open more menu"
     })).not.toBeInTheDocument();
+  });
+
+  it("keeps titlebar actions in a narrow installed overlay without adding a desktop rail", () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(display-mode: window-controls-overlay)", media: query,
+      onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn()
+    }));
+    const { container } = renderProductShell();
+    expect(container.querySelector(".app-shell")).toHaveClass("desktop-chrome");
+    expect(screen.getByRole("menubar", { name: "Application menu" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace shortcuts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Workspace navigation" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
   });
 
   it("uses an accessible compact dock and lets users pin the expanded navigation", async () => {

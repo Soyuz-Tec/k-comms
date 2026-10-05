@@ -24,6 +24,19 @@ separators, meaningful status colors, and clear keyboard focus.
 CSS ownership stays in the existing theme, shared shell, and feature files.
 Do not add a global override layer or recolor authored canvas content or media.
 
+The desktop workspace uses a 52px activity rail, a quiet 240px pinned sidebar,
+and a 44px menu/header strip. The existing compact dock remains available when
+the sidebar is unpinned; its reveal never shifts the workspace. History controls
+use only known application history. Browser File/View/Help actions open actual
+workspace workflows. The constrained Electron client adds genuine OS Edit menus
+and window controls, including on public/authentication screens, through the
+finite shell boundary in [ADR-0105](../02-architecture/adr/0105-packaged-electron-uc-client.md).
+Installed PWAs retain titlebar exclusion in narrow and short windows. Display
+mode changes preserve the mounted public workspace and its drafts. Native menus
+remain available during immersive calls; only floating call chrome moves below
+the OS controls, while the media stage and provider instances retain their size
+and lifecycle.
+
 ## Acceptance criteria
 
 - Review all 26 desktop destinations using read-only synthetic fixtures.
@@ -37,10 +50,14 @@ Do not add a global override layer or recolor authored canvas content or media.
   fields align without stretching input heights; mobile forms remain stacked.
 - Pass existing lint, type, unit, responsive/reference/accessibility browser,
   production build, PWA, asset-budget, contract, and documentation checks.
+- Verify keyboard menus, history, role-gated activity shortcuts, dock recovery,
+  native command validation, and modal/editor guards. Native packaging remains
+  unsigned evaluation; OS signing, storage and media qualification need their
+  separate platform receipts.
 
 ## Behavior and release
 
-This refinement changes presentation only. Routes, APIs, schemas, dependencies,
+This refinement changes presentation and desktop navigation. Routes, APIs, schemas, dependencies,
 identity and consent gates, private-room recovery, media lifecycle, provider
 readiness, and destructive-action confirmations retain their existing behavior.
 There is no data migration or preference reset.

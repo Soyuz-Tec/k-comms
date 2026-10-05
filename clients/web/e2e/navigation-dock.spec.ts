@@ -41,12 +41,19 @@ for (const width of [1024, 1440]) {
       await page.emulateMedia({ colorScheme });
       const dock = page.locator("#workspace-navigation");
       const workspace = page.locator(".workspace-grid");
+      const rail = page.getByRole("navigation", { name: "Workspace shortcuts" });
+      const header = page.locator(".desktop-shell-header");
+      await expect(header).toBeVisible();
+      expect((await header.boundingBox())!.height).toBe(44);
+      await expect(rail).toBeVisible();
+      expect(await rail.boundingBox()).toMatchObject({ x: 0, y: 44, width: 52 });
       await expect(dock).toBeVisible();
-      expect((await dock.boundingBox())!.width).toBe(48);
+      expect(await dock.boundingBox()).toMatchObject({ x: 52, width: 48 });
       await expect(dock).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       const original = await workspace.boundingBox();
-      expect(original!.x).toBe(0);
-      expect(original!.width).toBe(width);
+      expect(original!.x).toBe(52);
+      expect(original!.y).toBe(44);
+      expect(original!.width).toBe(width - 52);
       // Keep protocol latency outside the 250 ms hover interval, after the lazy route is ready.
       await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
@@ -60,6 +67,8 @@ for (const width of [1024, 1440]) {
       await page.clock.fastForward(4_300);
       await expect(dock).toBeHidden();
       await expect(dock).toHaveAttribute("inert", "");
+      await expect(rail).toBeVisible();
+      await expect(rail.getByRole("link", { name: "Open Calls", exact: true })).toBeVisible();
       expect(await workspace.boundingBox()).toEqual(original);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
         await page.screenshot({ path: testInfo.outputPath("hidden.png") });
@@ -87,7 +96,7 @@ for (const width of [1024, 1440]) {
       await expect.poll(() => dock.evaluate((element) =>
         element.getAnimations().filter((animation) => animation.playState !== "finished").length
       )).toBe(0);
-      expect((await dock.boundingBox())!.width).toBe(48);
+      expect(await dock.boundingBox()).toMatchObject({ x: 52, width: 48 });
       expect(await workspace.boundingBox()).toEqual(original);
       await expect(dock.getByRole("link", { name: "Calls", exact: true })).toHaveAttribute("title", "Calls");
       const accessibility = await new AxeBuilder({ page }).include("#workspace-navigation").analyze();
@@ -95,6 +104,26 @@ for (const width of [1024, 1440]) {
     });
   }
 }
+
+test("pinning reserves a sidebar after the activity rail and unpinning returns that space", async ({ page }) => {
+  const dock = page.locator("#workspace-navigation");
+  const workspace = page.locator(".workspace-grid");
+  const rail = page.getByRole("navigation", { name: "Workspace shortcuts" });
+  await page.getByRole("button", { name: "Keep navigation open", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Use compact navigation", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(await dock.boundingBox()).toMatchObject({ x: 52, y: 44, width: 240 });
+  expect(await workspace.boundingBox()).toMatchObject({ x: 292, y: 44, width: 1148 });
+  expect(await rail.boundingBox()).toMatchObject({ x: 0, y: 44, width: 52 });
+  await page.mouse.click(700, 200);
+  await page.clock.fastForward(16_000);
+  await expect(dock).toBeVisible();
+  await page.getByRole("button", { name: "Use compact navigation", exact: true }).click();
+  expect(await workspace.boundingBox()).toMatchObject({ x: 52, y: 44, width: 1388 });
+  await page.mouse.move(700, 200);
+  await page.clock.fastForward(8_300);
+  await expect(dock).toBeHidden();
+  await expect(rail).toBeVisible();
+});
 
 test("keyboard recovery, Escape and pinning keep navigation reachable", async ({ page }) => {
   const dock = page.locator("#workspace-navigation");
@@ -130,7 +159,7 @@ test("account and notification popovers survive idle time", async ({ page }, tes
   await page.clock.fastForward(16_000);
   await expect(dock).toBeVisible();
   const box = await account.boundingBox();
-  expect(box!.x).toBeGreaterThanOrEqual(48);
+  expect(box!.x).toBeGreaterThanOrEqual(100);
   expect(box!.x + box!.width).toBeLessThanOrEqual(1440);
   if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
     await page.screenshot({ path: testInfo.outputPath("account.png") });

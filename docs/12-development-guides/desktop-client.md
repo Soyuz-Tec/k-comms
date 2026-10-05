@@ -98,6 +98,46 @@ tokens. Password/MFA workflows obey the actual existing service policy. Native
 push/notifications, clipboard permission, generic external navigation and
 background/system audio are not enabled by this package.
 
+## Native desktop shell
+
+File/Edit/View/Help open actual native menus from the shared header. macOS also
+uses the normal system application menu. Windows/Linux retain native editing
+accelerators and show the native menu bar with Alt when hidden. Custom UI
+intents use menu clicks; renderer shortcuts keep their editable-field, modal
+and consent guards without native accelerator interception. Operating-system
+minimize, maximize/restore and close controls remain native: Windows/Linux use
+Electron's controls overlay, and macOS uses its traffic lights. No renderer
+close/minimize/maximize command is exposed.
+
+The header and native overlay share a 44px height. Windows/Linux reserve the
+Window Controls Overlay `titlebar-area-*` dimensions; macOS reserves the leading
+traffic-light area. The fixed native palette follows only the validated
+light/dark/system preference and the operating-system appearance. Renderer
+input cannot provide native colors, positions, paths or commands.
+
+The additional frozen preload `shell` API exposes `getState()`,
+`showMenu("file" | "edit" | "view" | "help")`,
+`setTheme("light" | "dark" | "system")`, and `subscribe(listener)` returning
+an idempotent unsubscribe function. Native request handlers require the current
+owning packaged main frame and exact argument counts. Opening a menu also
+requires the foreground window. Inbound subscription data is limited to five
+UI intents: new instant room, open workspace, open search, toggle sidebar and
+open help; the IPC event object never crosses into the UI callback. Existing
+routes, authentication, session/role checks and active-call guards still decide
+what those actions can do. Workspace search/sidebar intents require a current
+member on a workspace route; public entry menus grant no workspace access.
+
+Edit uses Electron's native undo/redo/cut/copy/paste/delete/select-all roles
+after an explicit user command. This differs from programmable renderer
+clipboard permission, which remains denied. View provides native zoom and
+fullscreen; File closes/quits through the existing lifecycle and media cleanup.
+Reload, DevTools, arbitrary URL navigation and shell opening are absent.
+
+Target-OS evaluation must check menu keyboard focus/Escape, theme parity,
+control insets and drag regions, fullscreen transitions, zoom and native close
+during a call. The source tests use fake providers and do not qualify native
+menus, OS window controls or accessibility on Windows/macOS/Linux.
+
 ## Media and session qualification
 
 Run all checks against an authorized evaluation environment with synthetic

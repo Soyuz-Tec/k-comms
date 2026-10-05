@@ -18,6 +18,9 @@
   navigation, restrained purple accents, consistent typography and smaller
   panel radii. Flattened repeated cards and policy groups, aligned secondary
   actions and profile fields, and preserved accessible narrow-screen controls.
+- Added a desktop activity rail and compact application menu/header with known
+  route history and keyboard navigation. The Electron evaluation client uses
+  genuine OS window controls and Edit menus through a finite, validated bridge.
 - Standardized workspace page headings, controls, status meanings, and navigation.
   Phone, recordings, and shared documents now have direct desktop destinations;
   You exposes every destination outside the five-item mobile navigation.

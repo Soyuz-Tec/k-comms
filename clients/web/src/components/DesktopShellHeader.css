@@ -1,0 +1,171 @@
+/* Desktop-only chrome. OS controls are drawn by the installed wrapper. */
+.desktop-shell-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 46;
+  height: var(--desktop-shell-header-height, 44px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-rail);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  -webkit-app-region: drag;
+}
+
+.desktop-shell-header[data-native-platform="darwin"] {
+  padding-inline-start: 88px;
+}
+
+.desktop-shell-header[data-native-platform="win32"],
+.desktop-shell-header[data-native-platform="linux"] {
+  padding-inline-end: 144px;
+}
+
+@media (display-mode: window-controls-overlay) {
+  .desktop-shell-header {
+    inset-inline-start: env(titlebar-area-x, 0px);
+    width: env(titlebar-area-width, 100%);
+    inset-inline-end: auto;
+  }
+}
+
+.desktop-shell-header button,
+.desktop-shell-menubar,
+.desktop-shell-history,
+.desktop-shell-menu {
+  -webkit-app-region: no-drag;
+}
+
+.desktop-shell-history,
+.desktop-shell-menubar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.desktop-shell-header .desktop-shell-icon,
+.desktop-shell-menubar > button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.desktop-shell-header .desktop-shell-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desktop-shell-icon:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.desktop-shell-forward-icon { transform: rotate(180deg); }
+
+.desktop-shell-header button:not(:disabled):hover,
+.desktop-shell-menubar > button[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.desktop-shell-header button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.desktop-shell-workspace {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-inline: var(--space-3);
+  overflow: hidden;
+  font-size: var(--text-xs);
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-shell-menu-status {
+  max-width: 240px;
+  font-size: var(--text-xs);
+  color: var(--warning-text);
+}
+
+.desktop-shell-menu {
+  position: absolute;
+  top: 100%;
+  left: 148px;
+  min-width: 252px;
+  max-width: calc(100vw - 32px);
+  padding: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow);
+}
+
+.desktop-shell-menu > button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.desktop-shell-about-backdrop { z-index: 100; }
+
+.desktop-shell-about {
+  width: min(400px, calc(100vw - 32px));
+  padding: var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-overlay);
+  color: var(--text-primary);
+}
+
+.desktop-shell-about > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.desktop-shell-about h2 { margin: 0; font-size: var(--text-lg); }
+.desktop-shell-about p { margin-block: var(--space-4); font-size: var(--text-sm); color: var(--text-secondary); }
+
+@media (max-width: 760px), (max-height: 560px) {
+  .desktop-shell-header { display: none; }
+  .desktop-shell-header[data-native-platform] { display: flex; gap: 0; }
+  .desktop-shell-header[data-native-platform] .desktop-shell-history,
+  .desktop-shell-header[data-native-platform] .desktop-shell-workspace,
+  .desktop-shell-header[data-native-platform] .desktop-shell-menu-status { display: none; }
+}
+
+@media (display-mode: window-controls-overlay) and (max-width: 760px),
+       (display-mode: window-controls-overlay) and (max-height: 560px) {
+  .desktop-shell-header { display: flex; gap: 0; }
+  .desktop-shell-header .desktop-shell-history,
+  .desktop-shell-header .desktop-shell-workspace,
+  .desktop-shell-header .desktop-shell-menu-status { display: none; }
+}
+
+@media (forced-colors: active) {
+  .desktop-shell-header, .desktop-shell-menu, .desktop-shell-about { border-color: CanvasText; }
+}

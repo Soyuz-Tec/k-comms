@@ -55,12 +55,27 @@ restricts media/resources to explicit origins.
 
 ## Session ownership and erasure
 
-The sandbox preload exposes exactly three fixed commands: state, credential
+The sandbox preload exposes three fixed identity commands: state, credential
 load, and credential replacement. Each native handler authenticates the
 current owning main frame and validates argument count. Replacement accepts
 only a bounded member or guest session DTO and an increasing generation; it
 does not accept paths, network destinations, shell commands or caller-selected
 storage keys. Member and guest credentials form one exclusive current identity.
+
+The shell adds a separate finite UI boundary: shell state, one of the
+File/Edit/View/Help menus, a light/dark/system theme choice, and subscription to
+five application intents (new instant room, workspace, search, navigation
+visibility and help). Shell handlers authenticate the owning main frame and
+exact packaged service origin, and validate argument counts and fixed enums.
+Subscriptions are removed when the window closes. This boundary accepts no
+paths, URLs, network destinations, clipboard content or general window commands.
+Explicit native Edit menu selections use Electron's standard OS editing roles;
+they do not grant renderer clipboard API permission. Window controls are drawn
+and operated by the OS through Electron's hidden titlebar/overlay facilities.
+The renderer reserves their area and supplies a drag strip with non-draggable
+interactive controls. Browser versions show application menus without imitation
+OS controls. Native public/authentication screens mount the same header without
+member identity; authenticated media providers remain above the route outlet.
 
 Credentials are sealed through Electron safeStorage's maintained OS provider
 and written atomically to one per-user file. Linux `basic_text`, unknown or

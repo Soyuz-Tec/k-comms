@@ -22,6 +22,11 @@ import { usePwa } from "../pwa/PwaProvider";
 import { useAutoHideNavigation } from "./useAutoHideNavigation";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { RouteRecoveryBoundary } from "./RouteRecoveryBoundary";
+import { DesktopShellHeader } from "../components/DesktopShellHeader";
+import { DesktopActivityRail } from "../components/DesktopActivityRail";
+import { isDesktopClient } from "../desktop/session";
+import { useRouterHistory } from "./router-history";
+import { useWindowControlsOverlay } from "./useWindowControlsOverlay";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -60,6 +65,7 @@ export function ProductShell() {
 function ProductShellContent() {
   const navigate = useNavigate();
   const location = useLocation();
+  const history = useRouterHistory();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { mode } = useExperienceMode();
@@ -74,6 +80,7 @@ function ProductShellContent() {
   const [workspaceSidebarFocused, setWorkspaceSidebarFocused] = useState(false);
   const workspaceSidebarPointerRef = useRef(false);
   const desktopShell = useDesktopShell();
+  const windowControlsOverlay = useWindowControlsOverlay();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
   const navigationFocusRequested = useRef(false);
   const navigation = useAutoHideNavigation(
@@ -165,15 +172,26 @@ function ProductShellContent() {
    * not repeated here -- one owner, so the two can never disagree.
    */
   const immersive = mode === "immersive";
+  const nativeDesktop = isDesktopClient();
+  const showDesktopChrome = !immersive && (desktopShell || windowControlsOverlay || nativeDesktop);
   const workspaceSidebarExpanded = workspaceSidebarPinned || workspaceSidebarFocused;
   const workspaceSidebarToggleLabel = workspaceSidebarPinned
     ? "Use compact navigation"
     : "Keep navigation open";
   return (
-    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}${administrationMode ? " administration-shell" : ""}`}>
-        {desktopShell && !immersive && (
-          <div className="window-titlebar-drag-region" aria-hidden="true" />
-        )}
+    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${showDesktopChrome ? " desktop-chrome" : ""}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}${administrationMode ? " administration-shell" : ""}`}>
+        {(showDesktopChrome || nativeDesktop) && <DesktopShellHeader
+          hideChrome={immersive}
+          sidebarExpanded={workspaceSidebarPinned}
+          onToggleSidebar={() => desktopShell && !immersive ? setWorkspaceSidebarPinned((pinned) => !pinned) : setSwitcherOpen(true)}
+          onNewInstantRoom={() => { beginNewInstantRoomVisit(); navigate("/"); }}
+          onOpenWorkspace={() => setSwitcherOpen(true)}
+          onOpenSearch={() => setSwitcherOpen(true)}
+          onOpenSettings={() => navigate("/app/you")}
+          workspaceName={session.tenant.name}
+          navigation={history}
+        />}
+        {desktopShell && !immersive && <DesktopActivityRail user={session.user} />}
         <a className="skip-link" href="#main-content">Skip to content</a>
         {desktopShell && !immersive && <button
           className="workspace-navigation-reveal"

@@ -264,7 +264,7 @@ export function CallPanel({
    * back the moment the canvas is no longer in the way.
    */
   const topSafeAreaPlacement: CSSProperties = {
-    top: "max(var(--space-3), var(--safe-top))",
+    top: "calc(var(--call-window-top-inset, 0px) + max(var(--space-3), var(--safe-top)))",
     right: "max(var(--space-3), var(--safe-right))",
     bottom: "auto",
     left: "auto"

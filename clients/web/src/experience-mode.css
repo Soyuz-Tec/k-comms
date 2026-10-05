@@ -20,6 +20,16 @@
  * it again would create a second owner for rules that already work.
  */
 
+:root[data-native-desktop] {
+  --call-window-top-inset: var(--desktop-shell-header-height, 44px);
+}
+
+@media (display-mode: window-controls-overlay) {
+  :root {
+    --call-window-top-inset: var(--desktop-shell-header-height, 44px);
+  }
+}
+
 :root[data-experience-mode="immersive"] .app-shell {
   /*
    * The stage owns the viewport. The vh line is the fallback for engines
@@ -32,6 +42,7 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
+  padding: 0;
   /*
    * The stage is media, so it sits on the media ramp rather than the light
    * workspace canvas -- letterboxing and inactive tiles never sit on white.
@@ -57,17 +68,6 @@
   left: max(var(--space-3), var(--safe-left));
   width: auto;
   border-radius: var(--radius-md);
-}
-
-:root[data-experience-mode="immersive"] .window-titlebar-drag-region {
-  /*
-   * Stays reachable on the desktop shell but stops reserving a strip of the
-   * stage for itself.
-   */
-  position: fixed;
-  top: 0;
-  right: 0;
-  left: 0;
 }
 
 /*
@@ -127,7 +127,7 @@
 :root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-dock-heading {
   position: absolute;
   z-index: 2;
-  top: 0;
+  top: var(--call-window-top-inset, 0px);
   right: 0;
   left: 0;
   min-height: 0;
@@ -255,7 +255,7 @@
   margin: 0;
   padding: var(--space-3);
   /* Room for the floating heading and action row, which overlay the stage. */
-  padding-top: calc(var(--space-3) + 64px);
+  padding-top: calc(var(--call-window-top-inset, 0px) + var(--space-3) + 64px);
   padding-bottom: calc(var(--space-3) + 72px);
 }
 
@@ -388,7 +388,7 @@
 :root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .call-critical-status {
   position: absolute;
   z-index: 3;
-  top: max(var(--space-3), var(--safe-top));
+  top: calc(var(--call-window-top-inset, 0px) + max(var(--space-3), var(--safe-top)));
   left: max(var(--space-4), var(--safe-left));
   margin-top: 0;
   width: auto;

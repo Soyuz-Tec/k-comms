@@ -7,9 +7,12 @@
  */
 
 .workspace-sidebar,
-.mobile-primary-nav,
-.window-titlebar-drag-region {
+.mobile-primary-nav {
   display: none;
+}
+
+:root {
+  --desktop-shell-header-height: max(44px, env(titlebar-area-height, 0px));
 }
 
 .workspace-mark {
@@ -288,22 +291,23 @@
 @media (min-width: 761px) and (min-height: 561px) {
   :root {
     --desktop-rail-width: 48px;
+    --desktop-activity-width: 52px;
     --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
   }
 
   .app-shell {
     min-width: 0;
-    padding-left: 0;
+    padding-left: var(--desktop-activity-width);
     background: var(--surface-raised);
   }
 
   .app-shell.workspace-navigation-pinned {
-    padding-left: var(--desktop-sidebar-expanded-width);
+    padding-left: calc(var(--desktop-activity-width) + var(--desktop-sidebar-expanded-width));
   }
 
   .app-shell.workspace-navigation-pinned .workspace-sidebar {
-    inset: max(0px, env(titlebar-area-height, 0px)) auto 0 0;
+    inset: var(--desktop-shell-header-height) auto 0 var(--desktop-activity-width);
     max-height: none;
     margin-block: 0;
     border-right: 1px solid var(--border-subtle);
@@ -315,7 +319,7 @@
   .workspace-sidebar {
     position: fixed;
     z-index: 40;
-    inset: max(8px, env(titlebar-area-height, 0px)) auto 8px 0;
+    inset: calc(var(--desktop-shell-header-height) + 8px) auto 8px var(--desktop-activity-width);
     width: var(--desktop-rail-width);
     max-height: 600px;
     margin-block: auto;
@@ -349,7 +353,7 @@
     position: fixed;
     z-index: 40;
     top: calc(50% - 22px);
-    left: 0;
+    left: var(--desktop-activity-width);
     width: 44px;
     height: 44px;
     padding: 0;
@@ -644,7 +648,7 @@
 
   .workspace-account-menu .desktop-account-panel {
     position: fixed;
-    left: calc(var(--desktop-rail-width) + 8px);
+    left: calc(var(--desktop-activity-width) + var(--desktop-rail-width) + 8px);
     bottom: 16px;
     width: min(340px, calc(100vw - var(--desktop-sidebar-expanded-width) - 24px));
     max-height: calc(100dvh - 32px);
@@ -691,7 +695,7 @@
   }
 
   .workspace-sidebar.is-expanded .desktop-account-panel {
-    left: calc(var(--desktop-sidebar-expanded-width) + 8px);
+    left: calc(var(--desktop-activity-width) + var(--desktop-sidebar-expanded-width) + 8px);
   }
 
   /*
@@ -1225,36 +1229,30 @@
   }
 }
 
-/*
- * Installed desktop Chromium PWAs may opt into the Window Controls Overlay.
- * The two rules that used to sit here reserved the operating system control
- * area inside the top bar and re-enabled pointer events on its controls. There
- * is no top bar any more, so the shell itself takes the inset at every window
- * size and the drag region below covers the reserved strip.
- */
-@media (display-mode: window-controls-overlay) {
-  .app-shell {
-    padding-top: env(titlebar-area-height, 0px);
-  }
+/* The actual desktop header owns the drag area and control exclusion zones. */
+.public-desktop-shell {
+  display: contents;
 }
 
-@media (display-mode: window-controls-overlay) and (min-width: 761px) and (min-height: 561px) {
+.public-desktop-shell.native-public-shell {
+  display: block;
+}
 
-  .window-titlebar-drag-region {
+.app-shell.desktop-chrome,
+.native-public-shell {
+  padding-top: var(--desktop-shell-header-height, 44px);
+}
+
+.native-public-shell > .public-workspace-landing {
+  height: calc(var(--app-viewport-height) - var(--desktop-shell-header-height, 44px));
+}
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .desktop-activity-rail {
     position: fixed;
-    z-index: 45;
-    top: env(titlebar-area-y, 0px);
-    left: env(titlebar-area-x, 0px);
-    width: env(titlebar-area-width, 100vw);
-    height: env(titlebar-area-height, 0px);
-    display: block;
-    border-bottom: 1px solid var(--border-default);
-    background: var(--surface-overlay);
-    -webkit-app-region: drag;
-  }
-
-  .workspace-sidebar {
-    top: env(titlebar-area-height, 0px);
+    z-index: 42;
+    inset: var(--desktop-shell-header-height) auto 0 0;
+    height: auto;
   }
 }
 

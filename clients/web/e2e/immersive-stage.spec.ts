@@ -19,7 +19,7 @@ const viewport = { width: 1440, height: 900 };
 async function mountCall(
   page: Page,
   experienceMode?: "workspace" | "immersive",
-  appearance: { callControls?: "opaque"; callContrast?: "high" } = {}
+  appearance: { callControls?: "opaque"; callContrast?: "high"; recordingStatus?: "recording"; controlsCollapsed?: boolean } = {}
 ) {
   await page.goto("/sign-in");
   const applicationCss = await page.evaluate(() =>
@@ -85,6 +85,35 @@ test.describe("immersive active content stage", () => {
     const heading = await call.locator(".audio-call-dock-heading").boundingBox();
     expect(stage!.height).toBe(viewport.height);
     expect(heading!.y).toBeLessThan(stage!.y + heading!.height);
+  });
+
+  test("keeps native titlebar controls clear while preserving the full media plane", async ({ page }) => {
+    const call = await mountCall(page, "immersive");
+    const stage = call.locator(".call-stage");
+    const before = await stage.boundingBox();
+    const mediaNode = await stage.elementHandle();
+    // Simulate only the validated host marker; this qualifies renderer layout,
+    // not OS-drawn controls, permissions or a native Electron runtime.
+    await page.evaluate(() => document.documentElement.setAttribute("data-native-desktop", "true"));
+    const heading = await call.locator(".audio-call-dock-heading").boundingBox();
+    expect(heading!.y).toBeGreaterThanOrEqual(44);
+    await expect(call.getByRole("button", { name: "Minimize" })).toBeVisible();
+    expect(await stage.boundingBox()).toEqual(before);
+    expect(await mediaNode!.evaluate((node) => node.isConnected)).toBe(true);
+    await page.evaluate(() => document.documentElement.removeAttribute("data-native-desktop"));
+    expect((await call.locator(".audio-call-dock-heading").boundingBox())!.y).toBe(0);
+    expect(await stage.boundingBox()).toEqual(before);
+  });
+
+  test("keeps the collapsed privacy cue below native window controls", async ({ page }) => {
+    const call = await mountCall(page, "immersive", { recordingStatus: "recording", controlsCollapsed: true });
+    const stage = await call.locator(".call-stage").boundingBox();
+    await page.evaluate(() => document.documentElement.setAttribute("data-native-desktop", "true"));
+    const privacy = call.locator(".call-critical-status");
+    expect((await privacy.boundingBox())!.y).toBeGreaterThanOrEqual(44);
+    await expect(privacy.getByRole("button", { name: "Review active recording" })).toBeVisible();
+    await expect(privacy.getByRole("button", { name: "Leave call", exact: true })).toBeVisible();
+    expect(await call.locator(".call-stage").boundingBox()).toEqual(stage);
   });
 
   test("leaves the legacy presentation inset and capped when not immersive", async ({ page }) => {
