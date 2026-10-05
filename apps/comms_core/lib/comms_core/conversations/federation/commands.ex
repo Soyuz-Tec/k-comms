@@ -130,6 +130,7 @@ defmodule CommsCore.Conversations.Federation.Commands do
               alias_localpart: "kc_fed_" <> String.replace(id, "-", ""),
               provider_issuer: Application.fetch_env!(:comms_core, :federation_homeserver_origin),
               provider_server_name: Application.fetch_env!(:comms_core, :federation_server_name),
+              provider_bridge_user: Application.fetch_env!(:comms_core, :federation_bridge_user),
               status: "creating"
             })
           )
@@ -262,6 +263,7 @@ defmodule CommsCore.Conversations.Federation.Commands do
         alias_localpart: room.alias_localpart,
         homeserver_origin: room.provider_issuer,
         server_name: room.provider_server_name,
+        bridge_user: room.provider_bridge_user,
         allowed_servers: [Repo.get!(Trust, room.trust_id).domain],
         cursor: cursor,
         limit: 30,
@@ -459,6 +461,13 @@ defmodule CommsCore.Conversations.Federation.Commands do
           alias_localpart: room.alias_localpart,
           homeserver_origin: room.provider_issuer,
           server_name: room.provider_server_name,
+          bridge_user: room.provider_bridge_user,
+          effect_mode:
+            if(
+              command.kind == "redact" and create_mode == :first_attempt and command.attempts == 1,
+              do: :first_attempt,
+              else: :recovery_only
+            ),
           allowed_servers: [trust.domain],
           principal: payload["principal"],
           event_id: payload["event_id"],
@@ -485,8 +494,8 @@ defmodule CommsCore.Conversations.Federation.Commands do
         }
 
         # Persisting the attempt in this same transaction is insufficient on an effect
-        # timeout. For create, directory alias recovery is used on every retry and a
-        # separate durable first-attempt marker is committed before the worker enters.
+        # timeout. Create and redact have a separate durable first-attempt marker
+        # committed before the worker enters; retries can only observe prior effects.
         result = CommsCore.Conversations.Federation.ProviderAdapter.perform(request)
         budget!()
 
@@ -655,7 +664,8 @@ defmodule CommsCore.Conversations.Federation.Commands do
         command = Repo.one(from(c in Command, where: c.id == ^id, lock: "FOR UPDATE"))
 
         case command do
-          %Command{kind: "create", attempts: 0, status: "pending"} ->
+          %Command{kind: kind, attempts: 0, status: "pending"}
+          when kind in ["create", "redact"] ->
             command |> Command.changeset(%{attempts: 1, status: "prepared"}) |> Repo.update!()
             :first_attempt
 

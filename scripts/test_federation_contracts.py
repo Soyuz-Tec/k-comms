@@ -13,7 +13,7 @@ class FederationContractTests(unittest.TestCase):
         validate_federation_contract(self.document, self.payload)
 
     def test_private_mapping_or_credentials_cannot_become_wire_fields(self):
-        for field in ('access_token', 'provider_room_box', 'session_id', 'provider_receipt_box'):
+        for field in ('access_token', 'provider_room_box', 'session_id', 'provider_receipt_box', 'provider_bridge_user', 'bridge_user', 'effect_mode'):
             changed = copy.deepcopy(self.document)
             changed['components']['schemas']['FederationRoom']['properties'][field] = {'type': 'string'}
             with self.assertRaisesRegex(ValueError, 'exact owner wire fields'):

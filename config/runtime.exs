@@ -395,6 +395,7 @@ if config_env() == :prod do
     federation_enabled: federation_enabled,
     federation_homeserver_origin: federation_origin,
     federation_server_name: federation_server,
+    federation_bridge_user: federation_bridge,
     federation_envelope_key: federation_key
 
   config :comms_integrations,

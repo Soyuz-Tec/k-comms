@@ -10,6 +10,8 @@ defmodule CommsCore.Conversations.Federation.ProviderRequest do
     :alias_localpart,
     :homeserver_origin,
     :server_name,
+    :bridge_user,
+    :effect_mode,
     :source_transaction_id,
     :principal,
     :event_id,

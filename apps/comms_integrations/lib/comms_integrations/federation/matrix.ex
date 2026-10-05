@@ -35,9 +35,10 @@ defmodule CommsIntegrations.Federation.Matrix do
   def perform(_), do: {:error, :invalid_federation_request}
 
   defp provider_binding(request, config) do
-    if request.homeserver_origin == config.origin and request.server_name == config.server_name,
-      do: :ok,
-      else: {:error, :federation_provider_identity_changed}
+    if request.homeserver_origin == config.origin and request.server_name == config.server_name and
+         request.bridge_user == config.bridge_user,
+       do: :ok,
+       else: {:error, :federation_provider_identity_changed}
   end
 
   defp execute(%{operation: :create} = r, c) do
@@ -162,47 +163,64 @@ defmodule CommsIntegrations.Federation.Matrix do
     do: recover_event(room, txn, nil, 3, r, c)
 
   defp execute(%{operation: :redact, room_id: room, event_id: event} = r, c) do
-    with {:ok, _} <-
-           call(
-             :put,
-             room_path(room) <> "/redact/" <> segment(event) <> "/" <> segment(r.transaction_id),
-             %{"reason" => "K-Comms consent withdrawal or Governance deletion"},
-             r,
-             c
-           ),
-         {:ok, observed} <- call(:get, room_path(room) <> "/event/" <> segment(event), nil, r, c),
-         true <- is_map(get_in(observed, ["unsigned", "redacted_because"])) do
-      {:ok, %{local_redaction_observed: true, remote_deletion_confirmed: false}}
-    else
-      _ -> {:error, :federation_redaction_unconfirmed}
+    with :ok <- cleanup_room(room, r, c) do
+      # The owner commits its first-attempt marker before I/O. A lost ACK (or a
+      # rollback after I/O) never permits another PUT, even with a stable txn ID.
+      if r.effect_mode == :first_attempt do
+        _ =
+          call(
+            :put,
+            room_path(room) <> "/redact/" <> segment(event) <> "/" <> segment(r.transaction_id),
+            %{"reason" => "K-Comms consent withdrawal or Governance deletion"},
+            r,
+            c
+          )
+      end
+
+      with {:ok, observed} <-
+             call(:get, room_path(room) <> "/event/" <> segment(event), nil, r, c),
+           true <- is_map(get_in(observed, ["unsigned", "redacted_because"])) do
+        {:ok, %{local_redaction_observed: true, remote_deletion_confirmed: false}}
+      else
+        _ -> {:error, :federation_redaction_unconfirmed}
+      end
     end
   end
 
   defp execute(%{operation: :leave, room_id: room, principal: principal} = r, c) do
-    # A lost kick acknowledgement is recovered from standard membership state.
-    # Joined-member absence alone is insufficient while an invitation survives.
-    _ =
-      call(
-        :post,
-        room_path(room) <> "/kick",
-        %{"user_id" => principal, "reason" => "K-Comms consent withdrawn"},
-        r,
-        c
-      )
+    with :ok <- cleanup_room(room, r, c) do
+      # A lost kick acknowledgement is recovered from standard membership state.
+      # Joined-member absence alone is insufficient while an invitation survives.
+      _ =
+        call(
+          :post,
+          room_path(room) <> "/kick",
+          %{"user_id" => principal, "reason" => "K-Comms consent withdrawn"},
+          r,
+          c
+        )
 
-    with {:ok, %{"membership" => membership}} <-
-           call(:get, room_path(room) <> "/state/m.room.member/" <> segment(principal), nil, r, c),
-         true <- membership in ["leave", "ban"],
-         {:ok, members} <- joined(room, r, c),
-         false <- principal in members do
-      {:ok, %{local_absence_observed: true, remote_deletion_confirmed: false}}
-    else
-      _ -> {:error, :federation_member_absence_unconfirmed}
+      with {:ok, %{"membership" => membership}} <-
+             call(
+               :get,
+               room_path(room) <> "/state/m.room.member/" <> segment(principal),
+               nil,
+               r,
+               c
+             ),
+           true <- membership in ["leave", "ban"],
+           {:ok, members} <- joined(room, r, c),
+           false <- principal in members do
+        {:ok, %{local_absence_observed: true, remote_deletion_confirmed: false}}
+      else
+        _ -> {:error, :federation_member_absence_unconfirmed}
+      end
     end
   end
 
   defp execute(%{operation: :close, room_id: room} = r, c) do
-    with {:ok, _} <- call(:post, room_path(room) <> "/leave", %{}, r, c) do
+    with :ok <- cleanup_room(room, r, c),
+         {:ok, _} <- call(:post, room_path(room) <> "/leave", %{}, r, c) do
       # A successful local leave does not attest deletion at any federated server.
       {:ok, %{local_leave_observed: true, remote_deletion_confirmed: false}}
     end
@@ -249,6 +267,28 @@ defmodule CommsIntegrations.Federation.Matrix do
       _ -> {:error, :unowned_matrix_room}
     end
   end
+
+  # Cleanup must remain possible if encryption appears, while retaining the exact
+  # original room lineage and control principal. This never reads a timeline.
+  defp cleanup_room(room, r, c) when is_binary(room) and byte_size(room) <= 255 do
+    with true <- String.starts_with?(room, "!"),
+         {:ok, state} when is_list(state) and length(state) <= 1000 <-
+           call(:get, room_path(room) <> "/state", nil, r, c),
+         true <-
+           Enum.any?(state, &(&1["type"] == "m.room.create" and &1["sender"] == r.bridge_user)),
+         true <-
+           Enum.any?(state, fn event ->
+             event["type"] == "org.kcomms.bridge" and event["sender"] == r.bridge_user and
+               get_in(event, ["content", "lineage"]) == r.alias_localpart
+           end),
+         true <- safe_power?(state, c) do
+      :ok
+    else
+      _ -> {:error, :unowned_matrix_cleanup_room}
+    end
+  end
+
+  defp cleanup_room(_, _, _), do: {:error, :invalid_matrix_room}
 
   defp safe_room(room, r, c) when is_binary(room) and byte_size(room) <= 255 do
     with true <- String.starts_with?(room, "!"),
