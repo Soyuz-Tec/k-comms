@@ -71,6 +71,8 @@ jobs:
       - run: mix deps.compile mime --force
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
+      - name: Qualify dedicated history signing against private secret files
+        run: python3 scripts/qualify_history_secret_files.py --runtime docker
       - name: Reject compile-connected comms_core cycles
         working-directory: apps/comms_core
         shell: bash

@@ -22,6 +22,8 @@ import {
   PwaInstallHelpDialog,
   type ManualInstallMode
 } from "../../pwa/PwaInstallHelpDialog";
+import { AccountSetupGuide } from "../member-workspace/SetupGuide";
+import { announceMemberWorkspaceChange } from "../member-workspace/useMemberWorkspace";
 import "./settings.css";
 const AudioVideoSettings = lazy(() => import("./AudioVideoSettings").then((module) => ({ default: module.AudioVideoSettings })));
 type SettingsSection = "profile" | "security" | "notifications" | "audio-video" | "accessibility";
@@ -146,6 +148,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         return sameIdentity ? { ...latest, user } : latest;
       });
       setNotice("Profile updated.");
+      announceMemberWorkspaceChange();
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
@@ -352,6 +355,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
           <dl className="profile-account-details"><div><dt>Email address</dt><dd>{session.user.email || "Not supplied"}<small>Verified account email</small></dd></div></dl>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
+        <AccountSetupGuide />
       </section>}
 
       {section === "security" && <section id="settings-security-panel" role="tabpanel" aria-labelledby="settings-security-tab">

@@ -30,7 +30,9 @@ defmodule CommsCore.AudioCalls do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.AudioCalls.ActivityView.t()
+          CommsCore.AudioCalls.UsageQuery.t()
+          | CommsCore.AudioCalls.UsageProjection.t()
+          | CommsCore.AudioCalls.ActivityView.t()
           | CommsCore.AudioCalls.ArtifactErasurePlan.t()
           | CommsCore.AudioCalls.ArtifactView.t()
           | CommsCore.AudioCalls.CallParticipantView.t()
@@ -405,4 +407,12 @@ defmodule CommsCore.AudioCalls do
   defdelegate record_participant_mute(target, conversation_id, subject),
     to: Collaboration,
     as: :record_mute
+
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.AudioCalls.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.AudioCalls.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject),
+    to: CommsCore.AudioCalls.UsageReports,
+    as: :project
 end

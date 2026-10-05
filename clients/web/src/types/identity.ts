@@ -25,6 +25,7 @@ export interface User {
   timezone?: string;
   email?: string | null;
   account_type?: "human" | "service" | "guest";
+  access_scope?: "workspace" | "conversation_only";
   role: UserRole;
   platform_role?: PlatformRole | null;
   platform_role_expires_at?: string | null;

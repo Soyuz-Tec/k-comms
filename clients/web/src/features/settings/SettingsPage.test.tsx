@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../types";
 import type { SessionUpdate } from "../../app/session";
+import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 import { SettingsPage } from "./SettingsPage";
 import { resetCallControlPreferencesForTest } from "../experience/call-control-preferences";
 
@@ -30,6 +31,8 @@ const harness = vi.hoisted(() => {
     initialSession: session,
     currentSession: session as Session | null,
     api: {
+      memberWorkspace: vi.fn(),
+      updateOnboarding: vi.fn(),
       devices: vi.fn(),
       sessions: vi.fn(),
       notificationPreference: vi.fn(),
@@ -90,6 +93,8 @@ describe("profile settings", () => {
       harness.currentSession =
         typeof update === "function" ? update(harness.currentSession) : update;
     });
+    harness.api.memberWorkspace.mockResolvedValue(workspaceFixture());
+    harness.api.updateOnboarding.mockResolvedValue(workspaceFixture());
     harness.api.devices.mockResolvedValue([]);
     harness.api.sessions.mockResolvedValue([]);
     harness.api.notificationPreference.mockResolvedValue(null);
@@ -243,7 +248,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    const warning = await screen.findByRole("status");
+    const warning = (await screen.findByText("Some settings could not be loaded.")).closest('[role="status"]');
     expect(warning).toHaveTextContent("Some settings could not be loaded");
     expect(warning).toHaveTextContent("Devices:");
     expect(warning).toHaveTextContent("Device service is unavailable");

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from validate_contracts import (
     validate_instant_room_realtime_contract,
     validate_telephony_contract,
     validate_enterprise_identity_contract,
+    validate_member_workflow_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -135,6 +137,156 @@ class ContractValidationTests(unittest.TestCase):
         validate_whiteboard_contract(self.openapi)
         validate_telephony_contract(self.openapi)
         validate_enterprise_identity_contract(self.openapi)
+
+    def test_current_member_workflow_contracts_and_standalone_schemas_pass(self) -> None:
+        payloads = {
+            path.name: json.loads(path.read_text())
+            for path in (CONTRACTS / "json-schema").glob("*.json")
+        }
+        validate_member_workflow_contract(self.openapi, payloads)
+
+    def test_private_workflow_routes_cannot_use_guest_or_service_authentication(self) -> None:
+        for path, method in [
+            ("/api/v1/me/workspace", "put"),
+            ("/api/v1/me/onboarding", "patch"),
+            ("/api/v1/admin/users/{userId}/role-preview", "post"),
+            ("/api/v1/admin/usage", "get"),
+            ("/api/v1/admin/deletion-requests/{requestId}/timeline", "get"),
+        ]:
+            for security in [[], [{"guestBearerAuth": []}], [{"serviceAccountAuth": []}]]:
+                with self.subTest(path=path, security=security):
+                    document = copy.deepcopy(self.openapi)
+                    document["paths"][path][method]["security"] = security
+                    with self.assertRaisesRegex(ValueError, "current human bearerAuth"):
+                        validate_member_workflow_contract(document)
+
+    def test_private_workspace_cas_and_bounds_cannot_be_removed(self) -> None:
+        for name, key in [("ReplaceMemberWorkspaceRequest", "version"), ("UpdateMemberOnboardingRequest", "version")]:
+            with self.subTest(name=name):
+                document = copy.deepcopy(self.openapi)
+                document["components"]["schemas"][name]["required"].remove(key)
+                with self.assertRaisesRegex(ValueError, "exact private/allowlisted"):
+                    validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["ReplaceMemberWorkspaceRequest"]["properties"]["contact_ids"].pop("maxItems")
+        with self.assertRaisesRegex(ValueError, "contacts/groups bounds"):
+            validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["PrivateContact"]["properties"]["email"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "PrivateContact.*exact private/allowlisted"):
+            validate_member_workflow_contract(document)
+
+    def test_private_workspace_requests_require_cas_and_bounded_unique_people(self) -> None:
+        payload = json.loads((CONTRACTS / "json-schema/member-workspace.v1.json").read_text())
+        validator = Draft202012Validator({"$ref": "#/$defs/ReplaceMemberWorkspaceRequest", "$defs": payload["$defs"]}, format_checker=FormatChecker())
+        person = "10000000-0000-4000-8000-000000000001"
+        group = {"id": "10000000-0000-4000-8000-000000000002", "name": "Teammates", "member_ids": [person]}
+        self.assertTrue(validator.is_valid({"version": 0, "contact_ids": [person], "groups": [group]}))
+        for value in [
+            {"contact_ids": [], "groups": []},
+            {"version": -1, "contact_ids": [], "groups": []},
+            {"version": "0", "contact_ids": [], "groups": []},
+            {"version": 0, "contact_ids": [person, person], "groups": []},
+            {"version": 0, "contact_ids": ["foreign-email@example.test"], "groups": []},
+            {"version": 0, "contact_ids": [], "groups": [], "tenant_id": person},
+            {"version": 0, "contact_ids": [person], "groups": [{**group, "role": "owner"}]},
+        ]:
+            with self.subTest(value=value):
+                self.assertFalse(validator.is_valid(value))
+
+    def test_role_preview_cannot_claim_authority_or_introduce_platform_roles(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["UserRoleChangePreview"]["properties"]["advisory"] = {"const": False}
+        with self.assertRaisesRegex(ValueError, "remain advisory"):
+            validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["FixedTenantRole"]["enum"].append("platform_admin")
+        with self.assertRaisesRegex(ValueError, "custom or platform authority"):
+            validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["RoleCapabilityFact"]["properties"]["conditions"].pop("allOf")
+        with self.assertRaisesRegex(ValueError, "cannot omit current tenant"):
+            validate_member_workflow_contract(document)
+        payload = json.loads((CONTRACTS / "json-schema/role-permissions.v1.json").read_text())
+        validator = Draft202012Validator({"$ref": "#/$defs/PreviewUserRoleRequest", "$defs": payload["$defs"]})
+        for version in [1, "1", "+001"]:
+            self.assertTrue(validator.is_valid({"role": "member", "version": version}))
+        for value in [{"role": "member"}, {"role": "owner", "version": 0}, {"role": "platform_admin", "version": 1}, {"role": "member", "version": "1x"}, {"role": "member", "version": 1, "governance_review_required": False}]:
+            self.assertFalse(validator.is_valid(value))
+
+    def test_usage_requires_unavailable_null_and_denies_lifetime_completeness(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["UsageIdentitySource"]["oneOf"][1]["properties"]["data"] = {"type": "object"}
+        with self.assertRaisesRegex(ValueError, "null data, never invented zero"):
+            validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["UsageReport"]["properties"]["lifetime_complete"] = {"const": True}
+        with self.assertRaisesRegex(ValueError, "deny lifetime completeness"):
+            validate_member_workflow_contract(document)
+
+    def test_usage_payload_cannot_expose_content_or_hide_missing_sources(self) -> None:
+        payload = json.loads((CONTRACTS / "json-schema/usage-report.v1.json").read_text())
+        validator = Draft202012Validator({"$ref": "#/$defs/UsageReport", "$defs": payload["$defs"]}, format_checker=FormatChecker())
+        value = {
+            "range": {"from": "2026-10-01", "through": "2026-10-05", "time_zone": "UTC"},
+            "observed_at": "2026-10-05T10:00:00Z", "coverage": "currently_retained_records", "lifetime_complete": False,
+            "sources": {source: {"status": "unavailable", "data": None} for source in ["identity", "conversations", "messages", "attachments", "calls", "telephony"]},
+        }
+        self.assertTrue(validator.is_valid(value))
+        for change in ["invent_zero", "missing_source", "content", "lifetime", "timezone"]:
+            broken = copy.deepcopy(value)
+            if change == "invent_zero": broken["sources"]["identity"]["data"] = {"current": {"active_humans": 0}}
+            elif change == "missing_source": broken["sources"].pop("telephony")
+            elif change == "content": broken["sources"]["message_bodies"] = ["private text"]
+            elif change == "lifetime": broken["lifetime_complete"] = True
+            else: broken["range"]["time_zone"] = "Europe/London"
+            with self.subTest(change=change): self.assertFalse(validator.is_valid(broken))
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["UsageMessagesCurrent"]["properties"]["message_body"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "exact private/allowlisted"):
+            validate_member_workflow_contract(document)
+
+    def test_history_cannot_add_raw_metadata_errors_or_unbounded_proof_facts(self) -> None:
+        for name, field, value, message in [
+            ("DeletionHistoryEvent", "metadata", {"type": "object"}, "exact private/allowlisted"),
+            ("DeletionHistoryEvent", "error_code", {"type": "string"}, "raw provider or worker errors"),
+            ("DeletionHistoryEvidence", "provider_token", {"type": "string"}, "exact private/allowlisted"),
+            ("DeletionHistoryCoverage", "version_lineage", {"const": "complete"}, "unproven retained coverage"),
+        ]:
+            with self.subTest(name=name, field=field):
+                document = copy.deepcopy(self.openapi)
+                document["components"]["schemas"][name]["properties"][field] = value
+                with self.assertRaisesRegex(ValueError, message): validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["DeletionHistoryCounts"]["properties"]["deleted_object_count"].pop("maximum")
+        with self.assertRaisesRegex(ValueError, "bounded allowlisted integers"):
+            validate_member_workflow_contract(document)
+
+    def test_history_event_payload_rejects_provider_text_and_arbitrary_evidence(self) -> None:
+        payload = json.loads((CONTRACTS / "json-schema/deletion-request-history.v1.json").read_text())
+        validator = Draft202012Validator({"$ref": "#/$defs/DeletionHistoryEvent", "$defs": payload["$defs"]}, format_checker=FormatChecker())
+        event = {"id": "10000000-0000-4000-8000-000000000001", "actor": {"kind": "system", "user_id": None, "display_name": None}, "inserted_at": "2026-10-05T10:00:00Z", "action": "deletion_request.completed", "status": "completed", "attempt": 1, "error_code": None, "version": 2, "proof_versions": {"writer_fence_erasure_version": 1}, "counts": {"deleted_object_count": 0}}
+        self.assertTrue(validator.is_valid(event))
+        for field, value in [("error_code", "provider request included token abc"), ("metadata", {"token": "private"}), ("proof_versions", {"raw_provider_receipt": 1}), ("counts", {"deleted_object_count": 9_007_199_254_740_992}), ("action", "provider.secret_event")]:
+            with self.subTest(field=field): self.assertFalse(validator.is_valid({**event, field: value}))
+
+    def test_csv_receipts_cannot_drop_range_snapshot_coverage_or_truncation(self) -> None:
+        for path, key in [("/api/v1/admin/usage/export", "x-usage-unavailable-sources"), ("/api/v1/admin/deletion-requests/{requestId}/timeline/export", "x-history-snapshot"), ("/api/v1/admin/deletion-requests/{requestId}/timeline/export", "x-export-truncated")]:
+            with self.subTest(path=path, key=key):
+                document = copy.deepcopy(self.openapi)
+                document["paths"][path]["get"]["responses"]["200"]["headers"].pop(key)
+                with self.assertRaisesRegex(ValueError, "receipt header"):
+                    validate_member_workflow_contract(document)
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/admin/usage/export"]["get"]["responses"]["200"]["x-csv-columns"].append("email")
+        with self.assertRaisesRegex(ValueError, "allowlisted column order"):
+            validate_member_workflow_contract(document)
+
+    def test_standalone_private_schema_cannot_drift_from_canonical_wire_fields(self) -> None:
+        payloads = {path.name: json.loads(path.read_text()) for path in (CONTRACTS / "json-schema").glob("*.json")}
+        payloads["member-workspace.v1.json"]["$defs"]["PrivateContact"]["properties"]["email"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "diverges from canonical OpenAPI"):
+            validate_member_workflow_contract(self.openapi, payloads)
 
     def test_all_current_openapi_references_resolve(self) -> None:
         validate_refs(self.openapi, CONTRACTS / "openapi" / "openapi.yaml")

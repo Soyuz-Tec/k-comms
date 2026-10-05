@@ -321,6 +321,16 @@ esac
                 result = self.run_guard("assert", value, value)
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_duplicate_or_empty_components_fail_before_accepting_immutable_image_proof(self):
+        legacy, current = self.capability_contract()
+        for value in (legacy + ",guest_identity_v1", current + ",governance_history_v1",
+                      "," + current, current + ",", current.replace(",", ",,", 1),
+                      " " + current, current + "\n"):
+            with self.subTest(value=value):
+                for action in ("assert", "current"):
+                    result = self.run_guard(action, value, value)
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+
 
 class StagingQualificationReuseTest(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "Qualification fixture requires Linux jq")

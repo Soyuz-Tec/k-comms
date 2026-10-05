@@ -10,7 +10,7 @@ const messageId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 async function workspace(page: Page) {
   const session = { access_token: "synthetic-access", refresh_token: "synthetic-refresh", token_type: "Bearer", expires_in: 3600, received_at: Date.now(),
     tenant: { id: tenantId, name: "Content workspace", slug: "content", status: "active" },
-    user: { id: userId, tenant_id: tenantId, display_name: "Content Owner", email: "owner@example.test", account_type: "human", role: "owner", platform_role: null, status: "active", version: 1 },
+    user: { id: userId, tenant_id: tenantId, display_name: "Content Owner", email: "owner@example.test", account_type: "human", access_scope: "workspace", role: "owner", platform_role: null, status: "active", version: 1 },
     device: { id: deviceId, user_id: userId, name: "Browser", platform: "web" } };
   const conversation = { id: conversationId, tenant_id: tenantId, kind: "group", title: "Planning", membership_role: "owner", visibility: "private", latest_sequence: 1, unread_count: 0, archived_at: null, version: 1, inserted_at: "2026-10-04T12:00:00Z", updated_at: "2026-10-04T12:00:00Z" };
   const message = { id: messageId, tenant_id: tenantId, conversation_id: conversationId, sender_user_id: userId, sender_device_id: deviceId, client_message_id: "content-e2e-source", conversation_sequence: 1, body: "**Planning** notes", metadata: {}, status: "active", inserted_at: "2026-10-04T12:00:00Z", attachments: [], reactions: [], thread_reply_count: 0, mentioned_user_ids: [] };
@@ -22,6 +22,7 @@ async function workspace(page: Page) {
   }, session);
   await page.route("**/api/v1/**", async route => {
     const url = new URL(route.request().url()); const path = url.pathname; const method = route.request().method();
+    if (method === "GET" && path === "/api/v1/me/workspace") return route.fallback();
     if (path === "/api/v1/status") return route.fulfill({ json: mockServiceStatus() });
     if (path === "/api/v1/me") return route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_audio_calls: true, allow_video_calls: true, allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } });
     if (path === "/api/v1/users") return route.fulfill({ json: { data: [session.user] } });

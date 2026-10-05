@@ -8,7 +8,7 @@ defmodule CommsCore.Audit do
 
   import Ecto.Query
 
-  alias CommsCore.Audit.{Actor, AuditEvent, Error, Event}
+  alias CommsCore.Audit.{Actor, AuditEvent, Error, Event, ResourceHistorySnapshot}
   alias CommsCore.Repo
 
   @equal_filters [
@@ -25,6 +25,13 @@ defmodule CommsCore.Audit do
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
     %{
+      audit_history_snapshots:
+        repo.all(
+          from(snapshot in ResourceHistorySnapshot,
+            where: snapshot.tenant_id == ^tenant_id,
+            select: snapshot.id
+          )
+        ),
       audit_events:
         repo.all(
           from(event in AuditEvent,
@@ -104,6 +111,28 @@ defmodule CommsCore.Audit do
     |> query()
     |> Repo.aggregate(:count)
   end
+
+  @doc "Chronological retained history for one exact tenant resource; callers authorize disclosure."
+  @spec resource_history_page(CommsCore.Audit.ResourceHistoryQuery.t()) ::
+          {:ok, CommsCore.Audit.ResourceHistoryPage.t()}
+          | {:error,
+             :invalid_audit_history_query
+             | :audit_history_snapshot_unavailable
+             | :audit_history_snapshot_capacity}
+  defdelegate resource_history_page(query), to: CommsCore.Audit.ResourceHistory, as: :page
+
+  @doc "Bounded owner housekeeping of expired, content-free history membership snapshots."
+  @spec purge_resource_history_snapshots(DateTime.t(), 1..1_000) ::
+          %{deleted_count: non_neg_integer(), has_more: boolean()}
+  defdelegate purge_resource_history_snapshots(timestamp, limit),
+    to: CommsCore.Audit.ResourceHistory,
+    as: :purge_expired
+
+  @doc false
+  @spec rollback_history_snapshot_hazard_count() :: non_neg_integer()
+  defdelegate rollback_history_snapshot_hazard_count(),
+    to: CommsCore.Audit.ResourceHistory,
+    as: :rollback_hazard_count
 
   @spec get_by(map()) :: Event.t() | nil
   def get_by(filters) when is_map(filters) do

@@ -1,0 +1,38 @@
+.member-setup-guide { border: 1px solid var(--border-default); border-radius: var(--radius-md, 12px); padding: 10px 12px; overflow-wrap: anywhere; }
+.member-setup-guide summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; }
+.member-setup-guide summary span { display: block; color: var(--text-muted); font-size: .82rem; font-weight: 400; }
+.member-setup-guide ul { padding: 0; list-style: none; display: grid; gap: 8px; }
+.member-setup-guide li { display: grid; gap: 2px; }
+.member-setup-guide li a { display: flex; align-items: center; min-height: 44px; }
+.member-setup-guide li span { color: var(--text-muted); font-size: .85rem; }
+.member-workspace-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.member-workspace-actions button, .private-contacts button, .private-contacts input, .private-contacts select { min-height: 44px; }
+.private-contacts button:not(.button) {
+  appearance: none;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 8px);
+  padding: var(--space-2) var(--space-3);
+}
+.private-contacts { min-width: 0; display: grid; gap: 16px; }
+.private-contact-group-list { display: grid; gap: 12px; padding: 0; list-style: none; }
+.private-contact-group { border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; display: grid; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.private-contact-group h2 { margin: 0; font-size: 1rem; }
+.private-contact-editor { display: grid; gap: 12px; max-width: 640px; min-width: 0; }
+.private-contact-selection { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; }
+.private-contact-selection label { display: flex; align-items: center; gap: 10px; min-height: 44px; overflow-wrap: anywhere; }
+.private-contact-selection input { flex: 0 0 22px; width: 22px; }
+.private-contact-editor .field input { max-width: 100%; }
+.private-contact-counter { color: var(--text-muted); }
+
+.private-contacts .directory-row { grid-template-columns: 40px minmax(0, 1fr); }
+.private-contacts .directory-row > .member-workspace-actions { grid-column: 1 / -1; }
+.directory-row > .contact-toggle { width: 44px; padding: 0; justify-content: center; }
+.directory-toolbar .member-segmented-control { flex-wrap: wrap; }
+.directory-row:has(> .contact-toggle) { grid-template-columns: 44px minmax(0, 1fr) 44px auto; }
+@media (max-width: 640px) {
+  .directory-row:has(> .contact-toggle) { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .directory-row > .contact-toggle { grid-column: 3; grid-row: 1; }
+  .directory-row:has(> .contact-toggle) .directory-actions { grid-column: 1 / -1; }
+}

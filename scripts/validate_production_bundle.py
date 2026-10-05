@@ -70,6 +70,11 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "whiteboard_assets",
         "whiteboard_operations.source_actor_user_ids",
     ),
+    "member_workspace_v1": ("member_workspaces",),
+    "governance_history_v1": (
+        "audit_resource_history_snapshots",
+        "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -175,6 +180,7 @@ CORE_SECRET_ENV = {
     "DATABASE_URL": False,
     "SECRET_KEY_BASE": False,
     "PASSWORD_RECOVERY_SIGNING_KEY": False,
+    "GOV_HISTORY_CURSOR_KEY": True,
     "S3_ACCESS_KEY_ID": False,
     "S3_SECRET_ACCESS_KEY": False,
     "WEBHOOK_SECRET_ENCRYPTION_KEY": True,
@@ -998,15 +1004,21 @@ def validate_guest_rollback_preflight(
         )
 
     capability_value = environment.get("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
+    # The qualified first-UC parent is a known subset, never a claim that it
+    # can enforce the new Member/History state. Current-image SQL still decides.
+    m1_capabilities = (
+        "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
+    )
     allowed_capabilities = {
         None,
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
+        m1_capabilities,
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target or the exact communication-compatible capability set"
+            "empty for a legacy target, the known M1 set, or the exact communication-compatible capability set"
         )
 
 

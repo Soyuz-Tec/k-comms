@@ -3,6 +3,7 @@ defmodule CommsCore.Release.RollbackCompatibility do
 
   alias CommsCore.{
     Accounts,
+    Audit,
     AudioCalls,
     Conversations,
     Messaging,
@@ -30,7 +31,9 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"uc_advanced_telephony_v1",
      [:advanced_controls, :active_control_jobs, :active_routing_jobs]},
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
-    {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]}
+    {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
+    {"member_workspace_v1", [:member_workspaces]},
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -205,7 +208,13 @@ defmodule CommsCore.Release.RollbackCompatibility do
       scheduled_meetings: AudioCalls.rollback_meeting_hazard_count(),
       active_meeting_reminder_jobs: active_job_count(repo, :meeting_reminder),
       rich_messages: Messaging.rollback_rich_content_hazard_count(),
-      rich_whiteboards: Whiteboards.rollback_rich_content_hazard_count()
+      rich_whiteboards: Whiteboards.rollback_rich_content_hazard_count(),
+      member_workspaces: Accounts.rollback_member_workspace_hazard_count(),
+      governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
+      active_history_purge_jobs:
+        repo.active_continuation_oban_job_count!(
+          RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
+        )
     })
   end
 
@@ -230,6 +239,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
   end
 
   defp migration_error(:one_shot_runtime_required), do: "one_shot_runtime_required"
+
+  defp migration_error(:rollback_target_capabilities_invalid),
+    do:
+      "rollback target capabilities must contain unique known names without empty components or whitespace"
 
   defp migration_error(:rollback_target_revision_required),
     do: "K_COMMS_ROLLBACK_TARGET_REVISION must contain a safe target revision identifier"

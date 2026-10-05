@@ -6,6 +6,7 @@ import { YouPage } from "./YouPage";
 
 const harness = vi.hoisted(() => ({
   role: "member",
+  accessScope: "workspace" as "workspace" | "conversation_only",
   platformRole: null as string | null,
   platformRoleExpiresAt: null as string | null
 }));
@@ -18,6 +19,8 @@ vi.mock("../../app/session", () => ({
         tenant_id: "tenant-1",
         display_name: "Ada",
         role: harness.role,
+        account_type: "human",
+        access_scope: harness.accessScope,
         status: "active",
         platform_role: harness.platformRole,
         platform_role_expires_at: harness.platformRoleExpiresAt
@@ -41,8 +44,23 @@ vi.mock("../settings/SettingsPage", () => ({
 }));
 
 describe("YouPage", () => {
+  it("keeps personal settings while hiding every admin shortcut for a limited legacy owner", () => {
+    harness.role = "owner";
+    harness.accessScope = "conversation_only";
+    harness.platformRole = null;
+    harness.platformRoleExpiresAt = null;
+    render(<MemoryRouter><YouPage /></MemoryRouter>);
+    expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Profile" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: /People & invitations/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Safety review/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Workspace administration/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Role tools" })).not.toBeInTheDocument();
+  });
+
   it("keeps role tools out of the member profile", () => {
     harness.role = "member";
+    harness.accessScope = "workspace";
     harness.platformRole = null;
     harness.platformRoleExpiresAt = null;
     render(<MemoryRouter><YouPage /></MemoryRouter>);
@@ -67,6 +85,7 @@ describe("YouPage", () => {
 
   it("provides direct role-gated people, safety and operations entries", () => {
     harness.role = "owner";
+    harness.accessScope = "workspace";
     harness.platformRole = "platform_operator";
     harness.platformRoleExpiresAt = "2099-01-01T00:00:00Z";
     render(<MemoryRouter><YouPage /></MemoryRouter>);

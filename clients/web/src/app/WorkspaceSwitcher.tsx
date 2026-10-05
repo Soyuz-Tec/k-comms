@@ -5,7 +5,7 @@ import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { memberDestinations } from "../components/MemberAreaLinks";
 import { useModalDialog } from "../components/useModalDialog";
 import { conversationTitle } from "../lib/format";
-import { canAccessAdmin, canOperate } from "../lib/roles";
+import { canAccessWorkspaceAdmin, canOperate } from "../lib/roles";
 import { conversationParticipantIdentifier, duplicateDirectConversationNames, duplicateParticipantNames, participantIdentifier } from "../lib/participantIdentity";
 import type { Conversation, Session } from "../types";
 import "./WorkspaceSwitcher.css";
@@ -27,7 +27,7 @@ export function workspaceDestinations(session: Session, conversations: Conversat
     id: destination.path, label: destination.label, detail: "Workspace",
     path: destination.path, icon: destination.icon
   }));
-  if (canAccessAdmin(session.user.role)) areas.push({
+  if (canAccessWorkspaceAdmin(session.user)) areas.push({
     id: "admin", label: "Workspace administration", detail: "Role tools", path: "/admin", icon: "settings"
   });
   if (canOperate(session.user.platform_role, session.user.platform_role_expires_at)) areas.push({

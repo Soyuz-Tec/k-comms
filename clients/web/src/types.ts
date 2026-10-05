@@ -7,3 +7,4 @@ export type { AttachmentDownloadResponse, AttachmentIntentResponse, AttachmentTh
 export type { WhiteboardElementData, WhiteboardObjectSummary, WhiteboardOperation, WhiteboardOperationPage, WhiteboardSceneSnapshot, WhiteboardPresenceEvent } from "./types/whiteboards";
 
 export type { Meeting, MeetingInput, MeetingOccurrence, MeetingRecurrence, MeetingHostPolicy, MeetingStatus, MeetingsQuery, UpdateMeetingInput } from "./types/meetings";
+export type { MemberWorkspace, MemberWorkspaceInput, OnboardingAction, PrivateContactGroup } from "./types/memberWorkspace";

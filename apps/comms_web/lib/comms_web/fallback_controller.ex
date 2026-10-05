@@ -132,6 +132,12 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:not_found), do: {404, "not_found", "The requested resource was not found"}
 
+  defp error(:contact_unavailable),
+    do: {409, "contact_unavailable", "A selected person is no longer available in this workspace"}
+
+  defp error(reason) when reason in [:invalid_member_workspace, :invalid_onboarding_action],
+    do: {422, Atom.to_string(reason), "The private workspace update is invalid"}
+
   defp error(reason)
        when reason in [
               :invalid_guest_link,

@@ -22,7 +22,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :audit_events,
     :outbox_events,
     :calls,
-    :call_participants
+    :call_participants,
+    :member_workspaces,
+    :audit_history_snapshots
   ]
 
   defmodule ReadOnlyRepo do
@@ -46,7 +48,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "audit_events" => "audit-internal-id",
             "outbox_events" => "outbox-internal-id",
             "audio_calls" => "call-internal-id",
-            "audio_call_participants" => "participant-internal-id"
+            "audio_call_participants" => "participant-internal-id",
+            "member_workspaces" => "private-workspace-internal-id",
+            "audit_resource_history_snapshots" => "history-snapshot-internal-id"
           },
           table
         )

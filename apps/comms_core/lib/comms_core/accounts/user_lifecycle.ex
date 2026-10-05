@@ -121,43 +121,60 @@ defmodule CommsCore.Accounts.UserLifecycle do
   def update_profile(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
+    deadline = System.monotonic_time(:millisecond) + 15_000
 
-    Repo.transaction(fn ->
-      user =
-        Repo.one(
-          from(u in User,
-            where:
-              u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
-                u.account_type == :human,
-            lock: "FOR UPDATE"
-          )
-        ) || Repo.rollback(:not_found)
-
-      changes =
-        case validate_unchanged_profile_email(attrs, user.email) do
-          :ok ->
-            Map.take(attrs, [
-              :display_name,
-              "display_name",
-              :avatar_url,
-              "avatar_url",
-              :timezone,
-              "timezone"
-            ])
-
-          {:error, reason} ->
-            Repo.rollback(reason)
+    Repo.transaction(
+      fn ->
+        case CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline) do
+          {:ok, _grant} -> :ok
+          _ -> Repo.rollback(:forbidden)
         end
 
-      updated = user |> User.changeset(changes) |> update_or_rollback()
+        user =
+          Repo.one(
+            from(u in User,
+              where:
+                u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
+                  u.account_type == :human,
+              lock: "FOR NO KEY UPDATE"
+            )
+          ) || Repo.rollback(:not_found)
 
-      insert_audit!(subject, "user.profile_update", "user", user.id, %{
-        before: %{display_name: user.display_name},
-        after: %{display_name: updated.display_name}
-      })
+        changes =
+          case validate_unchanged_profile_email(attrs, user.email) do
+            :ok ->
+              Map.take(attrs, [
+                :display_name,
+                "display_name",
+                :avatar_url,
+                "avatar_url",
+                :timezone,
+                "timezone"
+              ])
 
-      updated
-    end)
+            {:error, reason} ->
+              Repo.rollback(reason)
+          end
+
+        updated = user |> User.changeset(changes) |> update_or_rollback()
+
+        CommsCore.Accounts.MemberWorkspaces.profile_reviewed!(updated)
+
+        insert_audit!(subject, "user.profile_update", "user", user.id, %{
+          before: %{display_name: user.display_name},
+          after: %{display_name: updated.display_name}
+        })
+
+        case AccessControl.access_grant(subject) do
+          {:ok, _grant} -> :ok
+          _ -> Repo.rollback(:forbidden)
+        end
+
+        if System.monotonic_time(:millisecond) >= deadline, do: Repo.rollback(:forbidden)
+        updated
+      end,
+      timeout: 20_000
+    )
     |> transaction_result()
   end
 
@@ -442,7 +459,12 @@ defmodule CommsCore.Accounts.UserLifecycle do
        do: Repo.rollback(:governance_policy_required)
 
   defp ensure_last_owner!(
-         %User{role: :owner, status: :active} = target,
+         %User{
+           role: :owner,
+           status: :active,
+           account_type: :human,
+           access_scope: :workspace
+         } = target,
          role,
          status,
          excluded_owner_ids
@@ -454,7 +476,8 @@ defmodule CommsCore.Accounts.UserLifecycle do
       |> where(
         [u],
         u.tenant_id == ^target.tenant_id and u.id != ^target.id and u.role == :owner and
-          u.status == :active and u.id not in ^excluded_owner_ids
+          u.status == :active and u.account_type == :human and u.access_scope == :workspace and
+          u.id not in ^excluded_owner_ids
       )
       |> Repo.aggregate(:count)
 
@@ -463,14 +486,21 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
   defp ensure_last_owner!(_, _, _, _), do: :ok
 
-  defp authorize_user_change!(%User{role: :owner}, _target, _role, _status), do: :ok
-
-  defp authorize_user_change!(%User{role: :admin}, %User{role: target_role}, role, _status) do
-    elevated = [:owner, :admin, :compliance_admin, :security_admin]
-
-    if target_role in elevated or role in elevated,
-      do: Repo.rollback(:forbidden),
-      else: :ok
+  defp authorize_user_change!(
+         %User{role: actor_role},
+         %User{role: target_role, access_scope: target_scope},
+         role,
+         _status
+       ) do
+    case CommsCore.Accounts.RolePermissions.authorize_change(
+           actor_role,
+           target_role,
+           role,
+           target_scope
+         ) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp authorize_user_change!(_, _, _, _), do: Repo.rollback(:forbidden)
@@ -486,21 +516,23 @@ defmodule CommsCore.Accounts.UserLifecycle do
     end
   end
 
-  defp authorize_role_assignment(subject, role)
-       when role in [:member, :moderator, :admin, :compliance_admin, :security_admin] do
+  defp authorize_role_assignment(subject, role) do
     case Repo.get_by(User,
            id: value(subject, :user_id),
            tenant_id: value(subject, :tenant_id),
            status: :active,
+           account_type: :human,
            access_scope: :workspace
          ) do
-      %User{role: :owner} -> :ok
-      %User{role: :admin} when role in [:member, :moderator] -> :ok
-      _ -> {:error, :forbidden}
+      %User{role: actor_role} ->
+        CommsCore.Accounts.RolePermissions.authorize_creation(actor_role, role)
+
+      _ ->
+        case CommsCore.Accounts.RolePermissions.authorize_creation(nil, role) do
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
-
-  defp authorize_role_assignment(_, _), do: {:error, :invalid_role}
 
   defp optional_role(attrs) do
     case value(attrs, :role) do

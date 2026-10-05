@@ -22,6 +22,9 @@ import type {
   InAppNotificationPage,
   LegalHold,
   MeResponse,
+  MemberWorkspace,
+  MemberWorkspaceInput,
+  OnboardingAction,
   Message,
   MessageDeliveryCursor,
   MessagePage,
@@ -94,6 +97,9 @@ import { createMessagingApi } from "./api/domains/messaging";
 import { createFilesApi } from "./api/domains/files";
 import { createSystemApi } from "./api/domains/system";
 import { createWhiteboardsApi } from "./api/domains/whiteboards";
+import type { DeletionHistoryExportFile, DeletionHistoryPage, DeletionHistoryQuery } from "./types/deletionHistory";
+import type { FixedRolePermission, UserRoleChangePreview } from "./types/rolePermissions";
+import type { UsageExportFile, UsageQuery, UsageReport } from "./types/usage";
 export type { AuditExportFile, AuditExportInput, BootstrapInput, CreateConversationInput, CreateServiceAccountInput, LoginInput, SendMessageInput, UpdateTenantInput } from "./api/contracts";
 export { ApiError } from "./api/errors";
 export { GuestApiClient } from "./api/guest/GuestApiClient";
@@ -261,6 +267,18 @@ export class ApiClient {
 
   me(): Promise<MeResponse>{
     return this.accountsApi.me();
+  }
+
+  memberWorkspace(): Promise<MemberWorkspace> {
+    return this.accountsApi.memberWorkspace();
+  }
+
+  updateMemberWorkspace(input: MemberWorkspaceInput): Promise<MemberWorkspace> {
+    return this.accountsApi.updateMemberWorkspace(input);
+  }
+
+  updateOnboarding(input: { version: number; action: OnboardingAction }): Promise<MemberWorkspace> {
+    return this.accountsApi.updateOnboarding(input);
   }
 
   updateProfile(input: Parameters<AccountsApi["updateProfile"]>[0]): Promise<User>{
@@ -456,6 +474,30 @@ export class ApiClient {
 
   deletionRequests(): Promise<DeletionRequest[]>{
     return this.administrationApi.deletionRequests();
+  }
+
+  deletionHistory(id: string, input: DeletionHistoryQuery = {}): Promise<DeletionHistoryPage> {
+    return this.administrationApi.deletionHistory(id, input);
+  }
+
+  exportDeletionHistory(id: string, snapshot: string, limit = 5000): Promise<DeletionHistoryExportFile> {
+    return this.administrationApi.exportDeletionHistory(id, snapshot, limit);
+  }
+
+  previewAdminUserRole(id: string, input: { role: UserRole; version: number }): Promise<UserRoleChangePreview> {
+    return this.administrationApi.previewAdminUserRole(id, input);
+  }
+
+  fixedRolePermissions(): Promise<FixedRolePermission[]> {
+    return this.administrationApi.fixedRolePermissions();
+  }
+
+  usageReport(input: UsageQuery = {}): Promise<UsageReport> {
+    return this.administrationApi.usageReport(input);
+  }
+
+  exportUsageReport(input: UsageQuery = {}): Promise<UsageExportFile> {
+    return this.administrationApi.exportUsageReport(input);
   }
 
   createDeletionRequest(input: { target_type: "user" | "conversation" | "message"; target_id: string; reason: string }): Promise<DeletionRequest>{

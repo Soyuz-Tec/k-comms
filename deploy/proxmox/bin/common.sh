@@ -15,7 +15,7 @@ K_COMMS_BACKUP_ROOT=/var/backups/k-comms
 K_COMMS_LOCK_FILE=/run/lock/k-comms-deploy.lock
 K_COMMS_SOURCE=https://github.com/Soyuz-Tec/k-comms
 K_COMMS_LEGACY_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
-K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1
+K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1
 K_COMMS_MINIO_MC_IMAGE=quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
 K_COMMS_LOCAL_LIVEKIT_TOPOLOGY=local_sidecar
 K_COMMS_MANAGED_LIVEKIT_TOPOLOGY=managed_cloud
@@ -521,11 +521,15 @@ current_app_capabilities() {
 
 image_rollback_capabilities() {
   local capabilities
+  # Keep the raw label's trailing bytes separate from the CLI's one newline.
+  # Command substitution alone would erase malformed trailing newlines too.
   capabilities="$(podman image inspect "$1" \
-    --format '{{index .Labels "io.k-comms.rollback-capabilities"}}')" || return 1
+    --format '{{index .Labels "io.k-comms.rollback-capabilities"}}' && printf '.')" || return 1
+  capabilities=${capabilities%.}
+  capabilities=${capabilities%$'\n'}
   case "$capabilities" in
     ""|"<no value>"|"<nil>") printf '\n' ;;
-    *) printf '%s\n' "$capabilities" ;;
+    *) validate_rollback_capabilities "$capabilities"; printf '%s\n' "$capabilities" ;;
   esac
 }
 
@@ -533,11 +537,15 @@ validate_rollback_capabilities() {
   local capabilities=$1
   local capability
   local -a parts
-  [[ "$capabilities" =~ ^[a-z0-9_,]*$ ]] || die "unsafe rollback capabilities"
+  local -A seen=()
+  [[ -z "$capabilities" ]] && return 0
+  [[ "$capabilities" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] || die "unsafe rollback capabilities"
   IFS=, read -r -a parts <<<"$capabilities"
   for capability in "${parts[@]}"; do
     [[ -n "$capability" && ",$K_COMMS_CAPABILITIES," == *",$capability,"* ]] ||
       die "unknown rollback capability"
+    [[ -z "${seen[$capability]+present}" ]] || die "duplicate rollback capability"
+    seen["$capability"]=1
   done
 }
 

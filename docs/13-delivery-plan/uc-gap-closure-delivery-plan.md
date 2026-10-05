@@ -144,6 +144,34 @@ physical devices, multi-region recovery, approved policy/provider configuration,
 on-call ownership and actual backup/restore/rollback evidence remain open.
 Optional drive and an application catalog remain product decisions.
 
+The member/administration increment has been rebased onto the qualified first
+source and is undergoing qualification. Its focused backend correction run
+passed29 cases, including actual retained-state rollback and privacy/authority
+checks. Its frontend broad run passed1190 of1193 cases; all three affected files
+then passed37 cases after preserving the current step-up signature and bounded
+CSV download behavior. Lint, strict types, five asset regressions, build and six
+published asset budgets passed. These are complementary receipts, not one final
+complete-suite/runtime receipt. API validation covers14 JSON schemas and the
+current nine operations, with78 contract regressions plus final affected cases.
+All196 architecture regressions passed; the empty baseline is unchanged.
+
+Native WebSocket header transport now uses the same current one-use ticket
+owner, rejects ambiguous sources before consuming any ticket, and preserves the
+browser query transport. Seven real socket/session cases passed with explicit
+exit0. Native client compilation, background push, physical-device acceptance,
+full member backend/browser/runtime qualification and protected release remain
+pending. No real provider was enabled.
+
+History signing now compares actual loaded file-backed provider credentials and
+decoded identity keyrings with its dedicated key. A network-isolated pinned Elixir
+container exercised all six supported file-secret formats: every reuse was refused,
+every independent control was accepted, and absent history signing stayed optional.
+The same actual configuration qualification is now an explicit backend CI gate.
+Authenticated denial responses also carry `no-store` and `no-cache`, including
+missing, invalid and revoked credentials before history snapshot capture. All 16
+affected configuration and HTTP tests passed; this does not replace full final
+backend and real-runtime qualification.
+
 ## Architecture and runbooks
 
 - [ADR-0087](../02-architecture/adr/0087-add-durable-scheduled-meetings.md) and
@@ -174,7 +202,7 @@ Follow the [development-to-production completion standard](../14-operations/deve
 through protected review/CI, normal merge, exact-main CI, immutable publication
 and attestation, protected staging, independent production approval, backups,
 same-digest deployment and verification. The implementing agent cannot approve
-its own production deployment. There is no current staging or production receipt.
+its own production deployment. There is no current staging or production receipt for this increment.
 
 No carrier account, DID, real IdP, capture/transcription provider or physical
 acceptance was supplied or enabled. Their credentials and approvals must be

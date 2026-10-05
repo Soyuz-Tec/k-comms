@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
 import { MemberAreaLinks } from "../components/MemberAreaLinks";
 import { initials } from "../lib/format";
-import { canAccessAdmin, canOperate } from "../lib/roles";
+import { canAccessWorkspaceAdmin, canOperate } from "../lib/roles";
 import {
   CallSessionProvider,
   useCallSession
@@ -136,7 +136,7 @@ function ProductShellContent() {
     };
   }, []);
   if (!session) return null;
-  const showAdmin = canAccessAdmin(session.user.role);
+  const showAdmin = canAccessWorkspaceAdmin(session.user);
   const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
   const signOut = () => {
     teardownCall();

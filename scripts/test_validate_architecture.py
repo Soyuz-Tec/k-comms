@@ -1225,12 +1225,15 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Audit.Actor",
                 "CommsCore.Audit.Event",
                 "CommsCore.Audit.Error",
+                "CommsCore.Audit.ResourceHistoryQuery",
+                "CommsCore.Audit.ResourceHistoryPage",
             ],
         )
 
         allowed = {
             "apps/comms_core/lib/comms_core/audit.ex",
             "apps/comms_core/lib/comms_core/audit/audit_event.ex",
+            "apps/comms_core/lib/comms_core/audit/resource_history.ex",
         }
         offenders = []
         for path in sorted((root / "apps").glob("*/lib/**/*.ex")):
@@ -1254,6 +1257,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             content["public_contracts"],
             [
+                "CommsCore.Attachments.UsageProjection",
+                "CommsCore.Attachments.UsageQuery",
+                "CommsCore.Messaging.UsageProjection",
+                "CommsCore.Messaging.UsageQuery",
                 "CommsCore.Messaging.ActivityView",
                 "CommsCore.Messaging.DeliveryCursorView",
                 "CommsCore.Messaging.DraftView",
@@ -1840,6 +1847,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.EvictionProgress",
             "CommsCore.AudioCalls.ModerationTarget",
             "CommsCore.AudioCalls.ProviderCall",
+            "CommsCore.AudioCalls.UsageProjection",
+            "CommsCore.AudioCalls.UsageQuery",
         }
         internal_modules = {
             "CommsCore.AudioCalls.Access",
@@ -1865,6 +1874,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.Projector",
             "CommsCore.AudioCalls.ReleaseInventory",
             "CommsCore.AudioCalls.SessionListing",
+            "CommsCore.AudioCalls.UsageReports",
         }
 
         self.assertEqual(

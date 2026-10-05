@@ -54,6 +54,26 @@ defmodule CommsCore.Repo do
   end
 
   @doc false
+  @spec active_continuation_oban_job_count!(String.t()) :: non_neg_integer()
+  def active_continuation_oban_job_count!(worker_name)
+      when is_binary(worker_name) and worker_name != "" do
+    rows =
+      query!(
+        """
+        SELECT count(*)::bigint FROM oban_jobs
+        WHERE worker = $1 AND state::text = ANY($2::text[])
+          AND args @> '{"continue":true}'::jsonb
+        """,
+        [worker_name, ["available", "scheduled", "executing", "retryable"]]
+      ).rows
+
+    case rows do
+      [[count]] when is_integer(count) and count >= 0 -> count
+      _ -> raise "active Oban continuation count returned an invalid result"
+    end
+  end
+
+  @doc false
   @spec ensure_valid_concurrent_index!(String.t(), (-> term()), (-> term())) :: :ok
   def ensure_valid_concurrent_index!(index_name, drop_invalid, create_index)
       when is_binary(index_name) and is_function(drop_invalid, 0) and

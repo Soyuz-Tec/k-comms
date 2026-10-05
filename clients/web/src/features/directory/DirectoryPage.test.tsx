@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation, DirectoryPerson, PublicChannel } from "../../types";
+import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 import { DirectoryPage } from "./DirectoryPage";
 
 const person: DirectoryPerson = {
@@ -52,6 +53,10 @@ const harness = vi.hoisted(() => {
     discoverPublicChannels,
     joinPublicChannel,
     api: {
+      memberWorkspace: vi.fn(),
+      updateMemberWorkspace: vi.fn(),
+      updateOnboarding: vi.fn(),
+      createConversation: vi.fn(),
       directoryUsers,
       directConversation,
       discoverPublicChannels,
@@ -110,9 +115,9 @@ function LocationProbe() {
   return <output aria-label="location">{`${location.pathname}${location.search}`}</output>;
 }
 
-function renderDirectory() {
+function renderDirectory(path = "/app/directory") {
   return render(
-    <MemoryRouter initialEntries={["/app/directory"]}>
+    <MemoryRouter initialEntries={[path]}>
       <DirectoryPage />
       <LocationProbe />
     </MemoryRouter>
@@ -122,6 +127,7 @@ function renderDirectory() {
 describe("DirectoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    harness.api.memberWorkspace.mockResolvedValue(workspaceFixture());
     harness.userRole = "member";
     harness.allowAudioCalls = true;
     harness.allowVideoCalls = true;
@@ -377,5 +383,61 @@ describe("DirectoryPage", () => {
     expect(
       await screen.findByRole("link", { name: "Invite your first teammate" })
     ).toHaveAttribute("href", "/admin?section=people#admin-invitations");
+  });
+});
+
+
+describe("private contact communication", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    harness.userRole = "member";
+    harness.allowAudioCalls = true;
+    harness.allowVideoCalls = true;
+    harness.audioCallsAvailable = true;
+    harness.videoCallsAvailable = true;
+    harness.workspaceLoading = false;
+    harness.api.memberWorkspace.mockReset();
+    harness.api.createConversation.mockReset();
+    harness.launchCall.mockReturnValue(true);
+  });
+
+  const teammate = { id: "user-alan", display_name: "Alan Turing" };
+  const privateGroup = { id: "33333333-3333-4333-8333-333333333333", name: "Planning", member_ids: [person.id, teammate.id] };
+
+  it("uses the actual private group conversation response for a selected audio handoff", async () => {
+    const user = userEvent.setup();
+    const snapshot = workspaceFixture({ version: 4, contacts: [person, teammate], groups: [privateGroup] });
+    harness.api.memberWorkspace.mockResolvedValue(snapshot);
+    const returned = { ...room, id: "actual-owner-created-conversation", kind: "group" as const, visibility: "private" as const };
+    harness.api.createConversation.mockResolvedValue(returned);
+    renderDirectory("/app/directory?section=groups");
+    await user.click(await screen.findByRole("button", { name: "Audio call selected contacts in Planning" }));
+    await waitFor(() => expect(harness.launchCall).toHaveBeenCalledWith(returned, "audio"));
+    expect(harness.api.createConversation).toHaveBeenCalledWith({ title: "Planning", kind: "group", visibility: "private", member_ids: [person.id, teammate.id] });
+    expect(harness.setConversations).toHaveBeenCalled();
+  });
+
+  it("requires explicit review after the saved selection changes and creates no alternate group", async () => {
+    const user = userEvent.setup();
+    harness.api.memberWorkspace.mockResolvedValueOnce(workspaceFixture({ version: 4, contacts: [person, teammate], groups: [privateGroup] }))
+      .mockResolvedValue(workspaceFixture({ version: 5, contacts: [person], groups: [{ ...privateGroup, member_ids: [person.id] }] }));
+    renderDirectory("/app/directory?section=groups");
+    await user.click(await screen.findByRole("button", { name: "Message selected contacts in Planning" }));
+    await screen.findByText(/Contacts changed elsewhere\. Review the current selected people before starting\./);
+    expect(harness.api.createConversation).not.toHaveBeenCalled();
+    expect(harness.directConversation).not.toHaveBeenCalled();
+    expect(harness.launchCall).not.toHaveBeenCalled();
+    expect(screen.queryByText("Alan Turing")).not.toBeInTheDocument();
+  });
+
+  it("reuses the actual direct conversation for one selected contact and URL navigation", async () => {
+    const user = userEvent.setup();
+    harness.api.memberWorkspace.mockResolvedValue(workspaceFixture({ version: 4, contacts: [person], groups: [{ ...privateGroup, member_ids: [person.id] }] }));
+    harness.directConversation.mockResolvedValue({ data: { ...room, id: "actual-direct-contact", kind: "direct", visibility: "private" }, created: false });
+    renderDirectory("/app/directory?section=contacts");
+    await user.click(await screen.findByRole("button", { name: "Message Grace Hopper" }));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("/app/?conversation=actual-direct-contact"));
+    expect(harness.directConversation).toHaveBeenCalledWith(person.id);
+    expect(harness.api.createConversation).not.toHaveBeenCalled();
   });
 });

@@ -50,7 +50,9 @@ defmodule CommsCore.Conversations do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Conversations.AdmissionUsage.t()
+          CommsCore.Conversations.UsageQuery.t()
+          | CommsCore.Conversations.UsageProjection.t()
+          | CommsCore.Conversations.AdmissionUsage.t()
           | CommsCore.Conversations.CallConversation.t()
           | CommsCore.Conversations.CallLifecycleCommand.t()
           | CommsCore.Conversations.CallLifecycleReceipt.t()
@@ -485,4 +487,11 @@ defmodule CommsCore.Conversations do
   defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
   defp call_lifecycle_ok!(:ok), do: :ok
   defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.Conversations.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.Conversations.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject),
+    to: CommsCore.Conversations.UsageReports,
+    as: :project
 end

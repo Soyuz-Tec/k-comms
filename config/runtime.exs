@@ -658,6 +658,54 @@ if config_env() == :prod do
   public_app_uri = URI.parse(public_app_url)
   recovery_signing_key = System.fetch_env!("PASSWORD_RECOVERY_SIGNING_KEY")
 
+  governance_history_cursor_key =
+    case System.get_env("GOV_HISTORY_CURSOR_KEY") do
+      value when value in [nil, ""] -> nil
+      value when byte_size(value) >= 32 -> value
+      _ -> raise "GOV_HISTORY_CURSOR_KEY must contain at least 32 bytes when configured"
+    end
+
+  if governance_history_cursor_key do
+    materials = fn value ->
+      case Base.decode64(value) do
+        {:ok, decoded} when byte_size(decoded) == 32 -> [value, decoded]
+        _ -> [value]
+      end
+    end
+
+    history_materials = materials.(governance_history_cursor_key)
+
+    reused? =
+      System.get_env()
+      |> Enum.reject(fn {name, _value} -> name == "GOV_HISTORY_CURSOR_KEY" end)
+      |> Enum.filter(fn {name, _value} ->
+        name == "RELEASE_COOKIE" or
+          Regex.match?(~r/(SECRET|PASSWORD|TOKEN|SIGNING_KEY|ENCRYPTION_KEYS?)(?:$|_)/, name)
+      end)
+      |> Enum.flat_map(fn {name, value} ->
+        cond do
+          String.ends_with?(name, "_KEYS_JSON") ->
+            case Jason.decode(value) do
+              {:ok, keys} when is_map(keys) -> Enum.filter(Map.values(keys), &is_binary/1)
+              _ -> [value]
+            end
+
+          String.ends_with?(name, "_KEYS") ->
+            [
+              value
+              | Enum.map(String.split(value, ","), &List.last(String.split(&1, ":", parts: 2)))
+            ]
+
+          true ->
+            [value]
+        end
+      end)
+      |> Enum.flat_map(materials)
+      |> Enum.any?(&(&1 in history_materials))
+
+    if reused?, do: raise("GOV_HISTORY_CURSOR_KEY must use dedicated secret material")
+  end
+
   webhook_secret_encryption_key_id =
     System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY_ID", "primary")
 
@@ -801,6 +849,27 @@ if config_env() == :prod do
           set
       end
     )
+
+  # File-backed credentials are resolved after the environment-only check.
+  # Compare actual decoded keyrings and provider secrets too; file paths cannot
+  # establish that their loaded material is independent from history signing.
+  if governance_history_cursor_key do
+    history_materials =
+      case Base.decode64(governance_history_cursor_key) do
+        {:ok, decoded} -> MapSet.new([governance_history_cursor_key, decoded])
+        _ -> MapSet.new([governance_history_cursor_key])
+      end
+
+    other_materials =
+      Enum.reduce(
+        [identity_materials, webhook_materials, push_materials],
+        shared_secret_materials,
+        &MapSet.union/2
+      )
+
+    unless MapSet.disjoint?(history_materials, other_materials),
+      do: raise("GOV_HISTORY_CURSOR_KEY must use dedicated secret material")
+  end
 
   for {name, materials} <- [
         {"identity", identity_materials},
@@ -1060,6 +1129,7 @@ if config_env() == :prod do
     session_absolute_ttl_seconds:
       String.to_integer(System.get_env("SESSION_ABSOLUTE_TTL_SECONDS", "2592000")),
     password_recovery_signing_key: recovery_signing_key,
+    governance_history_cursor_key: governance_history_cursor_key,
     password_recovery_ttl_seconds:
       String.to_integer(System.get_env("PASSWORD_RECOVERY_TTL_SECONDS", "1800")),
     password_recovery_retention_seconds:

@@ -6375,6 +6375,558 @@ paths:
               maxProperties: 0
       description: Reconcile an unknown ARI control using authoritative provider state for the same current owner, call, device, and session. DTMF and REFER operations reject reconciliation and are never resent. An unknown provider
         result stays unknown.
+  /api/v1/me/workspace:
+    get:
+      tags:
+      - Users
+      operationId: getMemberWorkspace
+      security:
+      - bearerAuth: []
+      description: Current active workspace human private contacts, groups and onboarding. Guests, services and conversation-only
+        users are denied. No-store.
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberWorkspaceResponse'
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - Users
+      operationId: replaceMemberWorkspace
+      security:
+      - bearerAuth: []
+      description: Replace the initiating current workspace human private contacts and groups using the observed version.
+        No resource access is granted. Stale version or unavailable current contacts returns 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceMemberWorkspaceRequest'
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberWorkspaceResponse'
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/me/onboarding:
+    patch:
+      tags:
+      - Users
+      operationId: updateMemberOnboarding
+      security:
+      - bearerAuth: []
+      description: Versioned dismiss, resume or reset for the current workspace human. Reset clears guide dismissal
+        and profile review; profile review itself requires successful profile update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberOnboardingRequest'
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberWorkspaceResponse'
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/role-permissions:
+    get:
+      tags:
+      - Administration
+      operationId: listFixedRolePermissions
+      security:
+      - bearerAuth: []
+      description: Current workspace human owner/admin reads six fixed tenant roles and eligibility conditions. This
+        catalog grants no resource or platform permissions and does not define custom roles.
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FixedRolePermissionResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/users/{userId}/role-preview:
+    parameters:
+    - name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      tags:
+      - Administration
+      operationId: previewUserRoleChange
+      security:
+      - bearerAuth: []
+      description: Current workspace human owner/admin with recent step-up inspects advisory fixed-role impact for
+        an exact same-tenant human target and positive current version. It performs no role mutation. Policy and eligible
+        last-owner blockers remain advisory; the governed update revalidates them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewUserRoleRequest'
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRoleChangePreviewResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/usage:
+    get:
+      tags:
+      - Administration
+      operationId: getUsageReport
+      security:
+      - bearerAuth: []
+      description: Current workspace human owner/admin with recent step-up reads independently observed aggregates
+        from six owners over currently retained records. Inclusive UTC range is at most 31 days, through cannot be
+        future. A failed source returns unavailable with null data; authorization failure denies the whole report.
+        No content or individual identifiers are returned.
+      parameters:
+      - name: from
+        in: query
+        required: false
+        description: Inclusive UTC date. Defaults to 29 days before through.
+        schema:
+          type: string
+          format: date
+      - name: through
+        in: query
+        required: false
+        description: Inclusive UTC date. Defaults to today; future dates are rejected. Range must cover 1 to 31 days.
+          Only from and through are accepted.
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReportResponse'
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: private, no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/usage/export:
+    get:
+      tags:
+      - Administration
+      operationId: exportUsageReport
+      security:
+      - bearerAuth: []
+      description: 'Same current role, workspace access, recent proof and inclusive UTC range as JSON. CSV columns:
+        source,status,date,metric,value,observed_at,earliest_retained_at,coverage,range_from,range_through,time_zone.
+        At most 5000 rows; all cells are quoted and formula-prefixed text is neutralized. Unavailable sources have
+        one row with blank metric/value. Current metrics use date=current. Rows reflect retained records only, not
+        billing or lifetime totals.'
+      parameters:
+      - name: from
+        in: query
+        required: false
+        description: Inclusive UTC date. Defaults to 29 days before through.
+        schema:
+          type: string
+          format: date
+      - name: through
+        in: query
+        required: false
+        description: Inclusive UTC date. Defaults to today; future dates are rejected. Range must cover 1 to 31 days.
+          Only from and through are accepted.
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: 'Same current role, workspace access, recent proof and inclusive UTC range as JSON. CSV columns:
+            source,status,date,metric,value,observed_at,earliest_retained_at,coverage,range_from,range_through,time_zone.
+            At most 5000 rows; all cells are quoted and formula-prefixed text is neutralized. Unavailable sources
+            have one row with blank metric/value. Current metrics use date=current. Rows reflect retained records
+            only, not billing or lifetime totals.'
+          content:
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Cache-Control:
+              required: true
+              description: Private export is never cached.
+              schema:
+                const: private, no-store
+            Content-Disposition:
+              required: true
+              description: attachment; filename="usage-<from>-<through>.csv"
+              schema:
+                type: string
+            x-usage-from:
+              required: true
+              description: Inclusive UTC range start.
+              schema:
+                type: string
+                format: date
+            x-usage-through:
+              required: true
+              description: Inclusive UTC range end.
+              schema:
+                type: string
+                format: date
+            x-usage-time-zone:
+              required: true
+              description: Report bucket time zone.
+              schema:
+                const: UTC
+            x-usage-observed-at:
+              required: true
+              description: Report observation timestamp.
+              schema:
+                type: string
+                format: date-time
+            x-usage-unavailable-sources:
+              required: true
+              description: Number of unavailable canonical sources; these are not zero measurements.
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 6
+          x-csv-columns:
+          - source
+          - status
+          - date
+          - metric
+          - value
+          - observed_at
+          - earliest_retained_at
+          - coverage
+          - range_from
+          - range_through
+          - time_zone
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/deletion-requests/{requestId}/timeline:
+    parameters:
+    - name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      tags:
+      - Governance
+      operationId: getDeletionRequestTimeline
+      security:
+      - bearerAuth: []
+      description: Current workspace human owner/compliance_admin with recent step-up reads chronological retained
+        lifecycle facts for this same-tenant request. First page may supply snapshot; subsequent pages supply cursor
+        alone. Cursor and snapshot are mutually exclusive, cursor limit must match its signed limit. Invalid, foreign,
+        expired or missing snapshots return 422; signing/storage unavailability returns 503. Retained coverage and
+        unproven version lineage remain explicit.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: Page rows; when using a cursor the limit must equal its signed page limit.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 25
+      - name: cursor
+        in: query
+        required: false
+        description: Opaque next page position; cannot accompany snapshot.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+          pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+          description: Opaque one-hour signed position bound to the current tenant, exact deletion request and retained
+            Audit snapshot. A snapshot is not a cursor; neither grants access.
+      - name: snapshot
+        in: query
+        required: false
+        description: Opaque retained source snapshot for the first page; cannot accompany cursor.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+          pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+          description: Opaque one-hour signed position bound to the current tenant, exact deletion request and retained
+            Audit snapshot. A snapshot is not a cursor; neither grants access.
+      responses:
+        '200':
+          description: Current authorized projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionRequestTimelineResponse'
+          headers:
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                const: no-store
+            Pragma:
+              required: true
+              schema:
+                const: no-cache
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/deletion-requests/{requestId}/timeline/export:
+    parameters:
+    - name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      tags:
+      - Governance
+      operationId: exportDeletionRequestHistory
+      security:
+      - bearerAuth: []
+      description: 'Same current workspace human owner/compliance_admin, recent proof and exact request authority
+        as timeline. CSV columns: inserted_at,actor_user_id,actor_kind,actor,action,status,attempt,error_code,version,proof_versions,counts.
+        Optional snapshot preserves captured retained sources; cursors are rejected. At most 5000 data rows; explicit
+        count/truncation/coverage/snapshot receipt headers accompany every success. Formula-leading cells are neutralized.
+        Arbitrary Audit metadata and raw provider errors/evidence are excluded; retained coverage is not complete
+        transition lineage.'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: Maximum returned data rows; truncation remains explicit.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5000
+          default: 5000
+      - name: snapshot
+        in: query
+        required: false
+        description: Optional exact retained source snapshot; no cursor is accepted.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 12000
+          pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+          description: Opaque one-hour signed position bound to the current tenant, exact deletion request and retained
+            Audit snapshot. A snapshot is not a cursor; neither grants access.
+      responses:
+        '200':
+          description: 'Same current workspace human owner/compliance_admin, recent proof and exact request authority
+            as timeline. CSV columns: inserted_at,actor_user_id,actor_kind,actor,action,status,attempt,error_code,version,proof_versions,counts.
+            Optional snapshot preserves captured retained sources; cursors are rejected. At most 5000 data rows; explicit
+            count/truncation/coverage/snapshot receipt headers accompany every success. Formula-leading cells are
+            neutralized. Arbitrary Audit metadata and raw provider errors/evidence are excluded; retained coverage
+            is not complete transition lineage.'
+          content:
+            text/csv:
+              schema:
+                type: string
+          headers:
+            Cache-Control:
+              required: true
+              description: Private history is never cached.
+              schema:
+                const: no-store
+            Pragma:
+              required: true
+              description: Private history cache protection.
+              schema:
+                const: no-cache
+            Content-Disposition:
+              required: true
+              description: Fixed download filename.
+              schema:
+                const: attachment; filename="deletion-request-history.csv"
+            x-export-row-count:
+              required: true
+              description: Returned data rows, excluding CSV header.
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 5000
+            x-export-truncated:
+              required: true
+              description: More rows exist or the captured snapshot exceeded its bound.
+              schema:
+                type: boolean
+            x-export-maximum-rows:
+              required: true
+              description: Absolute export row bound.
+              schema:
+                const: 5000
+            x-history-snapshot:
+              required: true
+              description: Exact snapshot available for the same retained-source export.
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 12000
+                pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+                description: Opaque one-hour signed position bound to the current tenant, exact deletion request and
+                  retained Audit snapshot. A snapshot is not a cursor; neither grants access.
+            x-history-coverage:
+              required: true
+              description: Retained-source coverage; no complete-version-lineage claim.
+              schema:
+                enum:
+                - available
+                - partial
+                - unavailable
+            x-history-retained-only:
+              required: true
+              description: Export represents retained sources only.
+              schema:
+                const: 'true'
+            x-history-observed-at:
+              required: true
+              description: Current authorized export observation timestamp.
+              schema:
+                type: string
+                format: date-time
+          x-csv-columns:
+          - inserted_at
+          - actor_user_id
+          - actor_kind
+          - actor
+          - action
+          - status
+          - attempt
+          - error_code
+          - version
+          - proof_versions
+          - counts
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -10746,3 +11298,1431 @@ components:
           - active
           - suspended
           - deleted
+    PrivateContact:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - display_name
+      properties:
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+    PrivateContactGroup:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - member_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Normalized trimmed group name; groups grant no workspace or conversation access.
+        member_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 0
+          maxItems: 50
+          uniqueItems: true
+    MemberWorkspaceOnboarding:
+      type: object
+      additionalProperties: false
+      required:
+      - dismissed_at
+      - profile_reviewed_at
+      - active_devices
+      - has_teammates
+      properties:
+        dismissed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        profile_reviewed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        active_devices:
+          type: integer
+          minimum: 0
+        has_teammates:
+          type: boolean
+    MemberWorkspaceLimits:
+      type: object
+      additionalProperties: false
+      required:
+      - contacts
+      - groups
+      - members_per_group
+      properties:
+        contacts:
+          const: 500
+        groups:
+          const: 20
+        members_per_group:
+          const: 50
+    MemberWorkspace:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - contacts
+      - groups
+      - onboarding
+      - limits
+      - observed_at
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        contacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrivateContact'
+          minItems: 0
+          maxItems: 500
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrivateContactGroup'
+          minItems: 0
+          maxItems: 20
+        onboarding:
+          $ref: '#/components/schemas/MemberWorkspaceOnboarding'
+        limits:
+          $ref: '#/components/schemas/MemberWorkspaceLimits'
+        observed_at:
+          type: string
+          format: date-time
+      description: Current actor private organization. Version zero means no persisted record. Contacts are current
+        eligible workspace humans; unavailable IDs are omitted and private groups grant no authority.
+    ReplaceMemberWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - contact_ids
+      - groups
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        contact_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 0
+          maxItems: 500
+          uniqueItems: true
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrivateContactGroup'
+          minItems: 0
+          maxItems: 20
+      description: Complete replacement with the observed version, including zero for initial creation. Group IDs must
+        be unique and every group member must occur in contact_ids. Unavailable or foreign people cause contact_unavailable;
+        stale versions conflict.
+    UpdateMemberOnboardingRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - action
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        action:
+          type: string
+          enum:
+          - dismiss
+          - resume
+          - reset
+      description: Dismiss or resume the guide, or reset both dismissed_at and profile_reviewed_at. Profile review is
+        marked only by a successful profile update, not by this action.
+    MemberWorkspaceResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/MemberWorkspace'
+    FixedTenantRole:
+      type: string
+      enum:
+      - member
+      - moderator
+      - admin
+      - compliance_admin
+      - security_admin
+      - owner
+    RoleCapabilityFact:
+      type: object
+      additionalProperties: false
+      required:
+      - capability
+      - scope
+      - conditions
+      properties:
+        capability:
+          type: string
+          enum:
+          - administer_users
+          - manage_user_lifecycle
+          - manage_sessions
+          - manage_tenant_settings
+          - manage_invitations
+          - audit_tenant
+          - govern_tenant
+        scope:
+          const: tenant
+        conditions:
+          type: array
+          items:
+            type: string
+            enum:
+            - active_tenant
+            - active_identity
+            - current_session
+            - recent_step_up
+            - workspace_access
+          minItems: 4
+          maxItems: 5
+          uniqueItems: true
+          allOf:
+          - contains:
+              const: active_tenant
+          - contains:
+              const: active_identity
+          - contains:
+              const: current_session
+          - contains:
+              const: workspace_access
+      description: Fixed-role eligibility, not a resource grant. Actual owner operations still require each listed current
+        condition; no platform role is included.
+    FixedRolePermission:
+      type: object
+      additionalProperties: false
+      required:
+      - role
+      - capabilities
+      properties:
+        role:
+          $ref: '#/components/schemas/FixedTenantRole'
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleCapabilityFact'
+          minItems: 0
+          maxItems: 7
+          uniqueItems: true
+    FixedRolePermissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FixedRolePermission'
+          minItems: 6
+          maxItems: 6
+          allOf:
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: member
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: moderator
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: admin
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: compliance_admin
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: security_admin
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+          - contains:
+              type: object
+              properties:
+                role:
+                  const: owner
+              required:
+              - role
+            minContains: 1
+            maxContains: 1
+    PreviewUserRoleRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - role
+      - version
+      properties:
+        role:
+          $ref: '#/components/schemas/FixedTenantRole'
+        version:
+          oneOf:
+          - type: integer
+            minimum: 1
+          - type: string
+            pattern: ^\+?0*[1-9][0-9]*$
+          description: Current positive target version. The owner also accepts a complete positive decimal string.
+    UserRoleChangePreview:
+      type: object
+      additionalProperties: false
+      required:
+      - target_id
+      - current_role
+      - requested_role
+      - current_version
+      - target_status
+      - target_access_scope
+      - role_policy_allows
+      - blockers
+      - added
+      - removed
+      - advisory
+      - scope
+      - governance_review_required
+      properties:
+        target_id:
+          type: string
+          format: uuid
+        current_role:
+          $ref: '#/components/schemas/FixedTenantRole'
+        requested_role:
+          $ref: '#/components/schemas/FixedTenantRole'
+        current_version:
+          type: integer
+          minimum: 1
+        target_status:
+          type: string
+          enum:
+          - active
+          - suspended
+        target_access_scope:
+          type: string
+          enum:
+          - workspace
+          - conversation_only
+        role_policy_allows:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            type: string
+            enum:
+            - forbidden
+            - last_owner_required
+          minItems: 0
+          maxItems: 2
+          uniqueItems: true
+        added:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleCapabilityFact'
+          minItems: 0
+          maxItems: 7
+          uniqueItems: true
+        removed:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleCapabilityFact'
+          minItems: 0
+          maxItems: 7
+          uniqueItems: true
+        advisory:
+          const: true
+        scope:
+          const: tenant
+        governance_review_required:
+          const: true
+      description: Read-only advisory snapshot. A successful preview neither changes a role nor reserves permission;
+        the governed user mutation must independently revalidate the current version, actor policy, eligible last owner,
+        access scope and recent proof.
+    UserRoleChangePreviewResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/UserRoleChangePreview'
+    UsageIdentityCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - active_humans
+      - active_services
+      properties:
+        active_humans:
+          type: integer
+          minimum: 0
+        active_services:
+          type: integer
+          minimum: 0
+    UsageIdentityDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - humans_created
+      - services_created
+      properties:
+        humans_created:
+          type: integer
+          minimum: 0
+        services_created:
+          type: integer
+          minimum: 0
+    UsageIdentityDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageIdentityDailyMetrics'
+    UsageIdentityProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageIdentityCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageIdentityDay'
+          minItems: 1
+          maxItems: 31
+    UsageIdentitySource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageIdentityProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageConversationsCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - active_conversations
+      properties:
+        active_conversations:
+          type: integer
+          minimum: 0
+    UsageConversationsDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - direct_created
+      - group_created
+      - channel_created
+      properties:
+        direct_created:
+          type: integer
+          minimum: 0
+        group_created:
+          type: integer
+          minimum: 0
+        channel_created:
+          type: integer
+          minimum: 0
+    UsageConversationsDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageConversationsDailyMetrics'
+    UsageConversationsProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageConversationsCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageConversationsDay'
+          minItems: 1
+          maxItems: 31
+    UsageConversationsSource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageConversationsProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageMessagesCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - retained_messages
+      properties:
+        retained_messages:
+          type: integer
+          minimum: 0
+    UsageMessagesDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - created
+      - current_active
+      - current_deleted
+      - current_moderated
+      properties:
+        created:
+          type: integer
+          minimum: 0
+        current_active:
+          type: integer
+          minimum: 0
+        current_deleted:
+          type: integer
+          minimum: 0
+        current_moderated:
+          type: integer
+          minimum: 0
+    UsageMessagesDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageMessagesDailyMetrics'
+    UsageMessagesProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageMessagesCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageMessagesDay'
+          minItems: 1
+          maxItems: 31
+    UsageMessagesSource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageMessagesProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageAttachmentsCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - ready_retained_count
+      - ready_retained_bytes
+      properties:
+        ready_retained_count:
+          type: integer
+          minimum: 0
+        ready_retained_bytes:
+          type: integer
+          minimum: 0
+    UsageAttachmentsDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - created
+      - ready_count
+      - ready_bytes
+      properties:
+        created:
+          type: integer
+          minimum: 0
+        ready_count:
+          type: integer
+          minimum: 0
+        ready_bytes:
+          type: integer
+          minimum: 0
+    UsageAttachmentsDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageAttachmentsDailyMetrics'
+    UsageAttachmentsProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageAttachmentsCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageAttachmentsDay'
+          minItems: 1
+          maxItems: 31
+    UsageAttachmentsSource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageAttachmentsProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageCallsCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - current_active
+      - current_ending
+      properties:
+        current_active:
+          type: integer
+          minimum: 0
+        current_ending:
+          type: integer
+          minimum: 0
+    UsageCallsDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - started
+      - audio_started
+      - video_started
+      - status_active
+      - status_ending
+      - status_ended
+      - observed_room_seconds
+      properties:
+        started:
+          type: integer
+          minimum: 0
+        audio_started:
+          type: integer
+          minimum: 0
+        video_started:
+          type: integer
+          minimum: 0
+        status_active:
+          type: integer
+          minimum: 0
+        status_ending:
+          type: integer
+          minimum: 0
+        status_ended:
+          type: integer
+          minimum: 0
+        observed_room_seconds:
+          type: integer
+          minimum: 0
+    UsageCallsDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageCallsDailyMetrics'
+    UsageCallsProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageCallsCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageCallsDay'
+          minItems: 1
+          maxItems: 31
+    UsageCallsSource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageCallsProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageTelephonyCurrent:
+      type: object
+      additionalProperties: false
+      required:
+      - current_ringing
+      - current_answered
+      properties:
+        current_ringing:
+          type: integer
+          minimum: 0
+        current_answered:
+          type: integer
+          minimum: 0
+    UsageTelephonyDailyMetrics:
+      type: object
+      additionalProperties: false
+      required:
+      - started
+      - inbound_started
+      - outbound_started
+      - status_ringing
+      - status_answered
+      - status_declined
+      - status_no_answer
+      - status_cancelled
+      - status_failed
+      - status_ended
+      - status_busy
+      - observed_answered_seconds
+      properties:
+        started:
+          type: integer
+          minimum: 0
+        inbound_started:
+          type: integer
+          minimum: 0
+        outbound_started:
+          type: integer
+          minimum: 0
+        status_ringing:
+          type: integer
+          minimum: 0
+        status_answered:
+          type: integer
+          minimum: 0
+        status_declined:
+          type: integer
+          minimum: 0
+        status_no_answer:
+          type: integer
+          minimum: 0
+        status_cancelled:
+          type: integer
+          minimum: 0
+        status_failed:
+          type: integer
+          minimum: 0
+        status_ended:
+          type: integer
+          minimum: 0
+        status_busy:
+          type: integer
+          minimum: 0
+        observed_answered_seconds:
+          type: integer
+          minimum: 0
+    UsageTelephonyDay:
+      type: object
+      additionalProperties: false
+      required:
+      - date
+      - metrics
+      properties:
+        date:
+          type: string
+          format: date
+        metrics:
+          $ref: '#/components/schemas/UsageTelephonyDailyMetrics'
+    UsageTelephonyProjection:
+      type: object
+      additionalProperties: false
+      required:
+      - observed_at
+      - earliest_retained_at
+      - current
+      - daily
+      properties:
+        observed_at:
+          type: string
+          format: date-time
+        earliest_retained_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        current:
+          $ref: '#/components/schemas/UsageTelephonyCurrent'
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageTelephonyDay'
+          minItems: 1
+          maxItems: 31
+    UsageTelephonySource:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: available
+          data:
+            $ref: '#/components/schemas/UsageTelephonyProjection'
+      - type: object
+        additionalProperties: false
+        required:
+        - status
+        - data
+        properties:
+          status:
+            const: unavailable
+          data:
+            type: 'null'
+    UsageReportRange:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - through
+      - time_zone
+      properties:
+        from:
+          type: string
+          format: date
+        through:
+          type: string
+          format: date
+        time_zone:
+          const: UTC
+    UsageReportSources:
+      type: object
+      additionalProperties: false
+      required:
+      - identity
+      - conversations
+      - messages
+      - attachments
+      - calls
+      - telephony
+      properties:
+        identity:
+          $ref: '#/components/schemas/UsageIdentitySource'
+        conversations:
+          $ref: '#/components/schemas/UsageConversationsSource'
+        messages:
+          $ref: '#/components/schemas/UsageMessagesSource'
+        attachments:
+          $ref: '#/components/schemas/UsageAttachmentsSource'
+        calls:
+          $ref: '#/components/schemas/UsageCallsSource'
+        telephony:
+          $ref: '#/components/schemas/UsageTelephonySource'
+    UsageReport:
+      type: object
+      additionalProperties: false
+      required:
+      - range
+      - observed_at
+      - coverage
+      - lifetime_complete
+      - sources
+      properties:
+        range:
+          $ref: '#/components/schemas/UsageReportRange'
+        observed_at:
+          type: string
+          format: date-time
+        coverage:
+          const: currently_retained_records
+        lifetime_complete:
+          const: false
+        sources:
+          $ref: '#/components/schemas/UsageReportSources'
+      description: Current retained-record aggregates and inclusive UTC daily buckets, not billing, participant-minutes,
+        historic activity or lifetime-complete totals. Independent source failure is unavailable with null data; it
+        is never a zero. Room/answered seconds are observed interval overlaps clipped to each UTC day, expiry and observation
+        time.
+    UsageReportResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/UsageReport'
+    DeletionHistoryProofVersions:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        derived_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        media_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        meeting_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        writer_fence_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+    DeletionHistoryCounts:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        messages_tombstoned:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        attachments_deleted:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        deleted_object_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+    DeletionHistoryEvidence:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        derived_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        media_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        meeting_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        writer_fence_erasure_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        messages_tombstoned:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        attachments_deleted:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        deleted_object_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+    DeletionHistoryActor:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - user_id
+      - display_name
+      properties:
+        kind:
+          type: string
+          enum:
+          - user
+          - system
+          - unavailable
+        user_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        display_name:
+          type:
+          - string
+          - 'null'
+      allOf:
+      - if:
+          properties:
+            kind:
+              const: user
+          required:
+          - kind
+        then:
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            display_name:
+              type: string
+        else:
+          properties:
+            user_id:
+              type: 'null'
+            display_name:
+              type: 'null'
+    DeletionHistoryEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - actor
+      - inserted_at
+      - action
+      - status
+      - attempt
+      - error_code
+      - version
+      - proof_versions
+      - counts
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor:
+          $ref: '#/components/schemas/DeletionHistoryActor'
+        inserted_at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          enum:
+          - deletion_request.create
+          - deletion_request.approved
+          - deletion_request.rejected
+          - deletion_request.cancelled
+          - deletion_request.claim
+          - deletion_request.failure
+          - deletion_request.writer_fence_repair_queued
+          - deletion_request.completed
+          - deletion_request.derived_content_repaired
+        status:
+          enum:
+          - pending
+          - approved
+          - in_progress
+          - completed
+          - rejected
+          - cancelled
+          - null
+        attempt:
+          type:
+          - integer
+          - 'null'
+          minimum: 0
+          maximum: 9007199254740991
+        error_code:
+          enum:
+          - provider_failure
+          - verification_pending
+          - unavailable
+          - null
+        version:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          maximum: 9007199254740991
+        proof_versions:
+          $ref: '#/components/schemas/DeletionHistoryProofVersions'
+        counts:
+          $ref: '#/components/schemas/DeletionHistoryCounts'
+    DeletionHistoryRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - requested_by_user_id
+      - subject_user_id
+      - conversation_id
+      - message_id
+      - target_type
+      - reason
+      - status
+      - scheduled_for
+      - completed_at
+      - execution_started_at
+      - execution_attempts
+      - execution_error
+      - evidence
+      - version
+      - inserted_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        requested_by_user_id:
+          type: string
+          format: uuid
+        subject_user_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        conversation_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        message_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        target_type:
+          type: string
+          enum:
+          - user
+          - conversation
+          - message
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 4000
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - in_progress
+          - completed
+          - rejected
+          - cancelled
+        scheduled_for:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        completed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        execution_started_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        execution_attempts:
+          type: integer
+          minimum: 0
+        execution_error:
+          enum:
+          - provider_failure
+          - verification_pending
+          - unavailable
+          - null
+        evidence:
+          $ref: '#/components/schemas/DeletionHistoryEvidence'
+        version:
+          type: integer
+          minimum: 1
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DeletionHistoryCoverage:
+      type: object
+      additionalProperties: false
+      required:
+      - state
+      - retained_only
+      - version_lineage
+      - origin_present
+      - earliest_at
+      - snapshot_truncated
+      - captured_count
+      - retained_count
+      - maximum_events
+      properties:
+        state:
+          type: string
+          enum:
+          - available
+          - partial
+          - unavailable
+        retained_only:
+          const: true
+        version_lineage:
+          const: unproven
+        origin_present:
+          type: boolean
+        earliest_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        snapshot_truncated:
+          type: boolean
+        captured_count:
+          type: integer
+          minimum: 0
+          maximum: 5000
+        retained_count:
+          type: integer
+          minimum: 0
+          maximum: 5000
+        maximum_events:
+          const: 5000
+    DeletionRequestTimeline:
+      type: object
+      additionalProperties: false
+      required:
+      - request
+      - events
+      - limit
+      - next_cursor
+      - snapshot
+      - observed_at
+      - snapshot_observed_at
+      - coverage
+      properties:
+        request:
+          $ref: '#/components/schemas/DeletionHistoryRequest'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeletionHistoryEvent'
+          minItems: 0
+          maxItems: 50
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 12000
+          pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+          description: Opaque one-hour signed position bound to the current tenant, exact deletion request and retained
+            Audit snapshot. A snapshot is not a cursor; neither grants access.
+        snapshot:
+          type: string
+          minLength: 1
+          maxLength: 12000
+          pattern: ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$
+          description: Opaque one-hour signed position bound to the current tenant, exact deletion request and retained
+            Audit snapshot. A snapshot is not a cursor; neither grants access.
+        observed_at:
+          type: string
+          format: date-time
+        snapshot_observed_at:
+          type: string
+          format: date-time
+        coverage:
+          $ref: '#/components/schemas/DeletionHistoryCoverage'
+      description: Chronological retained lifecycle facts ordered by timestamp then event UUID. Coverage describes captured/retained
+        sources, not proof of complete transition lineage. Request state and actor labels are current authorized projections;
+        arbitrary Audit metadata, worker errors and raw evidence are excluded.
+    DeletionRequestTimelineResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/DeletionRequestTimeline'

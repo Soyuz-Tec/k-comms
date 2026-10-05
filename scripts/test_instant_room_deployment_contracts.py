@@ -21,7 +21,9 @@ ROLLBACK_CAPABILITIES = (
     "uc_voicemail_lifecycle_v1,"
     "uc_advanced_telephony_v1,"
     "scheduled_meeting_lifecycle_v1,"
-    "rich_content_erasure_v1"
+    "rich_content_erasure_v1,"
+    "member_workspace_v1,"
+    "governance_history_v1"
 )
 LIFECYCLE_VALUES = {
     "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS": "3600",

@@ -36,7 +36,6 @@ import { UnifiedSearchPanel } from "./UnifiedSearchPanel";
 import { ThreadDrawer } from "./ThreadDrawer";
 import { ConversationShareDialog } from "../guest/ConversationShareDialog";
 import {
-  readOnboardingPreference,
   safeCallKind,
   safePositiveInteger,
   safeUuid
@@ -58,6 +57,8 @@ import {
 import { useActiveConversationCalls } from "./useActiveConversationCalls";
 import { useConversationFeed } from "./useConversationFeed";
 import { useConversationMembers } from "./useConversationMembers";
+import { useMemberWorkspace } from "../member-workspace/useMemberWorkspace";
+import { SetupGuide } from "../member-workspace/SetupGuide";
 import "./ChatPage.css";
 
 interface FocusTarget {
@@ -94,7 +95,7 @@ export function ChatPage() {
     startDirectConversation,
     refreshConversations
   } = useWorkspaceData();
-  const onboardingStorageKey = session ? `k-comms:onboarding:${session.tenant.id}:${session.user.id}` : "k-comms:onboarding:anonymous";
+  const memberWorkspace = useMemberWorkspace();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedConversationId = searchParams.get("conversation");
   const linkedMessageId = safeUuid(searchParams.get("message"));
@@ -153,7 +154,7 @@ export function ChatPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
-  const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
+
   const [directStartingUserId, setDirectStartingUserId] = useState<string | null>(null);
   const activeCallConversationIds = useActiveConversationCalls(api);
   const forceScrollToLatestRef = useRef(true);
@@ -576,7 +577,7 @@ export function ChatPage() {
     humanTeammates.length === 0 &&
     inactiveHumanTeammates.length > 0;
   const showOnboardingSpotlight =
-    showOnboarding &&
+    memberWorkspace.data?.onboarding.dismissed_at === null &&
     (needsFirstTeammate || needsTeammateAccessReview || conversations.length === 0);
   const callGuidance = capabilities
     ? callAvailabilityGuidance({
@@ -588,8 +589,7 @@ export function ChatPage() {
     : null;
 
   function dismissOnboarding() {
-    try { window.localStorage.setItem(onboardingStorageKey, "dismissed"); } catch { /* Private or constrained storage must not block dismissal. */ }
-    setShowOnboarding(false);
+    void memberWorkspace.onboarding("dismiss");
   }
 
   return (
@@ -618,6 +618,7 @@ export function ChatPage() {
         showBrowseChannels={showBrowseChannels}
         showCreateConversation={showCreateConversation}
         showOnboardingSpotlight={showOnboardingSpotlight}
+        setupGuide={<SetupGuide key={memberWorkspace.identity} controller={memberWorkspace} />}
         showSearch={showSearch}
         needsFirstTeammate={needsFirstTeammate}
         needsTeammateAccessReview={needsTeammateAccessReview}

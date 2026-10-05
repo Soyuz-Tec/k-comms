@@ -1,4 +1,4 @@
-import type { AccountSession, Conversation, DataResponse, Device, DirectConversationResponse, DirectoryPeoplePage, ListResponse, MeResponse, Session, User } from "../../types";
+import type { AccountSession, Conversation, DataResponse, Device, DirectConversationResponse, DirectoryPeoplePage, ListResponse, MeResponse, MemberWorkspace, MemberWorkspaceInput, OnboardingAction, Session, User } from "../../types";
 import type { ApiRequest, BootstrapInput, LoginInput } from "../contracts";
 import type { LoginResult } from "../../types/enterpriseIdentity";
 
@@ -57,6 +57,22 @@ export function createAccountsApi(
     me(): Promise<MeResponse> {
         return request("/api/v1/me");
       },
+
+    memberWorkspace(): Promise<MemberWorkspace> {
+      return request<DataResponse<MemberWorkspace>>("/api/v1/me/workspace").then((response) => response.data);
+    },
+
+    updateMemberWorkspace(input: MemberWorkspaceInput): Promise<MemberWorkspace> {
+      return request<DataResponse<MemberWorkspace>>("/api/v1/me/workspace", {
+        method: "PUT", body: JSON.stringify(input)
+      }).then((response) => response.data);
+    },
+
+    updateOnboarding(input: { version: number; action: OnboardingAction }): Promise<MemberWorkspace> {
+      return request<DataResponse<MemberWorkspace>>("/api/v1/me/onboarding", {
+        method: "PATCH", body: JSON.stringify(input)
+      }).then((response) => response.data);
+    },
 
     updateProfile(input: { display_name: string; avatar_url?: string | null; timezone?: string }): Promise<User> {
         return request<DataResponse<User>>("/api/v1/me/profile", {

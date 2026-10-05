@@ -1,0 +1,931 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/usage-report.v1.json",
+  "title": "usage-report.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/UsageReportResponse"
+    }
+  ],
+  "$defs": {
+    "UsageIdentityCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_humans",
+        "active_services"
+      ],
+      "properties": {
+        "active_humans": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active_services": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageIdentityDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "humans_created",
+        "services_created"
+      ],
+      "properties": {
+        "humans_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "services_created": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageIdentityDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageIdentityDailyMetrics"
+        }
+      }
+    },
+    "UsageIdentityProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageIdentityCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageIdentityDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageIdentitySource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageIdentityProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageConversationsCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_conversations"
+      ],
+      "properties": {
+        "active_conversations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageConversationsDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direct_created",
+        "group_created",
+        "channel_created"
+      ],
+      "properties": {
+        "direct_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "group_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "channel_created": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageConversationsDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageConversationsDailyMetrics"
+        }
+      }
+    },
+    "UsageConversationsProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageConversationsCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageConversationsDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageConversationsSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageConversationsProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageMessagesCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retained_messages"
+      ],
+      "properties": {
+        "retained_messages": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageMessagesDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created",
+        "current_active",
+        "current_deleted",
+        "current_moderated"
+      ],
+      "properties": {
+        "created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_deleted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_moderated": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageMessagesDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageMessagesDailyMetrics"
+        }
+      }
+    },
+    "UsageMessagesProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageMessagesCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageMessagesDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageMessagesSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageMessagesProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageAttachmentsCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready_retained_count",
+        "ready_retained_bytes"
+      ],
+      "properties": {
+        "ready_retained_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ready_retained_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageAttachmentsDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created",
+        "ready_count",
+        "ready_bytes"
+      ],
+      "properties": {
+        "created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ready_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ready_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageAttachmentsDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageAttachmentsDailyMetrics"
+        }
+      }
+    },
+    "UsageAttachmentsProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageAttachmentsCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageAttachmentsDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageAttachmentsSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageAttachmentsProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageCallsCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_active",
+        "current_ending"
+      ],
+      "properties": {
+        "current_active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_ending": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageCallsDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started",
+        "audio_started",
+        "video_started",
+        "status_active",
+        "status_ending",
+        "status_ended",
+        "observed_room_seconds"
+      ],
+      "properties": {
+        "started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audio_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "video_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_ending": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_ended": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_room_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageCallsDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageCallsDailyMetrics"
+        }
+      }
+    },
+    "UsageCallsProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageCallsCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageCallsDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageCallsSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageCallsProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageTelephonyCurrent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_ringing",
+        "current_answered"
+      ],
+      "properties": {
+        "current_ringing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_answered": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageTelephonyDailyMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started",
+        "inbound_started",
+        "outbound_started",
+        "status_ringing",
+        "status_answered",
+        "status_declined",
+        "status_no_answer",
+        "status_cancelled",
+        "status_failed",
+        "status_ended",
+        "status_busy",
+        "observed_answered_seconds"
+      ],
+      "properties": {
+        "started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inbound_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outbound_started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_ringing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_answered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_declined": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_no_answer": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_cancelled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_ended": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status_busy": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed_answered_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UsageTelephonyDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "metrics"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "metrics": {
+          "$ref": "#/$defs/UsageTelephonyDailyMetrics"
+        }
+      }
+    },
+    "UsageTelephonyProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observed_at",
+        "earliest_retained_at",
+        "current",
+        "daily"
+      ],
+      "properties": {
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "earliest_retained_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "current": {
+          "$ref": "#/$defs/UsageTelephonyCurrent"
+        },
+        "daily": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UsageTelephonyDay"
+          },
+          "minItems": 1,
+          "maxItems": 31
+        }
+      }
+    },
+    "UsageTelephonySource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "data": {
+              "$ref": "#/$defs/UsageTelephonyProjection"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "data"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "data": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "UsageReportRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "through",
+        "time_zone"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date"
+        },
+        "through": {
+          "type": "string",
+          "format": "date"
+        },
+        "time_zone": {
+          "const": "UTC"
+        }
+      }
+    },
+    "UsageReportSources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "conversations",
+        "messages",
+        "attachments",
+        "calls",
+        "telephony"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/UsageIdentitySource"
+        },
+        "conversations": {
+          "$ref": "#/$defs/UsageConversationsSource"
+        },
+        "messages": {
+          "$ref": "#/$defs/UsageMessagesSource"
+        },
+        "attachments": {
+          "$ref": "#/$defs/UsageAttachmentsSource"
+        },
+        "calls": {
+          "$ref": "#/$defs/UsageCallsSource"
+        },
+        "telephony": {
+          "$ref": "#/$defs/UsageTelephonySource"
+        }
+      }
+    },
+    "UsageReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "range",
+        "observed_at",
+        "coverage",
+        "lifetime_complete",
+        "sources"
+      ],
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/UsageReportRange"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coverage": {
+          "const": "currently_retained_records"
+        },
+        "lifetime_complete": {
+          "const": false
+        },
+        "sources": {
+          "$ref": "#/$defs/UsageReportSources"
+        }
+      },
+      "description": "Current retained-record aggregates and inclusive UTC daily buckets, not billing, participant-minutes, historic activity or lifetime-complete totals. Independent source failure is unavailable with null data; it is never a zero. Room/answered seconds are observed interval overlaps clipped to each UTC day, expiry and observation time."
+    },
+    "UsageReportResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/UsageReport"
+        }
+      }
+    }
+  }
+}

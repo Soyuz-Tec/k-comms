@@ -2,10 +2,13 @@ version: 1
 contexts:
   audit:
     CommsCore.Audit:
-      public_operations: []
+      public_operations:
+      - purge_resource_history_snapshots/2
       collaboration_operations:
       - append/2
       - authorization_denied/3
+      - resource_history_page/1
+      - rollback_history_snapshot_hazard_count/0
       - list/1
       - record/1
       - release_tenant_fingerprint_fragment/2
@@ -52,6 +55,7 @@ contexts:
       - start_with_join_authorized/5
       - stop_artifact/4
       - update_meeting/3
+      - usage_projection/2
       - with_join_authorized/5
       collaboration_operations:
       - governance_erasure_pending?/3
@@ -135,6 +139,7 @@ contexts:
       - record_variant/4
       - retry_scan/2
       - servable_variant/2
+      - usage_projection/2
       collaboration_operations:
       - erasure_objects/3
       - mark_deleted_for_erasure/3
@@ -169,6 +174,7 @@ contexts:
       - search_for_service/3
       - search_page/3
       - unsave_message/2
+      - usage_projection/2
       collaboration_operations:
       - delete_message/3
       - erase_personal_content/3
@@ -244,6 +250,7 @@ contexts:
       - resolve_guest_access/2
       - revoke_guest_link_view/3
       - update_view/3
+      - usage_projection/2
       collaboration_operations:
       - active_conversation_ids/1
       - active_conversation_member?/2
@@ -311,14 +318,18 @@ contexts:
       - list_admin_user_views/1
       - list_device_views/1
       - list_directory_views/2
+      - list_fixed_role_permissions/1
       - list_session_views/1
       - list_tenant_user_views/1
       - list_user_session_views/2
+      - member_workspace_view/1
       - oidc_callback/3
       - oidc_start/2
       - password_sign_in/4
+      - preview_user_role_change/3
       - refresh_guest_session_view/1
       - refresh_session_view/1
+      - replace_member_workspace/2
       - revoke_device_command/2
       - revoke_own_session_command/2
       - revoke_session/2
@@ -332,7 +343,10 @@ contexts:
       - scim_replace/5
       - step_up_view/2
       - update_availability/2
+      - update_member_onboarding/2
       - update_profile_view/2
+      - usage_projection/2
+      - with_usage_report_disclosure/2
       collaboration_operations:
       - active_user_count/1
       - apply_user_lifecycle_change/4
@@ -373,6 +387,7 @@ contexts:
       - retention_actor_id/1
       - revoke_guest_session/2
       - rollback_enterprise_identity_hazard_count/0
+      - rollback_member_workspace_hazard_count/0
       - set_platform_role_from_console/3
       - validate_governance_user/2
       - validate_invitation_password/1
@@ -586,6 +601,7 @@ contexts:
       - save_route/2
       - start_outbound/2
       - store_voicemail/3
+      - usage_projection/2
       - voicemail_playback/2
       collaboration_operations:
       - governance_erasure_pending?/3
@@ -659,6 +675,8 @@ contexts:
       - create_legal_hold_view/2
       - create_retention_policy_view/2
       - delete_message/2
+      - deletion_request_timeline/3
+      - export_deletion_request_history/3
       - enqueue_due_retention/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2

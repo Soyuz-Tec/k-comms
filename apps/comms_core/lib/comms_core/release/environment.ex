@@ -24,7 +24,9 @@ defmodule CommsCore.Release.Environment do
                                    "uc_voicemail_lifecycle_v1",
                                    "uc_advanced_telephony_v1",
                                    "scheduled_meeting_lifecycle_v1",
-                                   "rich_content_erasure_v1"
+                                   "rich_content_erasure_v1",
+                                   "member_workspace_v1",
+                                   "governance_history_v1"
                                  ])
   @communication_rollback_capabilities @guest_rollback_capabilities
                                        |> MapSet.union(@instant_room_rollback_capabilities)
@@ -237,15 +239,9 @@ defmodule CommsCore.Release.Environment do
 
   defp validate_rollback(get_env, compatible?)
        when is_function(get_env, 1) and is_function(compatible?, 1) do
-    with :ok <- require_one_shot(get_env) do
-      capabilities =
-        get_env.("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
-        |> to_string()
-        |> String.split(",", trim: true)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> MapSet.new()
-
+    with :ok <- require_one_shot(get_env),
+         {:ok, capabilities} <-
+           parse_rollback_capabilities(get_env.("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")) do
       target_revision = get_env.("K_COMMS_ROLLBACK_TARGET_REVISION")
 
       cond do
@@ -265,6 +261,20 @@ defmodule CommsCore.Release.Environment do
       end
     end
   end
+
+  defp parse_rollback_capabilities(value) when value in [nil, ""], do: {:ok, MapSet.new()}
+
+  defp parse_rollback_capabilities(value) when is_binary(value) and byte_size(value) <= 4096 do
+    parts = String.split(value, ",")
+    capabilities = MapSet.new(parts)
+
+    if length(parts) == MapSet.size(capabilities) and
+         MapSet.subset?(capabilities, @communication_rollback_capabilities),
+       do: {:ok, capabilities},
+       else: {:error, :rollback_target_capabilities_invalid}
+  end
+
+  defp parse_rollback_capabilities(_), do: {:error, :rollback_target_capabilities_invalid}
 
   defp valid_release_target_identifier?(value) when is_binary(value),
     do: Regex.match?(@release_target_identifier, value)
