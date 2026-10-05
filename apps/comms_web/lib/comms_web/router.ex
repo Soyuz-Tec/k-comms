@@ -24,6 +24,12 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :authenticated_document_export_api do
+    plug(:accepts, ["txt", "json"])
+    plug(CommsWeb.Plugs.Authenticate)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -245,6 +251,11 @@ defmodule CommsWeb.Router do
   end
 
   scope "/api/v1", CommsWeb do
+    pipe_through(:authenticated_document_export_api)
+    get("/documents/:document_id/export", SharedDocumentController, :export)
+  end
+
+  scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
 
     get("/whiteboards", WhiteboardLibraryController, :index)
@@ -275,7 +286,6 @@ defmodule CommsWeb.Router do
     post("/documents/:document_id/copies", SharedDocumentController, :copy)
     post("/documents/:document_id/operations", SharedDocumentController, :operation)
     get("/documents/:document_id/operations", SharedDocumentController, :replay)
-    get("/documents/:document_id/export", SharedDocumentController, :export)
 
     post(
       "/conversations/:conversation_id/whiteboard/assets",
