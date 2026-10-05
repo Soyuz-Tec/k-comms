@@ -3,7 +3,17 @@ defmodule CommsCore.Accounts.GovernanceErasure do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, User}
+  alias CommsCore.Accounts.{
+    CallLifecycleCommand,
+    CallLifecyclePort,
+    CallLifecycleReceipt,
+    Device,
+    GovernanceErasureCommand,
+    GovernanceErasureReceipt,
+    Session,
+    User
+  }
+
   alias CommsCore.Repo
 
   @spec ensure_allowed(String.t(), String.t(), [String.t()]) ::
@@ -63,24 +73,161 @@ defmodule CommsCore.Accounts.GovernanceErasure do
         {:error, :transaction_required}
 
       true ->
-        erase(
-          tenant_id,
-          user_id,
-          Enum.uniq(pending_deletion_user_ids),
-          timestamp
-        )
+        command = %GovernanceErasureCommand{
+          tenant_id: tenant_id,
+          user_id: user_id,
+          pending_deletion_user_ids: Enum.uniq(pending_deletion_user_ids),
+          timestamp: timestamp
+        }
+
+        with {:ok, receipt} <- drain(command),
+             {:ok, _finalized} <- finalize(command) do
+          {:ok, %{user_id: receipt.user_id, revoked_session_ids: receipt.revoked_session_ids}}
+        end
     end
   end
 
   def erase(_command), do: {:error, :invalid_erasure_command}
 
-  defp erase(tenant_id, user_id, pending_deletion_user_ids, timestamp) do
-    with {:ok, %User{} = user} <-
-           governance_erasure_target(tenant_id, user_id, pending_deletion_user_ids),
-         {:ok, _anonymized_user} <- anonymize_user(user),
-         revoked_session_ids <- revoke_user_access(user, timestamp) do
-      {:ok, %{user_id: user.id, revoked_session_ids: revoked_session_ids}}
+  @spec drain(GovernanceErasureCommand.t()) ::
+          {:ok, GovernanceErasureReceipt.t()} | {:error, atom()}
+  def drain(%GovernanceErasureCommand{} = command) do
+    with :ok <- validate_contribution(command),
+         {:ok, %User{} = user} <-
+           governance_erasure_target(
+             command.tenant_id,
+             command.user_id,
+             Enum.uniq(command.pending_deletion_user_ids)
+           ) do
+      # Retain identity-write exclusion while admitted readers finish User FK
+      # checks before their Sessions drain. No unique key changes happen here.
+      revoked_session_ids = revoke_user_access(user, command.timestamp)
+
+      # Both media domains join this same transaction before any strong key
+      # anonymization lock. The original Session receipt remains unchanged.
+      with :ok <- revoke_calls(user) do
+        {:ok,
+         %GovernanceErasureReceipt{user_id: user.id, revoked_session_ids: revoked_session_ids}}
+      end
     end
+  end
+
+  def drain(_command), do: {:error, :invalid_erasure_command}
+
+  @spec finalize(GovernanceErasureCommand.t()) ::
+          {:ok, GovernanceErasureReceipt.t()} | {:error, atom()}
+  def finalize(%GovernanceErasureCommand{} = command) do
+    with :ok <- validate_contribution(command),
+         {:ok, %User{} = user} <-
+           governance_erasure_target(
+             command.tenant_id,
+             command.user_id,
+             Enum.uniq(command.pending_deletion_user_ids)
+           ),
+         :ok <- ensure_drained(user),
+         # The caller must finish all lower resource/content contributions before
+         # this last identity step: unique key changes may strengthen the lock.
+         {:ok, _anonymized_user} <- anonymize_user(user) do
+      erase_enterprise_identity(user)
+      {:ok, %GovernanceErasureReceipt{user_id: user.id, revoked_session_ids: []}}
+    end
+  end
+
+  def finalize(_command), do: {:error, :invalid_erasure_command}
+
+  defp validate_contribution(command) do
+    cond do
+      not valid_command?(
+        command.tenant_id,
+        command.user_id,
+        command.pending_deletion_user_ids,
+        command.timestamp
+      ) ->
+        {:error, :invalid_erasure_command}
+
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp revoke_calls(user) do
+    case user.tenant_id
+         |> CallLifecycleCommand.user_access_revoked(user.id, "governance_user_erasure")
+         |> CallLifecyclePort.revoke_identity_access() do
+      {:ok, %CallLifecycleReceipt{}} -> :ok
+      _ -> {:error, :user_erasure_failed}
+    end
+  end
+
+  defp ensure_drained(user) do
+    sessions =
+      from(row in Session,
+        where:
+          row.tenant_id == ^user.tenant_id and row.user_id == ^user.id and is_nil(row.revoked_at)
+      )
+
+    devices =
+      from(row in Device,
+        where:
+          row.tenant_id == ^user.tenant_id and row.user_id == ^user.id and is_nil(row.revoked_at)
+      )
+
+    if Repo.exists?(sessions) or Repo.exists?(devices),
+      do: {:error, :user_erasure_not_drained},
+      else: :ok
+  end
+
+  defp erase_enterprise_identity(user) do
+    resource_ids =
+      Repo.all(
+        from(row in CommsCore.Accounts.ScimResource,
+          where: row.tenant_id == ^user.tenant_id and row.user_id == ^user.id,
+          select: row.id
+        )
+      )
+
+    for resource_id <- resource_ids do
+      Repo.update_all(
+        from(row in CommsCore.Accounts.ScimResource,
+          where: row.tenant_id == ^user.tenant_id and row.kind == "Group",
+          update: [
+            set: [
+              members: fragment("array_remove(?, ?)", row.members, type(^resource_id, :binary_id))
+            ]
+          ]
+        ),
+        []
+      )
+    end
+
+    Repo.delete_all(
+      from(row in CommsCore.Accounts.MfaFactor,
+        where: row.tenant_id == ^user.tenant_id and row.user_id == ^user.id
+      )
+    )
+
+    Repo.delete_all(
+      from(row in CommsCore.Accounts.AuthChallenge,
+        where: row.tenant_id == ^user.tenant_id and row.user_id == ^user.id
+      )
+    )
+
+    Repo.delete_all(
+      from(row in CommsCore.Accounts.FederatedIdentity,
+        where: row.tenant_id == ^user.tenant_id and row.user_id == ^user.id
+      )
+    )
+
+    Repo.delete_all(
+      from(row in CommsCore.Accounts.ScimResource,
+        where: row.tenant_id == ^user.tenant_id and row.user_id == ^user.id
+      )
+    )
+
+    :ok
   end
 
   defp governance_erasure_target(tenant_id, user_id, excluded_user_ids) do
@@ -90,7 +237,7 @@ defmodule CommsCore.Accounts.GovernanceErasure do
            Repo.one(
              from(candidate in User,
                where: candidate.id == ^user_id and candidate.tenant_id == ^tenant_id,
-               lock: "FOR UPDATE"
+               lock: "FOR NO KEY UPDATE"
              )
            ),
          :ok <- ensure_owner_safe(user, excluded_user_ids) do
@@ -126,10 +273,22 @@ defmodule CommsCore.Accounts.GovernanceErasure do
     user
     |> User.changeset(%{
       external_subject: anonymized,
+      avatar_url: nil,
+      timezone: "Etc/UTC",
+      presence_state: "offline",
+      presence_expires_at: nil,
+      dnd_until: nil,
+      dnd_schedule: %{},
       display_name: "Deleted user",
       email: "#{anonymized}@invalid.example",
       status: :deleted
     })
+    |> Ecto.Changeset.change(
+      presence_state: "offline",
+      presence_expires_at: nil,
+      dnd_until: nil,
+      dnd_schedule: %{}
+    )
     |> Ecto.Changeset.optimistic_lock(:lock_version)
     |> Repo.update()
     |> case do
@@ -175,7 +334,10 @@ defmodule CommsCore.Accounts.GovernanceErasure do
         where: u.tenant_id == ^tenant_id,
         order_by: [asc: u.id],
         select: u.id,
-        lock: "FOR UPDATE"
+        # Excludes every User write/delete without blocking KEY SHARE checks by
+        # readers that already retain a Session. Erase drains those lower rows
+        # before the later unique-key anonymization acquires a stronger lock.
+        lock: "FOR NO KEY UPDATE"
       )
     )
   end

@@ -60,6 +60,12 @@ export class PhoneMedia {
     catch { this.onPlaybackBlocked(true); }
   }
 
+  async sendDtmf(digit: string): Promise<void> {
+    if (this.stopped || !/^[0-9*#ABCD]$/.test(digit)) throw new Error("Phone keypad is unavailable.");
+    const code = "0123456789*#ABCD".indexOf(digit);
+    await this.room.localParticipant.publishDtmf(code, digit);
+  }
+
   disconnect(): void {
     this.stopped = true;
     for (const publication of this.room.localParticipant.trackPublications.values()) publication.track?.stop();

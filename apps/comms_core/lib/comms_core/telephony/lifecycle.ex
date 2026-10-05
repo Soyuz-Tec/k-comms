@@ -7,12 +7,17 @@ defmodule CommsCore.Telephony.Lifecycle do
   alias CommsCore.Telephony.{
     Call,
     CallView,
+    CallMonitor,
     CredentialRequest,
     Number,
+    Mailboxes,
     ProviderCommand,
+    ProviderControlPort,
+    ControlCommand,
     ProviderEvent,
     ProviderWebhookPort,
-    RoomTombstone
+    RoomTombstone,
+    Routing
   }
 
   @active [:ringing, :answered]
@@ -90,7 +95,13 @@ defmodule CommsCore.Telephony.Lifecycle do
       limit = parse_limit(value(params, :limit))
 
       query =
-        from(c in Call, where: c.tenant_id == ^grant.tenant_id and c.user_id == ^grant.user_id)
+        from(c in Call,
+          where:
+            c.tenant_id == ^grant.tenant_id and c.routing_status not in ["waiting", "voicemail"] and
+              (c.user_id == ^grant.user_id or
+                 (c.status == :ringing and c.routing_status == "offered" and
+                    ^grant.user_id in c.offered_user_ids))
+        )
 
       query = if scope == :active, do: where(query, [c], c.status in ^@active), else: query
 
@@ -132,7 +143,11 @@ defmodule CommsCore.Telephony.Lifecycle do
            Repo.one(
              from(c in Call,
                where:
-                 c.id == ^id and c.tenant_id == ^grant.tenant_id and c.user_id == ^grant.user_id
+                 c.id == ^id and c.tenant_id == ^grant.tenant_id and
+                   c.routing_status not in ["waiting", "voicemail"] and
+                   (c.user_id == ^grant.user_id or
+                      (c.status == :ringing and c.routing_status == "offered" and
+                         ^grant.user_id in c.offered_user_ids))
              )
            ) do
       {:ok, view(call, grant)}
@@ -214,6 +229,10 @@ defmodule CommsCore.Telephony.Lifecycle do
         if call.status not in @active or due?(call),
           do: Repo.rollback(:call_ended)
 
+        if call.control_state in ["transferred", "voicemail"] or
+             provider_handoff?(call) or provider_capture?(call),
+           do: Repo.rollback(:invalid_call_action)
+
         if operation == :answer and (call.direction != :inbound or call.status != :ringing),
           do: Repo.rollback(:invalid_call_action)
 
@@ -225,10 +244,21 @@ defmodule CommsCore.Telephony.Lifecycle do
                 call.answer_device_id != grant.device_id),
            do: Repo.rollback(:answered_elsewhere)
 
+        if call.direction == :inbound and is_nil(call.answer_session_id) do
+          if not Routing.eligible_recipient?(call, grant),
+            do: Repo.rollback(:recipient_unavailable)
+
+          if call.user_id != grant.user_id and active_user_call?(grant.tenant_id, grant.user_id),
+            do: Repo.rollback(:busy)
+        end
+
         identity = call.app_identity || app_identity(call.id, grant.device_id)
 
         call =
           update!(call, %{
+            user_id: grant.user_id,
+            routing_status: if(call.route_id, do: "claimed", else: call.routing_status),
+            offered_user_ids: [],
             answer_session_id: grant.session_id,
             answer_device_id: grant.device_id,
             app_identity: identity,
@@ -432,20 +462,58 @@ defmodule CommsCore.Telephony.Lifecycle do
   end
 
   def expire(id, caller) do
-    worker_transaction(:telephony_expiry, caller, id, fn call ->
-      cond do
-        call.status not in @active ->
-          :already_terminal
+    worker_transaction(
+      :telephony_expiry,
+      caller,
+      id,
+      fn call ->
+        cond do
+          call.status not in @active ->
+            :already_terminal
 
-        not due?(call) ->
-          {:not_due, max(DateTime.diff(expiry_deadline(call), now(), :second), 1)}
+          provider_capture?(call) and Mailboxes.capture_lifecycle(call) in [:complete, :absent] ->
+            finish!(call, :ended, "voicemail_capture_complete")
+            :expired
 
-        true ->
-          expire_call!(call)
+          not due?(call) and (provider_handoff?(call) or provider_capture?(call)) ->
+            request =
+              if provider_capture?(call),
+                do: %{command(call) | control_state: "voicemail"},
+                else: command(call)
 
-          :expired
-      end
-    end)
+            case ProviderControlPort.bound_call_status(request) do
+              {:ok, :ended} ->
+                finish!(
+                  call,
+                  :ended,
+                  if(provider_capture?(call),
+                    do: "voicemail_remote_end",
+                    else: "transferred_remote_end"
+                  )
+                )
+
+                :expired
+
+              _ ->
+                {:not_due, min(max(DateTime.diff(call.expires_at, now(), :second), 1), 5)}
+            end
+
+          not due?(call) ->
+            {:not_due, max(DateTime.diff(expiry_deadline(call), now(), :second), 1)}
+
+          (call.routing_status == "waiting" and call.route_expires_at) &&
+              DateTime.diff(now(), call.route_expires_at, :second) <= 15 ->
+            Routing.enqueue_waiting(call)
+            {:not_due, 5}
+
+          true ->
+            expire_call!(call)
+
+            :expired
+        end
+      end,
+      5_000
+    )
   end
 
   def claim_cleanup(id, caller) do
@@ -460,28 +528,61 @@ defmodule CommsCore.Telephony.Lifecycle do
   end
 
   def complete_cleanup(id, result, caller) do
-    worker_transaction(:telephony_cleanup, caller, id, fn call ->
-      case result do
-        :ok ->
-          if call.dispatch_status == :dispatching and
-               lease_active?(call.dispatch_claimed_at, @cleanup_horizon_seconds) do
-            update!(call, %{cleanup_claimed_at: nil})
-            {:not_due, 5}
-          else
-            update!(call, %{cleanup_completed_at: now(), cleanup_claimed_at: nil})
-            :cleaned
+    worker_transaction(
+      :telephony_cleanup,
+      caller,
+      id,
+      fn call ->
+        result =
+          cond do
+            call.status in @active ->
+              {:error, :telephony_cleanup_not_due}
+
+            not is_nil(call.cleanup_completed_at) ->
+              :ok
+
+            result == :execute ->
+              ProviderControlPort.cleanup_call(command(call))
+
+            result == :ok and (map_size(call.pbx_state) > 0 or not is_nil(call.route_id)) ->
+              {:error, :telephony_pbx_binding_invalid}
+
+            true ->
+              result
           end
 
-        {:error, reason} ->
-          update!(call, %{cleanup_claimed_at: nil})
-          {:cleanup_error, reason}
-      end
-    end)
+        case result do
+          :ok ->
+            if call.dispatch_status == :dispatching and
+                 lease_active?(call.dispatch_claimed_at, @cleanup_horizon_seconds) do
+              update!(call, %{cleanup_claimed_at: nil})
+              {:not_due, 5}
+            else
+              update!(call, %{cleanup_completed_at: now(), cleanup_claimed_at: nil})
+              :cleaned
+            end
+
+          {:error, reason} ->
+            update!(call, %{cleanup_claimed_at: nil})
+            {:cleanup_error, reason}
+        end
+      end,
+      if(result == :execute, do: 25_000, else: 0)
+    )
     |> case do
       {:ok, :cleaned} -> :ok
       {:ok, {:cleanup_error, reason}} -> {:error, reason}
       other -> other
     end
+  end
+
+  def expire_route(id, caller) do
+    worker_transaction(:telephony_routing, caller, id, fn call ->
+      if call.status in @active and call.routing_status == "waiting",
+        do: finish!(call, :no_answer, "queue_expired")
+
+      :expired
+    end)
   end
 
   def revoke_identity_access(%CommsCore.Accounts.CallLifecycleCommand{} = command) do
@@ -530,7 +631,19 @@ defmodule CommsCore.Telephony.Lifecycle do
 
   defp config_view(grant, admin?) do
     number = Repo.get_by(Number, tenant_id: grant.tenant_id)
-    visible = if number && (admin? or number.user_id == grant.user_id), do: number, else: nil
+
+    route =
+      if number,
+        do: Repo.get_by(CommsCore.Telephony.Route, number_id: number.id, enabled: true),
+        else: nil
+
+    route_member = route && grant.user_id in route.member_ids
+
+    visible =
+      if number && (admin? or number.user_id == grant.user_id or route_member),
+        do: number,
+        else: nil
+
     fields = [:id, :phone_number, :extension, :user_id]
     fields = if admin?, do: fields ++ [:inbound_trunk_id, :outbound_trunk_id], else: fields
 
@@ -579,7 +692,7 @@ defmodule CommsCore.Telephony.Lifecycle do
   end
 
   defp assigned_number!(grant) do
-    case Repo.get_by(Number, tenant_id: grant.tenant_id, user_id: grant.user_id) do
+    case Routing.effective_number(grant) do
       %Number{} = number -> number
       _ -> Repo.rollback(:telephony_not_configured)
     end
@@ -589,7 +702,11 @@ defmodule CommsCore.Telephony.Lifecycle do
     case Repo.one(
            from(c in Call,
              where:
-               c.id == ^id and c.tenant_id == ^grant.tenant_id and c.user_id == ^grant.user_id,
+               c.id == ^id and c.tenant_id == ^grant.tenant_id and
+                 c.routing_status not in ["waiting", "voicemail"] and
+                 (c.user_id == ^grant.user_id or
+                    (c.status == :ringing and c.routing_status == "offered" and
+                       ^grant.user_id in c.offered_user_ids)),
              lock: "FOR UPDATE"
            )
          ) do
@@ -623,14 +740,18 @@ defmodule CommsCore.Telephony.Lifecycle do
 
     eligible? =
       with {:ok, %{allow_audio_calls: true}} <- Administration.lock_call_policy(number.tenant_id),
-           {:ok, [_]} <-
-             Accounts.lock_active_human_directory_users(number.tenant_id, [number.user_id]),
            do: true
 
-    eligible? = eligible? == true and value(event, :admission_enabled) != false
-    lock_key!("user:" <> number.tenant_id <> ":" <> number.user_id)
+    routing = Routing.admission(number)
+
+    eligible? =
+      eligible? == true and routing.eligible and value(event, :admission_enabled) != false
+
+    lock_key!("user:" <> number.tenant_id <> ":" <> routing.user_id)
     timestamp = now()
-    busy? = active_user_call?(number.tenant_id, number.user_id)
+
+    busy? =
+      routing.routing_status != "waiting" and active_user_call?(number.tenant_id, routing.user_id)
 
     status =
       cond do
@@ -647,7 +768,11 @@ defmodule CommsCore.Telephony.Lifecycle do
     call =
       insert_call!(number, %{
         id: Ecto.UUID.generate(),
-        user_id: number.user_id,
+        user_id: routing.user_id,
+        route_id: routing.route_id,
+        routing_status: routing.routing_status,
+        offered_user_ids: routing.offered_user_ids,
+        route_expires_at: routing.route_expires_at,
         direction: :inbound,
         from_number: event.from_number || "Unknown",
         to_number: number.phone_number,
@@ -659,9 +784,14 @@ defmodule CommsCore.Telephony.Lifecycle do
         ended_at: if(terminal?, do: timestamp, else: nil),
         end_reason: if(terminal?, do: "initial_" <> Atom.to_string(status), else: nil),
         started_at: timestamp,
-        expires_at: DateTime.add(timestamp, ring_seconds(), :second)
+        expires_at:
+          if(routing.routing_status == "waiting",
+            do: routing.route_expires_at,
+            else: DateTime.add(timestamp, ring_seconds(), :second)
+          )
       })
 
+    Routing.enqueue_waiting(call)
     enqueue!(:telephony_expiry, call.id, call.expires_at)
     if terminal?, do: enqueue!(:telephony_cleanup, call.id)
     publish!(call)
@@ -679,6 +809,22 @@ defmodule CommsCore.Telephony.Lifecycle do
   end
 
   defp apply_event!(call, event) do
+    if (provider_handoff?(call) or provider_capture?(call)) and
+         event.event_type in [
+           "participant_left",
+           "participant_connection_aborted",
+           "room_finished"
+         ] do
+      # The app/SIP disappearance is expected after an ARI handoff. The original
+      # externally bound leg, not the LiveKit room, establishes its remote end.
+      CallMonitor.enqueue_bound_call_monitor!(call)
+      call
+    else
+      apply_room_event!(call, event)
+    end
+  end
+
+  defp apply_room_event!(call, event) do
     case event.event_type do
       "participant_joined" when event.participant_identity == call.app_identity ->
         app_joined!(call, event)
@@ -935,12 +1081,14 @@ defmodule CommsCore.Telephony.Lifecycle do
       answered_at: call.answered_at,
       ended_at: call.ended_at,
       end_reason: call.end_reason,
+      control_state: call.control_state,
       connected_seconds: duration,
       can_answer:
         not is_nil(grant) and active? and call.direction == :inbound and call.status == :ringing and
-          unclaimed?,
+          unclaimed? and Routing.visible_offer?(call, grant),
       can_join:
-        not is_nil(grant) and active? and
+        not is_nil(grant) and active? and call.control_state not in ["transferred", "voicemail"] and
+          not provider_handoff?(call) and not provider_capture?(call) and
           (owns_device? or (unclaimed? and call.direction == :outbound)),
       can_end: not is_nil(grant) and active? and (unclaimed? or owns_device?),
       active_on_this_device: active? and owns_device?
@@ -950,6 +1098,8 @@ defmodule CommsCore.Telephony.Lifecycle do
   defp command(call) do
     %ProviderCommand{
       call_id: call.id,
+      tenant_id: call.tenant_id,
+      route_id: call.route_id,
       provider_room: call.provider_room,
       provider_identity: call.provider_identity,
       direction: call.direction,
@@ -957,8 +1107,37 @@ defmodule CommsCore.Telephony.Lifecycle do
       from_number: call.from_number,
       to_number: call.to_number,
       inbound_trunk_id: call.inbound_trunk_id,
-      outbound_trunk_id: call.outbound_trunk_id
+      outbound_trunk_id: call.outbound_trunk_id,
+      pbx_state: call.pbx_state,
+      control_state: call.control_state,
+      expires_at: call.expires_at
     }
+  end
+
+  defp provider_capture?(call) do
+    map_size(call.pbx_state) > 0 and
+      (call.control_state == "voicemail" or
+         Repo.exists?(
+           from(c in ControlCommand,
+             where:
+               c.call_id == ^call.id and c.tenant_id == ^call.tenant_id and
+                 c.action == :voicemail and not is_nil(c.claimed_at) and
+                 not is_nil(c.notice_completed_at) and c.status in [:dispatching, :unknown]
+           )
+         ))
+  end
+
+  defp provider_handoff?(call) do
+    map_size(call.pbx_state) > 0 and
+      (call.control_state == "transferred" or
+         Repo.exists?(
+           from(c in ControlCommand,
+             where:
+               c.call_id == ^call.id and c.tenant_id == ^call.tenant_id and
+                 c.action == :complete_transfer and not is_nil(c.claimed_at) and
+                 c.status in [:dispatching, :unknown]
+           )
+         ))
   end
 
   defp valid_answer_result?(call, details) when is_map(details) do
@@ -1054,6 +1233,24 @@ defmodule CommsCore.Telephony.Lifecycle do
 
   defp room_hash(room), do: :crypto.hash(:sha256, room) |> Base.encode16(case: :lower)
 
+  defp expiry_deadline(%Call{control_state: "transferred"} = call), do: call.expires_at
+
+  defp expiry_deadline(%Call{pbx_state: saved} = call) when map_size(saved) > 0 do
+    cond do
+      provider_capture?(call) ->
+        case Mailboxes.capture_lifecycle(call) do
+          {:pending, deadline} -> earliest_expiry(call.expires_at, deadline)
+          _ -> now()
+        end
+
+      provider_handoff?(call) ->
+        call.expires_at
+
+      true ->
+        earliest_expiry(call.expires_at, call.app_reconnect_deadline)
+    end
+  end
+
   defp expiry_deadline(%Call{app_reconnect_deadline: nil} = call), do: call.expires_at
   defp expiry_deadline(call), do: earliest_expiry(call.expires_at, call.app_reconnect_deadline)
   defp due?(call), do: DateTime.compare(expiry_deadline(call), now()) != :gt
@@ -1090,26 +1287,36 @@ defmodule CommsCore.Telephony.Lifecycle do
     %{"call_id" => id} |> Oban.Job.new(opts) |> Repo.insert!()
   end
 
-  defp worker_transaction(kind, caller, id, function) do
+  defp worker_transaction(kind, caller, id, function, effect_budget \\ 0) do
     if RuntimePorts.authorized_job_worker?(kind, caller) do
       with {:ok, id} <- uuid(id) do
-        transaction(fn ->
-          snapshot = Repo.get(Call, id)
-          if is_nil(snapshot), do: Repo.rollback(:not_found)
+        timeout = if kind in [:telephony_cleanup, :telephony_expiry], do: 35_000, else: 15_000
+        deadline = System.monotonic_time(:millisecond) + timeout
 
-          authorized? =
-            kind != :telephony_dispatch or snapshot.status not in @active or
-              authorized_call?(snapshot)
+        transaction(
+          fn ->
+            snapshot = Repo.get(Call, id)
+            if is_nil(snapshot), do: Repo.rollback(:not_found)
 
-          call = lock_call!(id)
+            authorized? =
+              kind != :telephony_dispatch or snapshot.status not in @active or
+                authorized_call?(snapshot)
 
-          if not authorized? and call.status in @active do
-            finish!(call, :failed, "access_revoked")
-            :already_terminal
-          else
-            function.(call)
-          end
-        end)
+            call = lock_call!(id)
+
+            if effect_budget > 0 and
+                 deadline - System.monotonic_time(:millisecond) < effect_budget + 3_000,
+               do: Repo.rollback(:telephony_provider_unavailable)
+
+            if not authorized? and call.status in @active do
+              finish!(call, :failed, "access_revoked")
+              :already_terminal
+            else
+              function.(call)
+            end
+          end,
+          timeout
+        )
       end
     else
       {:error, :forbidden}
@@ -1120,7 +1327,9 @@ defmodule CommsCore.Telephony.Lifecycle do
     do:
       Repo.exists?(
         from(c in Call,
-          where: c.tenant_id == ^tenant_id and c.user_id == ^user_id and c.status in ^@active
+          where:
+            c.tenant_id == ^tenant_id and c.user_id == ^user_id and c.status in ^@active and
+              c.routing_status not in ["waiting", "voicemail"]
         )
       )
 
@@ -1133,7 +1342,7 @@ defmodule CommsCore.Telephony.Lifecycle do
         "telephony:" <> key
       ])
 
-  defp transaction(fun), do: Repo.transaction(fun)
+  defp transaction(fun, timeout \\ 15_000), do: Repo.transaction(fun, timeout: timeout)
   defp unwrap_created({:ok, {view, disposition}}), do: {:ok, view, disposition}
   defp unwrap_created(other), do: other
   defp unwrap_credential({:ok, {view, credential}}), do: {:ok, view, credential}

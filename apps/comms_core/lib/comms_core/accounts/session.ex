@@ -11,6 +11,8 @@ defmodule CommsCore.Accounts.Session do
     field(:last_used_at, :utc_datetime_usec)
     field(:revoked_at, :utc_datetime_usec)
     field(:step_up_at, :utc_datetime_usec)
+    field(:mfa_verified_at, :utc_datetime_usec)
+    field(:authentication_method, :string, default: "password")
     timestamps()
   end
 

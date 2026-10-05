@@ -14,34 +14,55 @@ contexts:
       - get_by/1
       - get_by!/1
   calls:
-    CommsCore.AudioCalls.LifecycleCoordinator:
-      public_operations: []
-      collaboration_operations:
-      - revoke_identity_access/1
-      - revoke_tenant_media/1
-      owner_internal_operations: []
     CommsCore.AudioCalls:
       public_operations:
       - activity/3
+      - artifact_playback/4
+      - artifact_transcript/4
       - authorize_participant/3
+      - cancel_meeting/3
       - claim_participant_eviction/2
+      - consent_artifact/5
+      - delete_artifact/4
+      - deliver_meeting_reminder/3
       - end_call/6
       - expire_call/3
       - get_active/2
       - get_active/3
+      - get_meeting/2
+      - handle_artifact_callback/2
+      - list_artifacts/3
+      - list_meetings/2
       - list_participants/3
       - list_sessions/2
+      - meeting_calendar/2
       - moderation_target/4
+      - process_artifact/2
+      - reconcile_artifacts/1
       - record_participant_eviction/4
       - record_participant_mute/3
       - remove_participant/4
+      - request_artifact/4
+      - schedule_meeting/3
+      - search_artifacts/2
+      - search_meetings/2
       - set_hand/4
+      - start_artifact/4
+      - start_meeting/6
       - start_with_join_authorized/5
+      - stop_artifact/4
+      - update_meeting/3
       - with_join_authorized/5
       collaboration_operations:
+      - governance_erasure_pending?/3
+      - meeting_governance_erasure_pending?/3
+      - prepare_governance_erasure/3
+      - prepare_meeting_governance_erasure/3
       - release_tenant_fingerprint_fragment/2
+      - revoke_conversation_access/1
       - revoke_for_conversation/3
-      - revoke_for_user/3
+      - rollback_artifact_hazard_count/0
+      - rollback_meeting_hazard_count/0
       owner_internal_operations:
       - activity/2
       - authorize_end/4
@@ -50,13 +71,13 @@ contexts:
       - end_call/4
       - end_call/5
       - list_sessions/1
-      - revoke_conversation_access/1
       - revoke_for_call/3
       - revoke_for_device/3
       - revoke_for_membership/4
       - revoke_for_sessions/3
       - revoke_for_tenant/2
       - revoke_for_tenant_kind/3
+      - revoke_for_user/3
       - revoke_identity_access/1
       - revoke_tenant_media/1
       - start/2
@@ -65,18 +86,33 @@ contexts:
       - start_with_kind/3
       - start_with_kind/4
       - with_join_authorized/4
+    CommsCore.AudioCalls.LifecycleCoordinator:
+      public_operations: []
+      collaboration_operations:
+      - revoke_identity_access/1
+      - revoke_tenant_media/1
+      owner_internal_operations: []
   collaboration:
     CommsCore.Whiteboards:
       public_operations:
       - activity/3
+      - add_asset/3
       - append_operation/3
+      - asset_download/3
+      - checkpoint/3
+      - export/2
+      - gallery/2
       - list_operations/3
+      - rename/3
+      - restore/4
       - search/3
+      - versions/2
       collaboration_operations:
+      - discard_for_expired_room/3
       - erase_for_governance/4
+      - rollback_rich_content_hazard_count/0
       owner_internal_operations:
       - activity/2
-      - discard_for_expired_room/3
       - list_operations/2
       - search/2
   conversation_content:
@@ -115,6 +151,7 @@ contexts:
       - activity/3
       - add_reaction/3
       - edit_message/3
+      - get_draft/3
       - get_thread/4
       - list_delivery_cursors/2
       - list_history/3
@@ -123,15 +160,23 @@ contexts:
       - mark_delivered/3
       - mark_read/3
       - message_event_visible?/3
+      - prune_expired_drafts/1
+      - put_draft/3
       - refresh_sender_labels/3
       - remove_reaction/3
+      - save_message/2
+      - saved_items/2
       - search_for_service/3
       - search_page/3
+      - unsave_message/2
       collaboration_operations:
       - delete_message/3
+      - erase_personal_content/3
       - governance_impact/3
+      - lock_for_erasure/3
       - release_tenant_fingerprint_fragment/2
       - retention_candidates/5
+      - rollback_rich_content_hazard_count/0
       - tombstone_for_erasure/3
       owner_internal_operations:
       - accept_message/2
@@ -150,6 +195,12 @@ contexts:
       - search/3
       - search_for_service/2
       - search_page/2
+    CommsCore.Messaging.BoardAssets:
+      public_operations: []
+      collaboration_operations:
+      - claim/3
+      - read/4
+      owner_internal_operations: []
   conversations:
     CommsCore.Conversations:
       public_operations:
@@ -204,6 +255,8 @@ contexts:
       - authorize_react_message/2
       - authorize_service_access/3
       - call_membership/3
+      - create_initial_channel/1
+      - fetch_initial_channel/2
       - lock_call_conversation/3
       - lock_call_membership/3
       - persisted_ephemeral_join_receipt_count/0
@@ -226,9 +279,7 @@ contexts:
       - authorize_upload_attachment/2
       - change_member_role/4
       - create/2
-      - create_initial_channel/1
       - discover_public_channels/2
-      - fetch_initial_channel/2
       - get_for_user/2
       - join_public_channel/2
       - leave_public_channel/3
@@ -244,12 +295,17 @@ contexts:
       - access_context/2
       - access_grant/1
       - admin_revoke_session_command/4
-      - authenticate_view/4
       - authorize_receive_user_events/2
+      - availability/1
       - bootstrap_tenant_view/1
       - change_password_command/2
+      - complete_mfa_sign_in/3
+      - confirm_mfa/2
       - consume_socket_ticket/1
+      - disable_mfa/2
+      - enroll_mfa/1
       - guest_access_context/2
+      - identity_security/1
       - issue_guest_socket_ticket/1
       - issue_socket_ticket/1
       - list_admin_user_views/1
@@ -258,28 +314,48 @@ contexts:
       - list_session_views/1
       - list_tenant_user_views/1
       - list_user_session_views/2
+      - oidc_callback/3
+      - oidc_start/2
+      - password_sign_in/4
       - refresh_guest_session_view/1
       - refresh_session_view/1
       - revoke_device_command/2
       - revoke_own_session_command/2
       - revoke_session/2
+      - rotate_mfa_recovery/2
+      - scim_configuration/1
+      - scim_create/3
+      - scim_delete/4
+      - scim_get/3
+      - scim_list/3
+      - scim_patch/5
+      - scim_replace/5
       - step_up_view/2
+      - update_availability/2
       - update_profile_view/2
       collaboration_operations:
       - active_user_count/1
       - apply_user_lifecycle_change/4
       - audit_authorization_denial/3
+      - authorize_invitation/1
       - authorize_view_platform_operations/1
       - bootstrap_tenant/1
       - bootstrap_tenant_once/1
       - convert_ephemeral_guest_account/2
       - convert_guest_account/3
       - delete_release_qualification_tenant/1
+      - delivery_availability/3
+      - drain_user_for_governance/1
+      - enroll_invited_user/1
       - ensure_ephemeral_guest_authority/2
       - ensure_governance_erasure_allowed/3
-      - erase_user_for_governance/1
+      - ensure_invitation_identity_available/2
+      - finalize_user_for_governance_erasure/1
       - lock_access_grant/1
+      - lock_active_directory_users/1
       - lock_active_human_directory_users/2
+      - lock_content_write_grant/2
+      - lock_guest_identity_parents/1
       - lock_push_registration_identity/3
       - notification_eligible_device_ids/3
       - persisted_conversation_only_human_count/0
@@ -287,36 +363,40 @@ contexts:
       - preflight_user_lifecycle_change/3
       - provision_guest_identity/1
       - release_tenant_fingerprint_fragment/2
+      - resolve_access/1
       - resolve_active_user_ids/2
+      - resolve_authorization_actor/1
       - resolve_notification_recipients/2
       - resolve_retained_sender_labels/2
       - resolve_user_views/2
       - resume_ephemeral_guest_identity/1
       - retention_actor_id/1
       - revoke_guest_session/2
+      - rollback_enterprise_identity_hazard_count/0
       - set_platform_role_from_console/3
       - validate_governance_user/2
+      - validate_invitation_password/1
       - validate_moderation_assignee/2
       owner_internal_operations:
       - access_context/1
       - admin_revoke_session/4
       - authenticate_view/3
+      - authenticate_view/4
       - authorization_audit_actor/1
       - authorize_administer_users/1
-      - authorize_invitation/1
       - authorize_manage_sessions/1
       - authorize_manage_user_lifecycle/1
       - authorize_operate_platform/1
+      - break_glass_session/1
       - change_password/2
       - change_password_with_effects/2
       - change_user/3
       - change_user_with_effects/3
       - change_user_with_effects_view/3
       - create_user/2
-      - enroll_invited_user/1
       - ensure_active_user_capacity/2
       - ensure_active_user_capacity/3
-      - ensure_invitation_identity_available/2
+      - erase_user_for_governance/1
       - extend_ephemeral_guest_authority/2
       - get_active_session/1
       - get_user_for_subject/1
@@ -325,16 +405,14 @@ contexts:
       - list_devices/1
       - list_sessions/1
       - list_user_sessions/2
+      - lock_content_write_grant/1
       - refresh_session/1
-      - resolve_access/1
-      - resolve_authorization_actor/1
       - revoke_device/2
       - revoke_own_session/2
       - step_up/2
       - subject_for_session/1
       - subject_for_session/2
       - update_profile/2
-      - validate_invitation_password/1
     CommsCore.PasswordRecovery:
       public_operations:
       - materialize_notification/1
@@ -353,6 +431,8 @@ contexts:
       - rotate_view/3
       collaboration_operations:
       - authorize_service/2
+      - authorize_service/3
+      - rollback_scim_credential_hazard_count/0
       owner_internal_operations:
       - authenticate/1
       - create/2
@@ -382,12 +462,12 @@ contexts:
       - revoke_push_subscription/2
       - unread_count/1
       - update_preferences/2
-      collaboration_operations: []
+      collaboration_operations:
+      - execute/1
       owner_internal_operations:
       - authorize_delivery_management/1
       - authorize_tenant_scope/1
       - create_intent/1
-      - execute/1
       - list_attempts/1
       - list_in_app/1
       - list_intents/1
@@ -463,6 +543,61 @@ contexts:
       - job_worker_name!/1
       owner_internal_operations:
       - job_worker!/1
+  telephony:
+    CommsCore.Telephony:
+      public_operations:
+      - admin_config/1
+      - advance_route/2
+      - answer/3
+      - bind_control/3
+      - claim_cleanup/2
+      - claim_control/2
+      - claim_dispatch/2
+      - claim_voicemail/2
+      - cleanup_voicemail_source/2
+      - complete_browser_control/4
+      - complete_cleanup/3
+      - complete_control/3
+      - complete_dispatch/3
+      - complete_voicemail/3
+      - config/1
+      - control_capabilities/1
+      - control_provider_event/2
+      - delete_voicemail/2
+      - end_call/2
+      - enqueue_route_voicemail/2
+      - expire/2
+      - expire_route/2
+      - get_call/2
+      - handle_webhook/2
+      - join/3
+      - list_calls/2
+      - list_controls/2
+      - list_routes/1
+      - list_voicemails/2
+      - mailbox_config/1
+      - mark_voicemail_read/2
+      - provision/2
+      - purge_voicemail/2
+      - reconcile_control/3
+      - reject/2
+      - request_control/3
+      - save_mailbox/2
+      - save_route/2
+      - start_outbound/2
+      - store_voicemail/3
+      - voicemail_playback/2
+      collaboration_operations:
+      - governance_erasure_pending?/3
+      - prepare_governance_erasure/3
+      - revoke_identity_access/1
+      - revoke_tenant_media/1
+      - rollback_control_hazard_count/0
+      - rollback_voicemail_hazard_count/0
+      owner_internal_operations:
+      - callback/2
+      - list_calls/1
+      - route_provider_request/2
   tenant_administration:
     CommsCore.Administration:
       public_operations:
@@ -504,40 +639,15 @@ contexts:
       - check_active_user_capacity/3
       - check_conversation_creation/3
       - check_conversation_member_capacity/2
+      - lock_tenant/1
       - locked_policy/1
       owner_internal_operations:
       - check_active_user_capacity/2
       - check_conversation_member_capacity/3
-      - lock_tenant/1
     CommsCore.AuditExport:
       public_operations:
       - export/2
       collaboration_operations: []
-      owner_internal_operations: []
-  telephony:
-    CommsCore.Telephony:
-      public_operations:
-      - admin_config/1
-      - answer/3
-      - callback/2
-      - claim_cleanup/2
-      - claim_dispatch/2
-      - complete_cleanup/3
-      - complete_dispatch/3
-      - config/1
-      - end_call/2
-      - expire/2
-      - get_call/2
-      - handle_webhook/2
-      - join/3
-      - list_calls/1
-      - list_calls/2
-      - provision/2
-      - reject/2
-      - start_outbound/2
-      collaboration_operations:
-      - revoke_identity_access/1
-      - revoke_tenant_media/1
       owner_internal_operations: []
   trust_governance:
     CommsCore.Governance:
@@ -553,9 +663,9 @@ contexts:
       - list_deletion_request_views/2
       - list_legal_hold_views/2
       - list_retention_policy_views/2
+      - reconcile_completed_erasure/2
       - reconcile_retention_schedules/2
       - record_deletion_failure/3
-      - reconcile_completed_erasure/2
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
@@ -572,6 +682,16 @@ contexts:
       - release_legal_hold/3
       - transition_deletion_request/3
       - update_retention_policy/3
+    CommsCore.Governance.ArtifactProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.VoicemailProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/2
+      owner_internal_operations: []
     CommsCore.Moderation:
       public_operations:
       - add_action_view/3
@@ -592,8 +712,8 @@ contexts:
       public_operations:
       - claim_delivery/1
       - create_endpoint_view/2
-      - dispatch_delivery/2
       - disable_endpoint_view/2
+      - dispatch_delivery/2
       - enqueue_for_event/1
       - get_endpoint_view/2
       - list_delivery_views/2

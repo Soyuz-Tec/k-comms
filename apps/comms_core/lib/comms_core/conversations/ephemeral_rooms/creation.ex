@@ -80,133 +80,145 @@ defmodule CommsCore.Conversations.EphemeralRooms.Creation do
 
     with {:ok, replay_material} <-
            EphemeralReplayBox.encrypt(token, creator_scope.tenant_id, room_id) do
-      Repo.transaction(fn ->
-        timestamp = Authority.now()
-        authority_expires_at = DateTime.add(timestamp, @authority_horizon_seconds, :second)
-        idempotency_expires_at = DateTime.add(timestamp, @idempotency_window_seconds, :second)
-        policy = Authority.admission_policy!(creator_scope.tenant_id)
+      Repo.transaction(
+        fn ->
+          deadline = System.monotonic_time(:millisecond) + 15_000
+          actor_ids = creator_actor_ids(creator_scope)
+          Authority.lock_identity_parents!(creator_scope.tenant_id, actor_ids, true, deadline)
+          ensure_creator_current!(creator_scope)
+          timestamp = Authority.now()
+          authority_expires_at = DateTime.add(timestamp, @authority_horizon_seconds, :second)
+          idempotency_expires_at = DateTime.add(timestamp, @idempotency_window_seconds, :second)
+          policy = Authority.admission_policy!(creator_scope.tenant_id)
 
-        participant_limit =
-          min(Authority.instant_room_max_participants(), policy.max_conversation_members)
+          participant_limit =
+            min(Authority.instant_room_max_participants(), policy.max_conversation_members)
 
-        Authority.quota_ok!(
-          AdmissionQuotas.check_conversation_creation(
-            policy,
-            Authority.active_conversation_count(creator_scope.tenant_id),
-            1
-          )
-        )
-
-        {authentication, creator_user_id, creator_session_id, actor_user_id} =
-          provision_creator!(
-            attrs,
-            creator_scope,
-            display_name,
-            device,
-            authority_expires_at
+          Authority.quota_ok!(
+            AdmissionQuotas.check_conversation_creation(
+              policy,
+              Authority.active_conversation_count(creator_scope.tenant_id),
+              1
+            )
           )
 
-        conversation =
-          %Conversation{}
-          |> Conversation.changeset(%{
-            tenant_id: creator_scope.tenant_id,
-            created_by_user_id: creator_user_id,
-            kind: :group,
-            title: title,
-            visibility: :private,
-            next_sequence: 1
-          })
-          |> insert_or_rollback()
+          {authentication, creator_user_id, creator_session_id, actor_user_id} =
+            provision_creator!(
+              attrs,
+              creator_scope,
+              display_name,
+              device,
+              authority_expires_at
+            )
 
-        membership =
-          %Membership{}
-          |> Membership.changeset(%{
-            tenant_id: creator_scope.tenant_id,
-            conversation_id: conversation.id,
-            user_id: creator_user_id,
-            role: :owner,
-            joined_at: timestamp,
-            last_read_sequence: 0
-          })
-          |> insert_or_rollback()
+          conversation =
+            %Conversation{}
+            |> Conversation.changeset(%{
+              tenant_id: creator_scope.tenant_id,
+              created_by_user_id: creator_user_id,
+              kind: :group,
+              title: title,
+              visibility: :private,
+              next_sequence: 1
+            })
+            |> insert_or_rollback()
 
-        link =
-          %GuestLink{}
-          |> GuestLink.changeset(%{
-            tenant_id: creator_scope.tenant_id,
-            conversation_id: conversation.id,
-            created_by_user_id: creator_user_id,
-            purpose: :ephemeral_room,
-            token_digest: Request.digest(token_secret),
-            expires_at: authority_expires_at,
-            max_uses: participant_limit,
-            use_count: 0
-          })
-          |> insert_or_rollback()
+          membership =
+            %Membership{}
+            |> Membership.changeset(%{
+              tenant_id: creator_scope.tenant_id,
+              conversation_id: conversation.id,
+              user_id: creator_user_id,
+              role: :owner,
+              joined_at: timestamp,
+              last_read_sequence: 0
+            })
+            |> insert_or_rollback()
 
-        room =
-          %EphemeralRoom{id: room_id}
-          |> EphemeralRoom.changeset(%{
-            tenant_id: creator_scope.tenant_id,
-            conversation_id: conversation.id,
-            guest_link_id: link.id,
-            creator_user_id: creator_user_id,
-            creator_session_id: creator_session_id,
-            owner_kind: creator_scope.owner_kind,
-            status: :active,
-            idempotency_digest: idempotency_digest,
-            request_fingerprint: request_fingerprint,
-            replay_ciphertext: replay_material.ciphertext,
-            replay_nonce: replay_material.nonce,
-            replay_tag: replay_material.tag,
-            replay_key_id: replay_material.key_id,
-            idempotency_expires_at: idempotency_expires_at,
-            generation: 1,
-            participant_limit: participant_limit,
-            reconnect_grace_seconds: Authority.reconnect_grace(),
-            idle_ttl_seconds: Authority.idle_ttl(creator_scope.owner_kind),
-            authority_expires_at: authority_expires_at
-          })
-          |> insert_or_rollback()
+          link =
+            %GuestLink{}
+            |> GuestLink.changeset(%{
+              tenant_id: creator_scope.tenant_id,
+              conversation_id: conversation.id,
+              created_by_user_id: creator_user_id,
+              purpose: :ephemeral_room,
+              token_digest: Request.digest(token_secret),
+              expires_at: authority_expires_at,
+              max_uses: participant_limit,
+              use_count: 0
+            })
+            |> insert_or_rollback()
 
-        admission =
-          maybe_create_creator_admission!(
-            creator_scope,
-            authentication,
-            conversation,
-            membership,
-            link,
-            timestamp,
-            authority_expires_at
+          room =
+            %EphemeralRoom{id: room_id}
+            |> EphemeralRoom.changeset(%{
+              tenant_id: creator_scope.tenant_id,
+              conversation_id: conversation.id,
+              guest_link_id: link.id,
+              creator_user_id: creator_user_id,
+              creator_session_id: creator_session_id,
+              owner_kind: creator_scope.owner_kind,
+              status: :active,
+              idempotency_digest: idempotency_digest,
+              request_fingerprint: request_fingerprint,
+              replay_ciphertext: replay_material.ciphertext,
+              replay_nonce: replay_material.nonce,
+              replay_tag: replay_material.tag,
+              replay_key_id: replay_material.key_id,
+              idempotency_expires_at: idempotency_expires_at,
+              generation: 1,
+              participant_limit: participant_limit,
+              reconnect_grace_seconds: Authority.reconnect_grace(),
+              idle_ttl_seconds: Authority.idle_ttl(creator_scope.owner_kind),
+              authority_expires_at: authority_expires_at
+            })
+            |> insert_or_rollback()
+
+          admission =
+            maybe_create_creator_admission!(
+              creator_scope,
+              authentication,
+              conversation,
+              membership,
+              link,
+              timestamp,
+              authority_expires_at
+            )
+
+          Scheduler.enqueue_reconcile!(
+            room,
+            DateTime.add(timestamp, room.reconnect_grace_seconds, :second)
           )
 
-        Scheduler.enqueue_reconcile!(
-          room,
-          DateTime.add(timestamp, room.reconnect_grace_seconds, :second)
-        )
+          Events.emit!(
+            room,
+            "ephemeral_room.created.v1",
+            actor_user_id,
+            %{
+              conversation_id: conversation.id,
+              owner_kind: Atom.to_string(room.owner_kind),
+              participant_limit: room.participant_limit
+            },
+            Request.value(attrs, :request_id)
+          )
 
-        Events.emit!(
-          room,
-          "ephemeral_room.created.v1",
-          actor_user_id,
-          %{
-            conversation_id: conversation.id,
-            owner_kind: Atom.to_string(room.owner_kind),
-            participant_limit: room.participant_limit
-          },
-          Request.value(attrs, :request_id)
-        )
+          result =
+            Authority.response(
+              room,
+              conversation,
+              token,
+              authentication,
+              admission,
+              membership,
+              false
+            )
 
-        Authority.response(
-          room,
-          conversation,
-          token,
-          authentication,
-          admission,
-          membership,
-          false
-        )
-      end)
+          Authority.ensure_identity_budget!(creator_scope.tenant_id, true)
+          ensure_creator_current!(creator_scope)
+          result
+        end,
+        timeout: 20_000
+      )
       |> Authority.transaction_result()
     end
   end
@@ -225,10 +237,26 @@ defmodule CommsCore.Conversations.EphemeralRooms.Creation do
         :not_found
 
       snapshot ->
-        Repo.transaction(fn ->
-          {_conversation, _link, room} = Authority.lock_room_scope!(snapshot)
-          replay_creation_locked!(room, creator_scope, request_fingerprint, device)
-        end)
+        Repo.transaction(
+          fn ->
+            actor_user_id =
+              case creator_scope do
+                %{owner_kind: :registered, grant: grant} -> grant.user_id
+                %{owner_kind: :guest} -> snapshot.creator_user_id
+              end
+
+            {_conversation, _link, room} =
+              Authority.lock_room_scope!(snapshot, actor_user_id, true)
+
+            _policy = Authority.admission_policy!(snapshot.tenant_id)
+            ensure_creator_current!(creator_scope)
+            result = replay_creation_locked!(room, creator_scope, request_fingerprint, device)
+            Authority.ensure_identity_budget!(snapshot.tenant_id, true)
+            ensure_creator_current!(creator_scope)
+            result
+          end,
+          timeout: 20_000
+        )
         |> Authority.transaction_result()
     end
   end
@@ -419,11 +447,30 @@ defmodule CommsCore.Conversations.EphemeralRooms.Creation do
          tenant_id: tenant_id,
          owner_kind: :registered,
          account_type: :human,
-         grant: grant
+         grant: grant,
+         subject: subject
        }}
     else
       {:error, :instant_rooms_unavailable} = error -> error
       _ -> {:error, :forbidden}
+    end
+  end
+
+  defp creator_actor_ids(%{owner_kind: :guest}), do: []
+  defp creator_actor_ids(%{owner_kind: :registered, grant: grant}), do: [grant.user_id]
+
+  defp ensure_creator_current!(%{owner_kind: :guest}), do: :ok
+
+  defp ensure_creator_current!(%{owner_kind: :registered, grant: expected, subject: subject}) do
+    case Accounts.access_grant(subject) do
+      {:ok, current}
+      when current.tenant_id == expected.tenant_id and current.user_id == expected.user_id and
+             current.session_id == expected.session_id and current.device_id == expected.device_id and
+             current.account_type == :human and current.access_scope == expected.access_scope ->
+        :ok
+
+      _ ->
+        Repo.rollback(:forbidden)
     end
   end
 

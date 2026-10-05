@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+import tempfile
 import unittest
+from jsonschema import Draft202012Validator, FormatChecker
 
 from validate_contracts import (
     CALL_REALTIME_MESSAGES,
@@ -16,9 +19,109 @@ from validate_contracts import (
     validate_instant_room_contract,
     validate_instant_room_realtime_contract,
     validate_telephony_contract,
+    validate_enterprise_identity_contract,
+    validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
 )
+
+
+class ReferenceValidationTests(unittest.TestCase):
+    def test_missing_nested_operation_request_schema_is_rejected(self) -> None:
+        document = {
+            "paths": {
+                "/conversation": {
+                    "patch": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/Missing"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {"schemas": {}},
+        }
+        with self.assertRaisesRegex(ValueError, "unresolved reference.*Missing"):
+            validate_refs(document, Path("openapi.yaml"))
+
+    def test_recursive_schema_references_resolve_against_the_original_root(self) -> None:
+        document = {
+            "$defs": {
+                "Node": {
+                    "type": "object",
+                    "properties": {"next": {"$ref": "#/$defs/Node"}},
+                }
+            },
+            "allOf": [{"$ref": "#/$defs/Node"}, {"$ref": "#"}],
+        }
+        validate_refs(document, Path("recursive.json"))
+
+    def test_escaped_empty_and_array_pointer_segments_are_resolved(self) -> None:
+        document = {
+            "$defs": {
+                "a/b~c": {"type": "string"},
+                "~1": {"type": "number"},
+                "space key": {"type": "boolean"},
+                "": {"type": "null"},
+            },
+            "variants": [False, {"type": "object"}],
+            "allOf": [
+                {"$ref": "#/$defs/a~1b~0c"},
+                {"$ref": "#/$defs/~01"},
+                {"$ref": "#/$defs/space%20key"},
+                {"$ref": "#/$defs/"},
+                {"$ref": "#/variants/0"},
+                {"$ref": "#/variants/1"},
+            ],
+        }
+        validate_refs(document, Path("escaped.json"))
+
+    def test_invalid_pointer_paths_escapes_and_array_indices_are_rejected(self) -> None:
+        for ref in [
+            "#/missing",
+            "#/scalar/child",
+            "#/a~2b",
+            "#/a~",
+            "#/variants/-",
+            "#/variants/-1",
+            "#/variants/01",
+            "#/variants/1",
+            "#/variants/\u0660",
+        ]:
+            with self.subTest(ref=ref):
+                document = {
+                    "scalar": 1,
+                    "a~2b": {},
+                    "a~": {},
+                    "variants": [{}],
+                    "nested": [{"$ref": ref}],
+                }
+                with self.assertRaisesRegex(ValueError, "unresolved reference"):
+                    validate_refs(document, Path("invalid.json"))
+
+    def test_yaml_alias_cycles_still_check_each_reachable_mapping(self) -> None:
+        document = {"target": {}, "aliases": []}
+        document["aliases"].append(document)
+        document["aliases"].append({"$ref": "#/missing"})
+        with self.assertRaisesRegex(ValueError, "unresolved reference.*missing"):
+            validate_refs(document, Path("aliases.yaml"))
+        document["aliases"][1]["$ref"] = "#/target"
+        validate_refs(document, Path("aliases.yaml"))
+
+    def test_missing_external_file_with_fragment_is_still_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "openapi.yaml"
+            with self.assertRaisesRegex(ValueError, "unresolved reference.*missing.json"):
+                validate_refs({"$ref": "missing.json#/$defs/Node"}, source)
+
+    def test_existing_external_file_keeps_the_existing_existence_only_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "openapi.yaml"
+            (source.parent / "schema.json").write_text("{}", encoding="utf-8")
+            validate_refs({"nested": {"$ref": "schema.json#/$defs/Node"}}, source)
 
 
 class ContractValidationTests(unittest.TestCase):
@@ -31,6 +134,86 @@ class ContractValidationTests(unittest.TestCase):
         validate_instant_room_contract(self.openapi)
         validate_whiteboard_contract(self.openapi)
         validate_telephony_contract(self.openapi)
+        validate_enterprise_identity_contract(self.openapi)
+
+    def test_all_current_openapi_references_resolve(self) -> None:
+        validate_refs(self.openapi, CONTRACTS / "openapi" / "openapi.yaml")
+
+    def test_conversation_update_schema_requires_version_and_exact_settings(self) -> None:
+        validator = Draft202012Validator(
+            self.openapi["components"]["schemas"]["UpdateConversationRequest"]
+        )
+        for request in [
+            {"version": 1},
+            {"version": 2, "title": "x" * 160, "visibility": "tenant"},
+            {"version": 1, "title": None, "visibility": "private"},
+        ]:
+            with self.subTest(request=request):
+                self.assertTrue(validator.is_valid(request))
+        for request in [
+            {"title": "Team"},
+            {"version": 0},
+            {"version": 1.5},
+            {"version": "1"},
+            {"version": 1, "title": "x" * 161},
+            {"version": 1, "title": 42},
+            {"version": 1, "visibility": "public"},
+            {"version": 1, "kind": "direct"},
+            {"version": 1, "lock_version": 1},
+        ]:
+            with self.subTest(request=request):
+                self.assertFalse(validator.is_valid(request))
+
+    def test_membership_update_schema_requires_version_and_membership_role(self) -> None:
+        validator = Draft202012Validator(
+            self.openapi["components"]["schemas"]["UpdateConversationMemberRequest"]
+        )
+        for role in ["member", "moderator", "owner"]:
+            self.assertTrue(validator.is_valid({"version": 1, "role": role}))
+        for request in [
+            {"role": "member"},
+            {"version": 1},
+            {"version": 0, "role": "member"},
+            {"version": "1", "role": "member"},
+            {"version": 1, "role": "admin"},
+            {"version": 1, "role": None},
+            {"version": 1, "role": "member", "user_id": "another-user"},
+        ]:
+            with self.subTest(request=request):
+                self.assertFalse(validator.is_valid(request))
+
+    def test_factor_challenge_cannot_regress_to_session_or_expose_credentials(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/sessions"]["post"]["responses"]["200"]["content"]["application/json"]["schema"] = {"$ref": "#/components/schemas/TokenResponse"}
+        with self.assertRaisesRegex(ValueError, "distinguish a session"):
+            validate_enterprise_identity_contract(document)
+
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["MfaChallenge"]["properties"]["access_token"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "contain no session credentials"):
+            validate_enterprise_identity_contract(document)
+
+    def test_scim_cannot_use_a_human_session_drop_version_or_grant_roles(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/scim/v2/Users"]["post"]["security"] = [{"bearerAuth": []}]
+        with self.assertRaisesRegex(ValueError, "dedicated tenant-scoped service"):
+            validate_enterprise_identity_contract(document)
+
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/scim/v2/Users/{scimId}"]["put"]["parameters"] = []
+        with self.assertRaisesRegex(ValueError, "observed resource version"):
+            validate_enterprise_identity_contract(document)
+
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["ScimUserCreate"]["properties"]["roles"] = {"type": "array"}
+        with self.assertRaisesRegex(ValueError, "cannot grant application authority"):
+            validate_enterprise_identity_contract(document)
+
+    def test_telephony_control_state_cannot_add_provider_states(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["TelephonyCall"]["properties"]["control_state"]["enum"].append("ari_channel")
+        with self.assertRaisesRegex(ValueError, "bounded control state"):
+            validate_telephony_contract(document)
 
     def test_telephony_contract_requires_human_auth_and_separate_provider_auth(self) -> None:
         document = copy.deepcopy(self.openapi)
@@ -74,10 +257,62 @@ class ContractValidationTests(unittest.TestCase):
         openapi = copy.deepcopy(self.openapi)
         openapi["components"]["schemas"]["WhiteboardElement"]["properties"][
             "type"
-        ]["enum"].append("image")
+        ]["enum"].append("iframe")
 
         with self.assertRaisesRegex(ValueError, "safe SDK subset"):
             validate_whiteboard_contract(openapi)
+
+    def test_whiteboard_images_require_an_approved_asset_and_reject_remote_data(self) -> None:
+        for field in ["fileId", "dataURL", "src", "url"]:
+            with self.subTest(field=field):
+                document = copy.deepcopy(self.openapi)
+                condition = document["components"]["schemas"]["WhiteboardElement"]["allOf"][0]
+                condition["then"]["properties"].pop(field)
+                with self.assertRaisesRegex(ValueError, "durable asset UUID"):
+                    validate_whiteboard_contract(document)
+
+    def test_whiteboard_image_schema_accepts_only_uuid_asset_references(self) -> None:
+        schema = self.openapi["components"]["schemas"]["WhiteboardElement"]
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        image = {"id": "image-element", "type": "image", "version": 1, "versionNonce": 1,
+                 "fileId": "00000000-0000-4000-8000-000000000001", "link": None, "customData": None}
+        self.assertTrue(validator.is_valid(image))
+        for changes in [{"fileId": None}, {"fileId": "foreign-object-key"},
+                        {"dataURL": "data:image/png;base64,dW5hcHByb3ZlZA=="},
+                        {"src": "https://foreign.example.test/image.png"},
+                        {"url": "https://foreign.example.test/image.png"}]:
+            with self.subTest(changes=changes):
+                self.assertFalse(validator.is_valid({**image, **changes}))
+        image.pop("fileId")
+        self.assertFalse(validator.is_valid(image))
+
+    def test_telephony_transfer_schema_preserves_e164_and_queue_policy(self) -> None:
+        schema = self.openapi["components"]["schemas"]["TelephonyControlRequest"]
+        validator = Draft202012Validator(schema)
+        request = {"action": "blind_transfer", "idempotency_key": "transfer-one", "destination": "+441234567890"}
+        self.assertTrue(validator.is_valid(request))
+        for destination in ["sip:member@foreign.example.test", "441234567890", "+1", "\\441234567890"]:
+            self.assertFalse(validator.is_valid({**request, "destination": destination}))
+        route = {"name": "Support", "mode": "queue", "policy": "round_robin",
+                 "member_ids": ["00000000-0000-4000-8000-000000000001"], "max_waiting": 10,
+                 "max_wait_seconds": 60, "enabled": True, "reason": "Reviewed route"}
+        validator = Draft202012Validator(self.openapi["components"]["schemas"]["TelephonyRouteRequest"])
+        self.assertTrue(validator.is_valid(route))
+        self.assertFalse(validator.is_valid({**route, "policy": "simultaneous"}))
+        self.assertTrue(validator.is_valid({**route, "mode": "shared_line", "policy": "simultaneous"}))
+
+    def test_attachment_only_messages_require_at_least_one_bounded_attachment(self) -> None:
+        schema = copy.deepcopy(self.openapi["components"]["schemas"]["SendMessageRequest"])
+        # The metadata reference is irrelevant to these message-content vectors.
+        schema["properties"].pop("metadata")
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        attachment = "00000000-0000-4000-8000-000000000001"
+        for message in [{"body": "Text"}, {"body": "", "attachment_ids": [attachment]},
+                        {"body": None, "attachment_ids": [attachment]}, {"attachment_ids": [attachment]}]:
+            self.assertTrue(validator.is_valid(message))
+        for message in [{}, {"body": ""}, {"body": "   "}, {"attachment_ids": []},
+                        {"body": "", "attachment_ids": [attachment] * 21}]:
+            self.assertFalse(validator.is_valid(message))
 
     def test_guest_whiteboard_contract_is_server_scoped_and_authenticated(self) -> None:
         openapi = copy.deepcopy(self.openapi)

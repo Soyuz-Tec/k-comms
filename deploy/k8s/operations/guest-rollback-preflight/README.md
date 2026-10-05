@@ -4,14 +4,14 @@ This one-shot operation is the mandatory compatibility gate before applying an
 older K-Comms application bundle. It runs from the **currently deployed image**
 after edge and worker writers have been quiesced. It never runs migration
 rollback and never mutates guest, instant-room, bounded join-receipt,
-presence-lease, or identity data. The retained directory name is stable for
-existing operator automation.
+presence-lease, identity, UC media, scheduling or rich-content data. The retained
+directory name is stable for existing operator automation.
 
 The target is communication-compatible only when both its edge and worker pod
 templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1
 ```
 
 Missing, partial, unknown, or different annotations classify the target as
@@ -23,6 +23,24 @@ scheduled, executing, or retryable guest/instant-room lifecycle Jobs exist.
 Instant-room rows and their bounded join receipts are both owned by
 `instant_room_lifecycle_v1`. A blocked target must be replaced with an approved
 compatible bridge, or the incident must roll forward.
+
+The same preflight includes owner-only aggregate UC hazards:
+
+| Target capability | Retained state or unfinished work requiring compatible enforcement |
+| --- | --- |
+| `enterprise_identity_v1` | MFA enrollment/challenges, federation/SCIM state, enhanced-auth sessions and retained SCIM service scopes |
+| `uc_artifact_lifecycle_v1` | Recordings/transcripts and pending artifact processing/erasure jobs |
+| `uc_voicemail_lifecycle_v1` | Voicemail/provider/object/read-state erasure and pending voicemail jobs |
+| `uc_advanced_telephony_v1` | Unfinished advanced controls, PBX/routed calls and control/routing jobs |
+| `scheduled_meeting_lifecycle_v1` | Retained readable meeting history without verified erasure, scheduled meetings/occurrences, policy-linked active rooms and active reminder jobs |
+| `rich_content_erasure_v1` | Draft/saved content, approved board assets/checkpoints and restored author lineage |
+
+No owner projection returns content or exposes a foreign schema. Unsupported
+retained state blocks the target; quiescence alone does not make an older binary
+safe. Unknown probe outcomes refuse proof. Do not drop factors, media, schedules
+or erasure lineage to force rollback. The target bundle and its capability
+annotations must retain the approved immutable target's provenance; rendering
+current templates must not upgrade an older image's capability declaration.
 
 ## Render and execute
 
@@ -82,7 +100,10 @@ key = "k-comms.soyuz-tec.io/rollback-capabilities"
 expected = (
     "guest_identity_v1,guest_admission_expiry_worker_v1,"
     "instant_room_lifecycle_v1,instant_room_presence_lease_v1,"
-    "instant_room_expiry_worker_v1,conversation_only_human_v1"
+    "instant_room_expiry_worker_v1,conversation_only_human_v1,"
+    "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
+    "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
 )
 values = [
     deployments[name]["spec"]["template"]

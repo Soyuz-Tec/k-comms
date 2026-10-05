@@ -5,6 +5,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
   import CommsCore.Governance.Support
 
   alias CommsCore.Audit
+  alias CommsCore.Accounts.{GovernanceErasureCommand, GovernanceErasureReceipt}
 
   alias CommsCore.Governance.{
     Authorization,
@@ -26,6 +27,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     Outbox,
     Repo,
     RuntimePorts,
+    Telephony,
     Whiteboards
   }
 
@@ -127,6 +129,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
         if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
         ensure_deletion_preconditions!(request)
 
+        # Preparation commits the media stop/purge jobs before the deletion
+        # adapter can report completion. A retry observes the same durable fence.
+        prepare_media_erasure!(request)
+
         claimed =
           request
           |> DeletionRequest.changeset(%{
@@ -168,14 +174,21 @@ defmodule CommsCore.Governance.DeletionWorkflow do
         verify_version!(request, expected_version)
         if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
 
-        plan = deletion_plan(request)
+        if media_erasure_pending!(request), do: Repo.rollback(:media_erasure_pending)
         deleted_object_count = value(worker_evidence, :deleted_object_count)
+
+        unless is_integer(deleted_object_count) and deleted_object_count >= 0,
+          do: Repo.rollback(:deletion_evidence_mismatch)
+
+        timestamp = now()
+        identity_result = prepare_user_deletion!(request, timestamp)
+        plan = fenced_deletion_plan!(request, timestamp)
 
         unless is_integer(deleted_object_count) and
                  deleted_object_count == length(plan.attachments),
                do: Repo.rollback(:deletion_evidence_mismatch)
 
-        results = apply_deletion!(request, plan)
+        results = apply_deletion!(request, plan, timestamp, identity_result)
 
         evidence = %{
           executor: RuntimePorts.job_worker_name!(:deletion),
@@ -185,6 +198,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           attachments_deleted: results.attachments_deleted,
           deleted_object_count: deleted_object_count,
           derived_erasure_version: 1,
+          media_erasure_version: 1,
+          meeting_erasure_version: 1,
+          writer_fence_erasure_version: 1,
           target_digest: target_digest(request)
         }
 
@@ -222,8 +238,21 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           from(request in DeletionRequest,
             where:
               request.status == :completed and
-                fragment("coalesce(?->>'derived_erasure_version', '') <> '1'", request.evidence),
-            order_by: [asc: request.completed_at, asc: request.id],
+                (fragment("coalesce(?->>'derived_erasure_version', '') <> '1'", request.evidence) or
+                   fragment("coalesce(?->>'media_erasure_version', '') <> '1'", request.evidence) or
+                   fragment(
+                     "coalesce(?->>'meeting_erasure_version', '') <> '1'",
+                     request.evidence
+                   ) or
+                   fragment(
+                     "coalesce(?->>'writer_fence_erasure_version', '') <> '1'",
+                     request.evidence
+                   )),
+            order_by: [
+              asc: fragment("coalesce(?->>'media_erasure_checked_at', '')", request.evidence),
+              asc: request.completed_at,
+              asc: request.id
+            ],
             limit: ^limit,
             select: request.id
           )
@@ -231,8 +260,15 @@ defmodule CommsCore.Governance.DeletionWorkflow do
 
       Enum.reduce_while(ids, {:ok, 0}, fn id, {:ok, count} ->
         case repair_completed_erasure(id) do
-          {:ok, repaired?} -> {:cont, {:ok, count + if(repaired?, do: 1, else: 0)}}
-          {:error, _} -> {:halt, {:error, :erasure_repair_failed}}
+          {:ok, repaired?} ->
+            {:cont, {:ok, count + if(repaired?, do: 1, else: 0)}}
+
+          {:error, :legal_hold_active} ->
+            record_media_erasure_check(id)
+            {:cont, {:ok, count}}
+
+          {:error, _} ->
+            {:halt, {:error, :erasure_repair_failed}}
         end
       end)
       |> case do
@@ -250,30 +286,158 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     Repo.transaction(fn ->
       request = lock_deletion_request_for_worker!(id)
 
-      if value(request.evidence || %{}, :derived_erasure_version) == 1 do
+      if request.status != :completed or
+           (value(request.evidence || %{}, :derived_erasure_version) == 1 and
+              value(request.evidence || %{}, :media_erasure_version) == 1 and
+              value(request.evidence || %{}, :meeting_erasure_version) == 1 and
+              value(request.evidence || %{}, :writer_fence_erasure_version) == 1) do
         false
       else
-        erase_derived_message_content!(request.tenant_id, deletion_message_ids(request))
-        erase_whiteboards(request, now()) |> owner_command_or_rollback()
+        prepare_media_erasure!(request)
+        pending = media_erasure_pending!(request)
 
         evidence =
           Map.merge(request.evidence || %{}, %{
-            "derived_erasure_version" => 1,
-            "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
+            "media_erasure_checked_at" => DateTime.to_iso8601(now())
           })
 
-        request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
+        if pending do
+          request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
+          false
+        else
+          timestamp = now()
+          identity_result = prepare_user_deletion!(request, timestamp)
+          plan = fenced_deletion_plan!(request, timestamp)
 
-        audit_system!(
-          request.tenant_id,
-          "deletion_request.derived_content_repaired",
-          request.id,
-          %{derived_erasure_version: 1}
-        )
+          if plan.attachments == [] do
+            apply_deletion!(request, plan, timestamp, identity_result)
 
-        true
+            evidence =
+              Map.merge(evidence, %{
+                "derived_erasure_version" => 1,
+                "media_erasure_version" => 1,
+                "meeting_erasure_version" => 1,
+                "writer_fence_erasure_version" => 1,
+                "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
+              })
+
+            request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
+
+            audit_system!(
+              request.tenant_id,
+              "deletion_request.derived_content_repaired",
+              request.id,
+              %{
+                derived_erasure_version: 1,
+                media_erasure_version: 1,
+                meeting_erasure_version: 1,
+                writer_fence_erasure_version: 1
+              }
+            )
+
+            true
+          else
+            requeue_writer_fence_repair!(request, evidence, timestamp)
+            false
+          end
+        end
       end
     end)
+  end
+
+  defp requeue_writer_fence_repair!(request, evidence, timestamp) do
+    evidence =
+      evidence
+      |> Map.drop([:writer_fence_erasure_version, "writer_fence_erasure_version"])
+      |> Map.put("writer_fence_repair_queued_at", DateTime.to_iso8601(timestamp))
+      |> Map.put(
+        "historical_completed_at",
+        DateTime.to_iso8601(request.completed_at || timestamp)
+      )
+
+    updated =
+      request
+      |> DeletionRequest.changeset(%{
+        status: :in_progress,
+        completed_at: nil,
+        evidence: evidence,
+        execution_error: "writer_fence_repair_pending"
+      })
+      |> Ecto.Changeset.optimistic_lock(:lock_version)
+      |> update_or_rollback()
+
+    enqueue_deletion!(updated)
+
+    audit_system!(request.tenant_id, "deletion_request.writer_fence_repair_queued", request.id, %{
+      version: updated.lock_version,
+      writer_fence_erasure_version: 0
+    })
+  end
+
+  defp record_media_erasure_check(id) do
+    Repo.transaction(fn ->
+      request = lock_deletion_request_for_worker!(id)
+
+      evidence =
+        Map.put(request.evidence || %{}, "media_erasure_checked_at", DateTime.to_iso8601(now()))
+
+      request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
+    end)
+  end
+
+  defp media_target(%DeletionRequest{target_type: :user} = request), do: request.subject_user_id
+
+  defp media_target(%DeletionRequest{target_type: :conversation} = request),
+    do: request.conversation_id
+
+  defp media_target(%DeletionRequest{target_type: :message} = request), do: request.message_id
+
+  defp prepare_media_erasure!(request) do
+    target = media_target(request)
+
+    with {:ok, _} <-
+           AudioCalls.prepare_governance_erasure(request.tenant_id, request.target_type, target),
+         {:ok, _} <-
+           Telephony.prepare_governance_erasure(request.tenant_id, request.target_type, target),
+         {:ok, _} <-
+           AudioCalls.prepare_meeting_governance_erasure(
+             request.tenant_id,
+             request.target_type,
+             target
+           ) do
+      :ok
+    else
+      {:error, reason}
+      when reason in [
+             :artifact_legal_hold,
+             :voicemail_legal_hold,
+             :meeting_legal_hold,
+             :legal_hold_active
+           ] ->
+        Repo.rollback(:legal_hold_active)
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp media_erasure_pending!(request) do
+    target = media_target(request)
+
+    with {:ok, calls_pending} <-
+           AudioCalls.governance_erasure_pending?(request.tenant_id, request.target_type, target),
+         {:ok, voicemail_pending} <-
+           Telephony.governance_erasure_pending?(request.tenant_id, request.target_type, target),
+         {:ok, meetings_pending} <-
+           AudioCalls.meeting_governance_erasure_pending?(
+             request.tenant_id,
+             request.target_type,
+             target
+           ) do
+      calls_pending or voicemail_pending or meetings_pending
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   def record_deletion_failure(id, reason, caller) do
@@ -399,6 +563,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
   defp deletion_plan(request) do
     message_ids = deletion_message_ids(request)
 
+    deletion_plan(request, message_ids)
+  end
+
+  defp deletion_plan(request, message_ids) do
     attachments =
       case request.target_type do
         :user ->
@@ -445,8 +613,48 @@ defmodule CommsCore.Governance.DeletionWorkflow do
 
   defp deletion_message_ids(%DeletionRequest{target_type: :message, message_id: id}), do: [id]
 
-  defp apply_deletion!(request, plan) do
-    timestamp = now()
+  defp fenced_deletion_plan!(request, timestamp) do
+    # Archiving conflicts with the retained Conversation SHARE of content
+    # writers. Message parents then drain admitted edits before any revision,
+    # derived-copy, or attachment scope is selected.
+    if request.target_type == :conversation do
+      Conversations.archive_for_erasure(request.tenant_id, request.conversation_id, timestamp)
+      |> owner_command_or_rollback()
+    end
+
+    %GovernanceImpact{message_ids: message_ids} =
+      Messaging.lock_for_erasure(request.tenant_id, request.target_type, media_target(request))
+      |> owner_command_or_rollback()
+
+    if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
+    deletion_plan(request, message_ids)
+  end
+
+  defp prepare_user_deletion!(%DeletionRequest{target_type: :user} = request, timestamp) do
+    # Retain current writers before selecting any final content scope. The
+    # IdentityAccess drains Sessions/Devices while retaining its sorted user
+    # fence. Keyed anonymization happens after lower call/content effects.
+    ensure_deletion_preconditions!(request)
+    if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
+    if media_erasure_pending!(request), do: Repo.rollback(:media_erasure_pending)
+
+    identity_result =
+      request
+      |> identity_erasure_command(timestamp)
+      |> Accounts.drain_user_for_governance()
+      |> owner_command_or_rollback()
+
+    # Refresh the media proof after the actual identity drain while all user
+    # writers remain fenced; any newly pending work rolls the drain back.
+    prepare_media_erasure!(request)
+    if media_erasure_pending!(request), do: Repo.rollback(:media_erasure_pending)
+    if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
+    identity_result
+  end
+
+  defp prepare_user_deletion!(_request, _timestamp), do: nil
+
+  defp apply_deletion!(request, plan, timestamp, identity_result) do
     message_ids = plan.message_ids
     attachment_ids = Enum.map(plan.attachments, & &1.id)
 
@@ -464,7 +672,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       erase_whiteboards(request, timestamp)
       |> owner_command_or_rollback()
 
-    revoked_session_ids = apply_target_deletion!(request, timestamp)
+    erase_personal_content!(request)
+    revoked_session_ids = apply_target_deletion!(request, timestamp, identity_result)
 
     %{
       messages_tombstoned: content_result.messages_tombstoned,
@@ -474,6 +683,18 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       whiteboard_operations_neutralized: whiteboard_result.whiteboard_operations_neutralized,
       revoked_session_ids: revoked_session_ids
     }
+  end
+
+  defp erase_personal_content!(%DeletionRequest{target_type: :message}), do: :ok
+
+  defp erase_personal_content!(request) do
+    target_id =
+      if request.target_type == :user, do: request.subject_user_id, else: request.conversation_id
+
+    case Messaging.erase_personal_content(request.tenant_id, request.target_type, target_id) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp erase_derived_message_content!(tenant_id, message_ids) do
@@ -510,12 +731,18 @@ defmodule CommsCore.Governance.DeletionWorkflow do
      }}
   end
 
-  defp apply_target_deletion!(%DeletionRequest{target_type: :message}, _timestamp), do: []
+  defp apply_target_deletion!(
+         %DeletionRequest{target_type: :message},
+         _timestamp,
+         _identity_result
+       ),
+       do: []
 
-  defp apply_target_deletion!(%DeletionRequest{target_type: :conversation} = request, timestamp) do
-    Conversations.archive_for_erasure(request.tenant_id, request.conversation_id, timestamp)
-    |> owner_command_or_rollback()
-
+  defp apply_target_deletion!(
+         %DeletionRequest{target_type: :conversation} = request,
+         _timestamp,
+         _identity_result
+       ) do
     audio_revocation_ok!(
       AudioCalls.revoke_for_conversation(
         request.tenant_id,
@@ -527,32 +754,35 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     []
   end
 
-  defp apply_target_deletion!(%DeletionRequest{target_type: :user} = request, timestamp) do
-    identity_result =
-      Accounts.erase_user_for_governance(%{
-        tenant_id: request.tenant_id,
-        user_id: request.subject_user_id,
-        pending_deletion_user_ids: pending_deletion_user_ids(request.tenant_id),
-        timestamp: timestamp
-      })
-      |> owner_command_or_rollback()
-
+  defp apply_target_deletion!(
+         %DeletionRequest{target_type: :user} = request,
+         timestamp,
+         %GovernanceErasureReceipt{user_id: user_id, revoked_session_ids: revoked_session_ids}
+       ) do
     Conversations.remove_user_memberships_for_erasure(
       request.tenant_id,
-      identity_result.user_id,
+      user_id,
       timestamp
     )
     |> owner_command_or_rollback()
 
-    audio_revocation_ok!(
-      AudioCalls.revoke_for_user(
-        request.tenant_id,
-        identity_result.user_id,
-        "governance_user_deleted"
-      )
-    )
+    # The drain already contributed room and telephone call revocation. Strong
+    # identity-key updates are last, after every lower call/content resource.
+    request
+    |> identity_erasure_command(timestamp)
+    |> Accounts.finalize_user_for_governance_erasure()
+    |> owner_command_or_rollback()
 
-    identity_result.revoked_session_ids
+    revoked_session_ids
+  end
+
+  defp identity_erasure_command(request, timestamp) do
+    %GovernanceErasureCommand{
+      tenant_id: request.tenant_id,
+      user_id: request.subject_user_id,
+      pending_deletion_user_ids: pending_deletion_user_ids(request.tenant_id),
+      timestamp: timestamp
+    }
   end
 
   def pending_deletion_user_ids(tenant_id) do

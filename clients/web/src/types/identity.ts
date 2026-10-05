@@ -21,6 +21,8 @@ export interface User {
   id: string;
   tenant_id: string;
   display_name: string;
+  avatar_url?: string | null;
+  timezone?: string;
   email?: string | null;
   account_type?: "human" | "service" | "guest";
   role: UserRole;
@@ -33,6 +35,9 @@ export interface User {
 export interface DirectoryPerson {
   id: string;
   display_name: string;
+  avatar_url?: string | null;
+  timezone?: string;
+  presence_state?: "available" | "away" | "busy" | "dnd" | "offline";
 }
 
 export interface RetainedSenderLabel {

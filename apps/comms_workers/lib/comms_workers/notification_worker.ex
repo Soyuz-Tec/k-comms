@@ -35,6 +35,12 @@ defmodule CommsWorkers.NotificationWorker do
       {:error, :not_claimable} ->
         {:snooze, 30}
 
+      {:error, {:availability_deferred, seconds}} ->
+        {:snooze, seconds}
+
+      {:error, :recipient_unavailable} ->
+        {:discard, :recipient_unavailable}
+
       {:error, reason} ->
         {:error, safe_reason(reason)}
     end

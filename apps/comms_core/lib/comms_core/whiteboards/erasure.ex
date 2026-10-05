@@ -114,7 +114,9 @@ defmodule CommsCore.Whiteboards.Erasure do
 
     affected =
       from(operation in Operation,
-        where: operation.tenant_id == ^tenant_id and operation.actor_user_id == ^user_id,
+        where:
+          operation.tenant_id == ^tenant_id and
+            (operation.actor_user_id == ^user_id or ^user_id in operation.source_actor_user_ids),
         select: operation.whiteboard_id
       )
 
@@ -128,12 +130,35 @@ defmodule CommsCore.Whiteboards.Erasure do
         )
       )
 
+    Repo.update_all(
+      from(board in Whiteboard,
+        where: board.tenant_id == ^tenant_id and board.title_actor_user_id == ^user_id
+      ),
+      set: [title: "Untitled board", title_actor_user_id: nil],
+      inc: [library_version: 1]
+    )
+
+    Repo.delete_all(
+      from(asset in CommsCore.Whiteboards.Asset,
+        where: asset.tenant_id == ^tenant_id and asset.actor_user_id == ^user_id
+      )
+    )
+
+    Repo.delete_all(
+      from(version in CommsCore.Whiteboards.Version,
+        where:
+          version.tenant_id == ^tenant_id and
+            (version.whiteboard_id in ^board_ids or version.actor_user_id == ^user_id or
+               ^user_id in version.source_actor_user_ids)
+      )
+    )
+
     {operations_neutralized, _} =
       Repo.update_all(
         from(operation in Operation,
           where:
             operation.tenant_id == ^tenant_id and
-              operation.actor_user_id == ^user_id and
+              (operation.actor_user_id == ^user_id or ^user_id in operation.source_actor_user_ids) and
               operation.kind == "scene.update"
         ),
         set: [payload: %{"elements" => []}]

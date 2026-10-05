@@ -43,7 +43,7 @@ describe("sensitive administration reads", () => {
     render(<StepUpProvider><AuditPanel api={{ auditEventsPage } as unknown as ApiClient} users={[]} /></StepUpProvider>);
     await completeStepUp(user);
 
-    expect(stepUp).toHaveBeenCalledWith("correct horse battery staple");
+    expect(stepUp).toHaveBeenCalledWith("correct horse battery staple", undefined);
     expect(await screen.findByText("tenant.settings.viewed")).toBeVisible();
     expect(auditEventsPage).toHaveBeenCalledTimes(2);
   });

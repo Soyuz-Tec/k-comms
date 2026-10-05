@@ -406,12 +406,32 @@ components:
       required: [id, type, version, versionNonce]
       properties:
         id: {type: string, minLength: 8, maxLength: 128}
-        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame]}
+        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame, image]}
         version: {type: integer, minimum: 1}
         versionNonce: {type: integer}
         link: {type: 'null'}
         customData: {type: 'null'}
       additionalProperties: true
+      allOf:
+      - if:
+          properties:
+            type:
+              const: image
+          required:
+          - type
+        then:
+          required:
+          - fileId
+          properties:
+            fileId:
+              type: string
+              format: uuid
+            dataURL:
+              type: 'null'
+            src:
+              type: 'null'
+            url:
+              type: 'null'
     WhiteboardOperationPayload:
       type: object
       additionalProperties: false

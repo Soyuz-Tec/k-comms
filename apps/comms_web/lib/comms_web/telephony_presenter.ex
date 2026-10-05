@@ -16,7 +16,8 @@ defmodule CommsWeb.TelephonyPresenter do
     :can_join,
     :can_end,
     :active_on_this_device,
-    :end_reason
+    :end_reason,
+    :control_state
   ]
   @number_fields [:id, :phone_number, :extension, :user_id]
   @admin_number_fields @number_fields ++ [:inbound_trunk_id, :outbound_trunk_id]

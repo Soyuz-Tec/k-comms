@@ -1,8 +1,8 @@
 defmodule CommsCore.ServiceAccounts do
   import Ecto.Query
 
-  alias CommsCore.{Accounts, Administration, AdmissionQuotas, Repo}
-  alias CommsCore.Accounts.{Device, Session, User}
+  alias CommsCore.{Administration, AdmissionQuotas, Repo}
+  alias CommsCore.Accounts.{Device, Directory, Session, User}
   alias CommsCore.Audit
   alias CommsCore.ServiceAccounts.Authentication
   alias CommsCore.ServiceAccounts.ServiceAccount
@@ -52,6 +52,11 @@ defmodule CommsCore.ServiceAccounts do
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
   @spec revoke_view(binary(), public_map(), public_map()) :: public_response()
   @spec rotate_view(binary(), public_map(), public_map()) :: public_response()
+
+  @doc false
+  @spec rollback_scim_credential_hazard_count() :: non_neg_integer()
+  def rollback_scim_credential_hazard_count,
+    do: CommsCore.ServiceAccounts.ReleaseInventory.scim_credential_hazard_count(Repo)
 
   def create_view(attrs, subject) do
     with {:ok, result} <- create(attrs, subject) do
@@ -108,7 +113,7 @@ defmodule CommsCore.ServiceAccounts do
             {:error, reason} -> Repo.rollback(reason)
           end
 
-        quota_ok!(Accounts.ensure_active_user_capacity(tenant_id, policy))
+        quota_ok!(Directory.ensure_active_user_capacity(tenant_id, policy))
 
         user =
           %User{id: user_id}
@@ -262,6 +267,11 @@ defmodule CommsCore.ServiceAccounts do
 
   def authorize_service(subject, required_scope),
     do: Authentication.authorize(subject, required_scope)
+
+  @doc "Revalidates service capability under a caller's absolute monotonic deadline."
+  @spec authorize_service(map(), String.t(), integer()) :: :ok | {:error, :forbidden}
+  def authorize_service(subject, required_scope, deadline),
+    do: Authentication.authorize(subject, required_scope, deadline)
 
   defp authorize_admin(subject) do
     case human_admin_identity(subject) do

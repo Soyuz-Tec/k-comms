@@ -8,6 +8,8 @@ import type {
   FormEvent,
   MutableRefObject
 } from "react";
+import type { ApiClient } from "../../api";
+import { useSynchronizedDraft } from "./useSynchronizedDraft";
 import type { SendMessageInput } from "../../api";
 import { clientMessageId, errorText } from "../../lib/format";
 import { loadDraft, storeDraft, type DraftPersistence } from "../../lib/drafts";
@@ -22,6 +24,7 @@ export interface FailedChatSend {
 }
 
 interface UseChatComposerOptions {
+  api?: ApiClient;
   activeConversationId: string | null;
   attachmentsReady: boolean;
   clearPendingAttachments: () => void;
@@ -46,6 +49,7 @@ interface UseChatComposerOptions {
 }
 
 export function useChatComposer({
+  api,
   activeConversationId,
   attachmentsReady,
   clearPendingAttachments,
@@ -76,6 +80,9 @@ export function useChatComposer({
   const draftConversationRef = useRef<string | null>(null);
   const tenantId = session?.tenant.id;
   const userId = session?.user.id;
+  const draftSync = useSynchronizedDraft(api, activeConversationId, "main", composer, value => {
+    composerRef.current = value; setComposer(value);
+  });
 
   useEffect(() => {
     const previous = draftConversationRef.current;
@@ -170,6 +177,7 @@ export function useChatComposer({
     }
     forceScrollToLatestRef.current = true;
     receiveMessages([message]);
+    draftSync.edited();
     composerRef.current = "";
     setComposer("");
     clearPendingAttachments();
@@ -183,7 +191,7 @@ export function useChatComposer({
     event.preventDefault();
     if (!activeConversationId || sending) return;
     const body = composer.trim();
-    if (!body) {
+    if (!body && readyAttachmentIds.length === 0) {
       setError("Write a message before sending.");
       return;
     }
@@ -263,8 +271,12 @@ export function useChatComposer({
   }
 
   function composerChanged(event: ChangeEvent<HTMLTextAreaElement>) {
-    composerRef.current = event.target.value;
-    setComposer(event.target.value);
+    composerTextChanged(event.target.value);
+  }
+  function composerTextChanged(value: string) {
+    draftSync.edited();
+    composerRef.current = value;
+    setComposer(value);
     setConversationTyping(true);
     if (typingTimerRef.current) {
       window.clearTimeout(typingTimerRef.current);
@@ -279,7 +291,9 @@ export function useChatComposer({
     activeConversationIdRef,
     composer,
     draftPersistence,
+    draftSync,
     composerChanged,
+    composerTextChanged,
     failedSend,
     mentionedUserIds,
     replyTo,

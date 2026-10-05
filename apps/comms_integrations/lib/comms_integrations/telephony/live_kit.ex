@@ -2,10 +2,22 @@ defmodule CommsIntegrations.Telephony.LiveKit do
   @moduledoc "LiveKit SIP Twirp adapter with bounded calls and no automatic dial retries."
   @behaviour CommsCore.Telephony.ProviderWebhookPort.Contract
 
+  @behaviour CommsCore.Telephony.ProviderControlPort.Contract
+
   alias CommsIntegrations.Telephony.{Config, LiveKitWebhook}
 
   @e164 ~r/^\+[1-9][0-9]{7,14}$/
   @webhook_events ~w(participant_joined participant_left participant_connection_aborted room_finished)
+
+  @impl true
+  def cleanup_call(%{pbx_state: state, route_id: route_id})
+      when map_size(state) > 0 or not is_nil(route_id),
+      do: {:error, :telephony_pbx_binding_invalid}
+
+  def cleanup_call(command), do: CommsIntegrations.Telephony.end_call(command.provider_room)
+
+  @impl true
+  def bound_call_status(_command), do: {:error, :telephony_pbx_binding_invalid}
 
   def configured?, do: match?({:ok, %{enabled: true}}, Config.configuration())
 
@@ -19,6 +31,90 @@ defmodule CommsIntegrations.Telephony.LiveKit do
 
   @impl true
   def authorized_adapter?(caller), do: caller == __MODULE__
+
+  @impl true
+  def capabilities() do
+    ready = configured?()
+    transfer = ready and transfer_enabled?() and destination_prefixes() != []
+
+    %{
+      dtmf: %{
+        supported: ready,
+        reason: if(ready, do: nil, else: "provider_unavailable"),
+        transport: "livekit_reliable_sip_dtmf",
+        assurance: "sdk_submission"
+      },
+      blind_transfer: %{
+        supported: transfer,
+        reason: if(transfer, do: nil, else: "carrier_transfer_not_qualified"),
+        transport: "sip_refer",
+        assurance: "provider_submission"
+      },
+      hold: %{supported: false, reason: "pbx_required"},
+      resume: %{supported: false, reason: "pbx_required"},
+      consult_transfer: %{supported: false, reason: "pbx_required"},
+      voicemail: %{supported: false, reason: "pbx_recording_required"},
+      queues: %{supported: false, reason: "pbx_routing_required"},
+      shared_lines: %{supported: false, reason: "pbx_routing_required"}
+    }
+  end
+
+  @impl true
+  def authorize_destination(destination) do
+    if valid_number?(destination) and transfer_enabled?() and
+         Enum.any?(destination_prefixes(), &String.starts_with?(destination, &1)),
+       do: :ok,
+       else: {:error, :telephony_destination_forbidden}
+  end
+
+  @impl true
+  def verify_event(_, _), do: {:error, :invalid_provider_webhook}
+
+  @impl true
+  def execute_control(command), do: execute_control(command, &request/5)
+
+  def execute_control(%{action: :blind_transfer} = command, requester) do
+    with true <- get_in(capabilities(), [:blind_transfer, :supported]) == true,
+         :ok <- authorize_destination(command.destination),
+         true <- valid_text?(command.provider_room) and valid_text?(command.provider_identity),
+         {:ok, %{enabled: true} = config} <- Config.configuration(),
+         {:ok, response} <-
+           twirp(
+             "SIP/TransferSIPParticipant",
+             %{
+               room_name: command.provider_room,
+               participant_identity: command.provider_identity,
+               transfer_to: "tel:" <> command.destination,
+               play_dialtone: true,
+               ringing_timeout: "#{config.ring_timeout_seconds}s"
+             },
+             %{"sip" => %{"call" => true}},
+             config,
+             10_000,
+             requester
+           ) do
+      if successful?(response), do: {:ok, :submitted}, else: {:error, :telephony_outcome_unknown}
+    else
+      {:error, :telephony_destination_forbidden} = error -> error
+      false -> {:error, :telephony_control_unsupported}
+      _ -> {:error, :telephony_outcome_unknown}
+    end
+  end
+
+  def execute_control(_, _), do: {:error, :telephony_control_unsupported}
+
+  defp transfer_enabled?,
+    do: Application.get_env(:comms_integrations, :telephony_transfer_enabled, false) == true
+
+  defp destination_prefixes do
+    case Application.get_env(:comms_integrations, :telephony_transfer_destination_prefixes, []) do
+      prefixes when is_list(prefixes) ->
+        Enum.filter(prefixes, &(is_binary(&1) and Regex.match?(~r/^\+[1-9][0-9]{0,14}$/, &1)))
+
+      _ ->
+        []
+    end
+  end
 
   def create_outbound(command, requester \\ &request/5)
 
@@ -83,24 +179,59 @@ defmodule CommsIntegrations.Telephony.LiveKit do
     end
   end
 
-  def end_call(room, requester \\ &request/5) do
+  def end_call(room, requester \\ &request/5, budget_ms \\ 5_000)
+      when is_integer(budget_ms) and budget_ms > 0 and budget_ms <= 5_000 do
     with true <- valid_text?(room),
          {:ok, %{enabled: true} = config} <- Config.control_configuration(),
-         {:ok, response} <-
-           twirp(
-             "RoomService/DeleteRoom",
-             %{room: room},
-             %{"video" => %{"roomCreate" => true}},
-             config,
-             5_000,
-             requester
-           ) do
+         {:ok, response} <- bounded_cleanup_request(room, config, requester, budget_ms) do
       if successful?(response) or not_found?(response),
         do: :ok,
         else: {:error, :telephony_provider_unavailable}
     else
       _ -> {:error, :telephony_provider_unavailable}
     end
+  end
+
+  defp bounded_cleanup_request(room, config, requester, budget_ms) do
+    bounded_transport(
+      fn ->
+        twirp(
+          "RoomService/DeleteRoom",
+          %{room: room},
+          %{"video" => %{"roomCreate" => true}},
+          config,
+          budget_ms,
+          requester
+        )
+      end,
+      budget_ms
+    )
+  end
+
+  # A receive timeout does not cover pool, DNS, TCP or TLS waits. Fence the whole
+  # actual transport lifecycle, including late acknowledgements, before the
+  # owning domain transaction can release its authority locks.
+  defp bounded_transport(fun, budget_ms) do
+    deadline = System.monotonic_time(:millisecond) + budget_ms
+    task = Task.Supervisor.async_nolink(CommsIntegrations.TaskSupervisor, fun)
+
+    case Task.yield(task, max(deadline - System.monotonic_time(:millisecond), 0)) do
+      {:ok, result} ->
+        if System.monotonic_time(:millisecond) <= deadline,
+          do: result,
+          else: {:error, :outbound_timeout}
+
+      {:exit, _} ->
+        {:error, :outbound_transport_error}
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+        {:error, :outbound_timeout}
+    end
+  rescue
+    _ -> {:error, :outbound_transport_error}
+  catch
+    :exit, _ -> {:error, :outbound_transport_error}
   end
 
   @doc "Normalizes authenticated provider events without trusting tenant or routing metadata."
@@ -275,13 +406,21 @@ defmodule CommsIntegrations.Telephony.LiveKit do
   end
 
   defp request(method, url, headers, body, options) do
+    bounded_transport(
+      fn -> transport_request(method, url, headers, body, options) end,
+      Keyword.fetch!(options, :timeout_ms)
+    )
+  end
+
+  defp transport_request(method, url, headers, body, options) do
     uri = URI.parse(url)
 
     if uri.scheme == "http" and uri.host in ["localhost", "127.0.0.1", "::1"] and
          Application.get_env(:comms_integrations, :allow_insecure_local_media) == true do
       if Process.whereis(CommsIntegrations.Finch) do
         Finch.request(Finch.build(method, url, headers, body), CommsIntegrations.Finch,
-          receive_timeout: Keyword.fetch!(options, :timeout_ms)
+          receive_timeout: Keyword.fetch!(options, :timeout_ms),
+          pool_timeout: min(Keyword.fetch!(options, :timeout_ms), 1_000)
         )
       else
         {:error, :telephony_provider_unavailable}

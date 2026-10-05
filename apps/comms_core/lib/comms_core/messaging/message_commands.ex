@@ -3,7 +3,17 @@ defmodule CommsCore.Messaging.MessageCommands do
 
   import Ecto.Query
 
-  alias CommsCore.{Administration, Attachments, Conversations, Outbox, Repo}
+  alias CommsCore.{
+    Accounts,
+    Administration,
+    AdmissionQuotas,
+    Attachments,
+    Conversations,
+    Outbox,
+    Repo,
+    ServiceAccounts
+  }
+
   alias CommsCore.Audit
   alias CommsCore.Conversations.MessageWriteSlot
 
@@ -33,7 +43,17 @@ defmodule CommsCore.Messaging.MessageCommands do
 
     with :ok <- validate_identity(attrs, subject),
          :ok <- validate(attrs) do
-      case Repo.transaction(fn -> accept_in_transaction(attrs, subject, authorize) end) do
+      deadline = System.monotonic_time(:millisecond) + 15_000
+
+      case Repo.transaction(
+             fn ->
+               lock_write_authority!(subject, deadline)
+               result = accept_in_transaction(attrs, subject, authorize)
+               current_write_authority!(subject, deadline)
+               result
+             end,
+             timeout: 20_000
+           ) do
         {:ok, {message, status}} -> {:ok, message, status}
         {:error, reason} -> {:error, reason}
       end
@@ -43,40 +63,50 @@ defmodule CommsCore.Messaging.MessageCommands do
   def edit_message(message_id, body, subject) when is_binary(body) do
     body = String.trim(body)
 
-    with :ok <- validate_body(body) do
-      Repo.transaction(fn ->
-        message = locked_message(message_id, subject)
+    with :ok <- validate_body(body),
+         {:ok, conversation_id} <- message_conversation(message_id, subject) do
+      deadline = System.monotonic_time(:millisecond) + 15_000
 
-        case authorize_edit(message, subject) do
-          :ok ->
-            revision = revision_number(message.id)
+      Repo.transaction(
+        fn ->
+          lock_write_authority!(subject, deadline)
+          lock_conversation!(conversation_id, subject, deadline)
+          message = locked_message(message_id, subject)
 
-            %MessageRevision{}
-            |> MessageRevision.changeset(%{
-              tenant_id: message.tenant_id,
-              message_id: message.id,
-              editor_user_id: value(subject, :user_id),
-              body: message.body,
-              revision: revision
-            })
-            |> Repo.insert!()
+          case authorize_edit(message, subject) do
+            :ok ->
+              revision = revision_number(message.id)
 
-            updated =
-              message
-              |> Message.edit_changeset(%{body: body, edited_at: now()})
-              |> Repo.update!()
+              %MessageRevision{}
+              |> MessageRevision.changeset(%{
+                tenant_id: message.tenant_id,
+                message_id: message.id,
+                editor_user_id: value(subject, :user_id),
+                body: message.body,
+                revision: revision
+              })
+              |> Repo.insert!()
 
-            insert_event(updated, "message.updated.v1", subject, %{
-              conversation_sequence: updated.conversation_sequence,
-              revision: revision
-            })
+              updated =
+                message
+                |> Message.edit_changeset(%{body: body, edited_at: now()})
+                |> Repo.update!()
 
-            ReadModel.hydrate_message(updated)
+              insert_event(updated, "message.updated.v1", subject, %{
+                conversation_sequence: updated.conversation_sequence,
+                revision: revision
+              })
 
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
-      end)
+              result = ReadModel.hydrate_message(updated)
+              current_write_authority!(subject, deadline)
+              result
+
+            {:error, reason} ->
+              Repo.rollback(reason)
+          end
+        end,
+        timeout: 20_000
+      )
     end
   end
 
@@ -99,7 +129,12 @@ defmodule CommsCore.Messaging.MessageCommands do
   def delete_message(message_id, subject, policy_check)
       when is_map(subject) and is_function(policy_check, 1) do
     if Repo.in_transaction?() do
-      with %Message{} = message <- locked_message(message_id, subject),
+      deadline = System.monotonic_time(:millisecond) + 15_000
+
+      with {:ok, conversation_id} <- message_conversation(message_id, subject),
+           :ok <- lock_write_authority(subject, deadline),
+           :ok <- lock_conversation(conversation_id, subject, deadline),
+           %Message{} = message <- locked_message(message_id, subject),
            :ok <- authorize_delete(message, subject),
            :ok <-
              policy_check.(%MessageDeletionCandidate{
@@ -115,6 +150,8 @@ defmodule CommsCore.Messaging.MessageCommands do
         insert_event(updated, "message.deleted.v1", subject, %{
           conversation_sequence: updated.conversation_sequence
         })
+
+        current_write_authority!(subject, deadline)
 
         {:ok, ReadModel.hydrate_message(updated)}
       else
@@ -153,6 +190,108 @@ defmodule CommsCore.Messaging.MessageCommands do
     do: Conversations.authorize_read(value(resource, :id), subject)
 
   defp authorize_conversation(_action, _subject, _resource), do: {:error, :forbidden}
+
+  defp lock_write_authority!(subject, deadline) do
+    case lock_write_authority(subject, deadline) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Before a contributor writes anything, an ordinary authority denial belongs
+  # to its policy caller. Budget exhaustion and post-write denials still abort
+  # that entire transaction so no partial mutation can commit.
+  defp lock_write_authority(subject, deadline) do
+    write_budget!(deadline)
+
+    result =
+      if value(subject, :auth_type) == :service do
+        with :ok <- AdmissionQuotas.lock_tenant(value(subject, :tenant_id)) do
+          write_budget!(deadline)
+          ServiceAccounts.authorize_service(subject, "messages:write", deadline)
+        end
+      else
+        Accounts.lock_content_write_grant(subject, deadline)
+      end
+
+    write_budget!(deadline)
+    normalize_write_authority(result)
+  end
+
+  # Conversation ownership is immutable. Read only this owner scalar before
+  # acquiring authority so all edits retain Conversation before Message.
+  defp message_conversation(message_id, subject) do
+    with {:ok, message_id} <- Ecto.UUID.cast(message_id),
+         {:ok, tenant_id} <- Ecto.UUID.cast(value(subject, :tenant_id)),
+         conversation_id when is_binary(conversation_id) <-
+           Repo.one(
+             from(m in Message,
+               where: m.id == ^message_id and m.tenant_id == ^tenant_id,
+               select: m.conversation_id
+             )
+           ) do
+      {:ok, conversation_id}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp lock_conversation!(conversation_id, subject, deadline) do
+    case lock_conversation(conversation_id, subject, deadline) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_conversation(conversation_id, subject, deadline) do
+    write_budget!(deadline)
+
+    with {:ok, _conversation} <-
+           Conversations.lock_call_conversation(
+             value(subject, :tenant_id),
+             conversation_id,
+             :share
+           ) do
+      current_write_authority(subject, deadline)
+    end
+  end
+
+  defp current_write_authority!(subject, deadline) do
+    case current_write_authority(subject, deadline) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp current_write_authority(subject, deadline) do
+    write_budget!(deadline)
+
+    result =
+      if value(subject, :auth_type) == :service,
+        do: ServiceAccounts.authorize_service(subject, "messages:write", deadline),
+        else: Accounts.access_grant(subject)
+
+    write_budget!(deadline)
+    normalize_write_authority(result)
+  end
+
+  defp normalize_write_authority(:ok), do: :ok
+  defp normalize_write_authority({:ok, _grant}), do: :ok
+  defp normalize_write_authority({:error, _reason} = error), do: error
+
+  defp write_budget!(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    if remaining <= 0, do: Repo.rollback(:forbidden)
+    timeout = Integer.to_string(remaining) <> "ms"
+
+    Repo.query!(
+      "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $1, true)",
+      [timeout]
+    )
+
+    if System.monotonic_time(:millisecond) >= deadline, do: Repo.rollback(:forbidden)
+    :ok
+  end
 
   defp authorize_edit(%Message{} = message, subject) do
     with :ok <- Conversations.authorize_send_message(message.conversation_id, subject),
@@ -202,8 +341,7 @@ defmodule CommsCore.Messaging.MessageCommands do
       |> :erlang.term_to_binary()
       |> Base.url_encode64(padding: false)
 
-    Ecto.Adapters.SQL.query!(
-      Repo,
+    Repo.query!(
       "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
       [lock_key]
     )
@@ -242,7 +380,13 @@ defmodule CommsCore.Messaging.MessageCommands do
   defp persist(attrs, subject, %MessageWriteSlot{sequence: sequence}) do
     message =
       %Message{}
-      |> Message.changeset(Map.merge(attrs, %{conversation_sequence: sequence, status: :active}))
+      |> Message.changeset(
+        Map.merge(attrs, %{
+          conversation_sequence: sequence,
+          status: :active,
+          attachment_count: length(attrs.attachment_ids)
+        })
+      )
       |> Repo.insert!()
 
     :ok =
@@ -339,7 +483,9 @@ defmodule CommsCore.Messaging.MessageCommands do
   defp validate(attrs) do
     missing = Enum.filter(@required, &(Map.get(attrs, &1) in [nil, ""]))
     body = Map.get(attrs, :body)
-    body_validation = validate_body(body)
+
+    body_validation =
+      if body in [nil, ""] and attrs.attachment_ids != [], do: :ok, else: validate_body(body)
 
     cond do
       missing != [] ->

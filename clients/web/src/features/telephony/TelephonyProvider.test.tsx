@@ -14,7 +14,7 @@ const configuration: PhoneConfiguration = { enabled: true, configured: true, pro
 const page = (calls: PhoneCall[]) => ({ data: calls, page: { limit: 30, has_more: false, next_cursor: null } });
 
 const harness = vi.hoisted(() => ({
-  api: { phoneConfiguration: vi.fn(), phoneCalls: vi.fn(), phoneCall: vi.fn(), answerPhoneCall: vi.fn(), joinPhoneCall: vi.fn(), dialPhone: vi.fn(), rejectPhoneCall: vi.fn(), endPhoneCall: vi.fn() },
+  api: { phoneCapabilities: vi.fn(), phoneControls: vi.fn(), phoneConfiguration: vi.fn(), phoneCalls: vi.fn(), phoneCall: vi.fn(), answerPhoneCall: vi.fn(), joinPhoneCall: vi.fn(), dialPhone: vi.fn(), rejectPhoneCall: vi.fn(), endPhoneCall: vi.fn(), requestPhoneControl: vi.fn(), reconcilePhoneControl: vi.fn() },
   permission: vi.fn(), stop: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), muted: vi.fn(), conversationBusy: false,
   onState: null as null | ((state: "connecting" | "connected" | "disconnected") => void)
 }));
@@ -39,6 +39,8 @@ describe("persistent phone controls", () => {
     vi.clearAllMocks();
     setPhoneMediaBusy(false);
     harness.conversationBusy = false;
+    harness.api.phoneCapabilities.mockResolvedValue({});
+    harness.api.phoneControls.mockResolvedValue({ data: [], limit: 100 });
     harness.api.phoneConfiguration.mockResolvedValue(configuration);
     harness.api.phoneCalls.mockResolvedValue(page([incoming]));
     harness.api.phoneCall.mockResolvedValue(owned);
@@ -65,6 +67,14 @@ describe("persistent phone controls", () => {
     expect(harness.permission).not.toHaveBeenCalled();
   });
 
+  it("offers and answers a shared line whose default assignee is another member", async () => {
+    harness.api.phoneConfiguration.mockResolvedValue({ ...configuration, line_assigned: true, provider_ready: true, number: { ...configuration.number!, user_id: "default-assignee" } });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Answer" }));
+    await waitFor(() => expect(harness.api.answerPhoneCall).toHaveBeenCalledWith(incoming.id));
+    expect(harness.connect).toHaveBeenCalledWith(credential);
+  });
+
   it("answers only after microphone consent and hangs up with track cleanup", async () => {
     mount();
     const answer = await screen.findByRole("button", { name: "Answer" });
@@ -82,6 +92,77 @@ describe("persistent phone controls", () => {
     expect(harness.api.endPhoneCall).toHaveBeenCalledWith(incoming.id);
     expect(harness.disconnect).toHaveBeenCalled();
     expect(phoneMediaIsBusy()).toBe(false);
+  });
+
+  it.each(["voicemail", "transferred"] as const)("releases browser tracks after confirmed %s while retaining remote End authority", async (controlState) => {
+    mount();
+    const answer = await screen.findByRole("button", { name: "Answer" });
+    harness.api.phoneCalls.mockResolvedValue(page([owned]));
+    await userEvent.click(answer);
+    await screen.findByText("Ringing · Audio connected");
+    expect(phoneMediaIsBusy()).toBe(true);
+    const browserTrackStop = vi.fn();
+    harness.disconnect.mockImplementationOnce(browserTrackStop);
+    const confirmed: PhoneCall = { ...owned, status: "answered", control_state: controlState, can_join: false };
+    harness.api.phoneCalls.mockResolvedValue(page([confirmed]));
+    fireEvent.focus(window);
+    await waitFor(() => expect(browserTrackStop).toHaveBeenCalledOnce());
+    expect(phoneMediaIsBusy()).toBe(false);
+    expect(screen.getByRole("region", { name: "Current phone call" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "End call" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Reconnect phone audio" })).not.toBeInTheDocument();
+    expect(harness.api.endPhoneCall).not.toHaveBeenCalled();
+    harness.api.phoneCalls.mockResolvedValue(page([]));
+    await userEvent.click(screen.getByRole("button", { name: "End call" }));
+    await waitFor(() => expect(harness.api.endPhoneCall).toHaveBeenCalledWith(owned.id));
+    expect(harness.api.endPhoneCall).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the current browser consultation when completion is uncertain and no transferred provider state is recorded", async () => {
+    mount();
+    const answer = await screen.findByRole("button", { name: "Answer" });
+    harness.api.phoneCalls.mockResolvedValue(page([owned]));
+    await userEvent.click(answer);
+    await screen.findByText("Ringing · Audio connected");
+    harness.api.phoneCalls.mockResolvedValue(page([{ ...owned, status: "answered", control_state: "consulting", can_join: false }]));
+    harness.api.phoneControls.mockResolvedValue({ data: [{ id: "uncertain-completion", call_id: owned.id, action: "complete_transfer", status: "unknown", dispatch: false }], limit: 100 });
+    fireEvent.focus(window);
+    await screen.findByText("Answered · Audio connected");
+    expect(harness.disconnect).not.toHaveBeenCalled();
+    expect(phoneMediaIsBusy()).toBe(true);
+    expect(screen.getByRole("button", { name: "End call" })).toBeEnabled();
+    expect(harness.api.endPhoneCall).not.toHaveBeenCalled();
+  });
+
+  it("lets the owning device reconcile and cancel an uncertain consultation after media disconnect without starting forward controls", async () => {
+    mount();
+    const answer = await screen.findByRole("button", { name: "Answer" });
+    harness.api.phoneCalls.mockResolvedValue(page([owned]));
+    await userEvent.click(answer);
+    await screen.findByText("Ringing · Audio connected");
+    const held: PhoneCall = { ...owned, status: "answered", control_state: "held" };
+    const unknown = { id: "uncertain-consult", call_id: owned.id, action: "consult_transfer", status: "unknown", dispatch: false };
+    harness.api.phoneCapabilities.mockResolvedValue({ resume: { supported: true }, cancel_transfer: { supported: true } });
+    harness.api.phoneControls.mockResolvedValue({ data: [unknown], limit: 100 });
+    harness.api.phoneCalls.mockResolvedValue(page([held]));
+    harness.api.reconcilePhoneControl.mockResolvedValue(unknown);
+    harness.api.requestPhoneControl.mockResolvedValue({ ...unknown, id: "safe-cancel", action: "cancel_transfer", status: "pending" });
+    fireEvent.focus(window);
+    await screen.findByText("Answered · Audio connected");
+    act(() => { harness.onState?.("disconnected"); });
+    await screen.findByText("Answered · Audio disconnected");
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reconcile phone control" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Cancel uncertain consultation" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Reconcile phone control" }));
+    await waitFor(() => expect(harness.api.reconcilePhoneControl).toHaveBeenCalledWith(owned.id, unknown.id));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel uncertain consultation" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Cancel uncertain consultation" }));
+    await waitFor(() => expect(harness.api.requestPhoneControl).toHaveBeenCalledWith(owned.id, expect.objectContaining({ action: "cancel_transfer", idempotency_key: expect.any(String) })));
+    expect(harness.api.requestPhoneControl).toHaveBeenCalledOnce();
+    expect(harness.api.joinPhoneCall).not.toHaveBeenCalled();
+    expect(harness.api.endPhoneCall).not.toHaveBeenCalled();
+    expect(harness.connect).toHaveBeenCalledOnce();
   });
 
   it("keeps an incoming call unclaimed when microphone permission is denied", async () => {

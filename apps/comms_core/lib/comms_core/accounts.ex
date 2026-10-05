@@ -82,8 +82,10 @@ defmodule CommsCore.Accounts do
           | CommsCore.Accounts.CallLifecycleReceipt.t()
           | CommsCore.Accounts.DeviceView.t()
           | CommsCore.Accounts.DirectoryPersonView.t()
+          | CommsCore.Accounts.DirectoryUsersLockQuery.t()
           | CommsCore.Accounts.InitialConversationCommand.t()
           | CommsCore.Accounts.InitialConversationReceipt.t()
+          | CommsCore.Accounts.LockedDirectoryUser.t()
           | CommsCore.Accounts.NotificationCommand.t()
           | CommsCore.Accounts.NotificationRecipient.t()
           | CommsCore.Accounts.NotificationReceipt.t()
@@ -134,11 +136,90 @@ defmodule CommsCore.Accounts do
   @spec step_up_view(public_map(), public_map()) :: public_response()
   @spec update_profile_view(public_map(), public_map()) :: public_response()
 
+  @doc "Console-only, separately credentialed owner recovery with a fixed fifteen-minute lifetime."
+  @spec break_glass_session(public_map()) :: public_response()
+  def break_glass_session(attrs), do: CommsCore.Accounts.BreakGlass.create(attrs)
+
+  @spec password_sign_in(binary(), binary(), binary(), public_map()) :: public_response()
+  def password_sign_in(tenant_slug, email, password, device_attrs),
+    do: CommsCore.Accounts.Mfa.password_sign_in(tenant_slug, email, password, device_attrs)
+
+  @spec complete_mfa_sign_in(binary(), binary(), public_map()) :: public_response()
+  def complete_mfa_sign_in(challenge, code, attrs),
+    do: CommsCore.Accounts.Mfa.complete_sign_in(challenge, code, attrs)
+
+  @spec identity_security(public_map()) :: public_response()
+  def identity_security(subject), do: CommsCore.Accounts.Mfa.security(subject)
+
+  @spec enroll_mfa(public_map()) :: public_response()
+  def enroll_mfa(subject), do: CommsCore.Accounts.Mfa.enroll(subject)
+
+  @spec confirm_mfa(binary(), public_map()) :: public_response()
+  def confirm_mfa(code, subject),
+    do: CommsCore.Accounts.Mfa.confirm(code, subject, session_effects())
+
+  @spec disable_mfa(binary(), public_map()) :: public_response()
+  def disable_mfa(code, subject),
+    do: CommsCore.Accounts.Mfa.disable(code, subject, session_effects())
+
+  @spec rotate_mfa_recovery(binary(), public_map()) :: public_response()
+  def rotate_mfa_recovery(code, subject),
+    do: CommsCore.Accounts.Mfa.rotate_recovery(code, subject, session_effects())
+
+  @spec oidc_start(public_map(), public_map() | nil) :: public_response()
+  def oidc_start(attrs, subject), do: CommsCore.Accounts.Oidc.start(attrs, subject)
+
+  @spec oidc_callback(public_map(), binary(), public_map() | nil) :: public_response()
+  def oidc_callback(attrs, binding, subject),
+    do: CommsCore.Accounts.Oidc.callback(attrs, binding, subject)
+
+  @spec availability(public_map()) :: public_response()
+  def availability(subject), do: CommsCore.Accounts.Availability.get(subject)
+
+  @spec update_availability(public_map(), public_map()) :: public_response()
+  def update_availability(attrs, subject),
+    do: CommsCore.Accounts.Availability.update(attrs, subject)
+
+  @spec delivery_availability(binary(), binary(), atom() | binary()) :: public_response()
+  def delivery_availability(tenant_id, user_id, channel),
+    do: CommsCore.Accounts.Availability.delivery(tenant_id, user_id, channel)
+
+  @spec scim_configuration(public_map()) :: public_response()
+  def scim_configuration(subject), do: CommsCore.Accounts.Scim.configuration(subject)
+
+  @spec scim_list(binary(), public_map(), public_map()) :: public_response()
+  def scim_list(kind, attrs, subject), do: CommsCore.Accounts.Scim.list(kind, attrs, subject)
+
+  @spec scim_get(binary(), binary(), public_map()) :: public_response()
+  def scim_get(kind, id, subject), do: CommsCore.Accounts.Scim.get(kind, id, subject)
+
+  @spec scim_create(binary(), public_map(), public_map()) :: public_response()
+  def scim_create(kind, attrs, subject), do: CommsCore.Accounts.Scim.create(kind, attrs, subject)
+
+  @spec scim_replace(binary(), binary(), public_map(), binary(), public_map()) ::
+          public_response()
+  def scim_replace(kind, id, attrs, version, subject),
+    do:
+      CommsCore.Accounts.Scim.replace(kind, id, attrs, version, subject, user_lifecycle_effects())
+
+  @spec scim_patch(binary(), binary(), public_map(), binary(), public_map()) :: public_response()
+  def scim_patch(kind, id, attrs, version, subject),
+    do: CommsCore.Accounts.Scim.patch(kind, id, attrs, version, subject, user_lifecycle_effects())
+
+  @spec scim_delete(binary(), binary(), binary(), public_map()) :: public_response()
+  def scim_delete(kind, id, version, subject),
+    do: CommsCore.Accounts.Scim.delete(kind, id, version, subject, user_lifecycle_effects())
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
     ReleaseInventory.tenant_fingerprint_fragment(repo, tenant_id)
   end
+
+  @doc false
+  @spec rollback_enterprise_identity_hazard_count() :: non_neg_integer()
+  def rollback_enterprise_identity_hazard_count,
+    do: ReleaseInventory.enterprise_identity_hazard_count(Repo)
 
   @doc """
   Resolves an active human or guest session into persistence-free
@@ -162,6 +243,37 @@ defmodule CommsCore.Accounts do
   @spec lock_access_grant(map()) ::
           {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
   def lock_access_grant(subject), do: AccessControl.lock_access_grant(subject)
+
+  @doc """
+  Retains current ordinary content-write authority inside a caller transaction.
+
+  The active tenant, actor user, device and session are locked before the caller
+  takes conversation, private-content or board resources. Human and unexpired
+  guest scope remains unchanged; service credentials use their separate owner
+  authorization. The caller rechecks the fresh grant after lower resource waits
+  and before commit, including its current expiration.
+  """
+  @spec lock_content_write_grant(map()) ::
+          {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
+  def lock_content_write_grant(subject), do: CommsCore.Accounts.ContentWriteGrant.lock(subject)
+
+  @doc "Retains content write authority under the caller's absolute monotonic deadline."
+  @spec lock_content_write_grant(map(), integer()) ::
+          {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
+  def lock_content_write_grant(subject, deadline),
+    do: CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline)
+
+  @doc """
+  Retains exact sorted identity parents before guest lifecycle resources.
+
+  This receipt grants no access. Cleanup may retain expired or inactive parents;
+  live operations require an active tenant and separate current session proof.
+  """
+  @spec lock_guest_identity_parents(CommsCore.Accounts.GuestIdentityParentsLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.GuestIdentityParentsLockReceipt.t()}
+          | {:error, :forbidden | :transaction_required}
+  def lock_guest_identity_parents(query),
+    do: CommsCore.Accounts.GuestIdentities.ParentAuthority.lock(query)
 
   @impl CommsCore.Administration.IdentityAccessPort
   def resolve_access(subject), do: AccessControl.resolve_access(subject)
@@ -267,6 +379,16 @@ defmodule CommsCore.Accounts do
           | {:error, :not_found | :transaction_required}
   def lock_active_human_directory_users(tenant_id, user_ids),
     do: Directory.lock_active_human_directory_users(tenant_id, user_ids)
+
+  @doc """
+  Retains the exact active workspace human or service identities in user-id
+  order. The caller must acquire tenant admission first and retain its owning
+  transaction through the membership effect.
+  """
+  @spec lock_active_directory_users(CommsCore.Accounts.DirectoryUsersLockQuery.t()) ::
+          {:ok, [CommsCore.Accounts.LockedDirectoryUser.t()]}
+          | {:error, :not_found | :transaction_required | :forbidden}
+  def lock_active_directory_users(query), do: Directory.lock_active_directory_users(query)
 
   @doc """
   Verifies that a governance target exists in the exact tenant.
@@ -718,6 +840,29 @@ defmodule CommsCore.Accounts do
   end
 
   def erase_user_for_governance(command), do: GovernanceErasure.erase(command)
+
+  @doc false
+  @spec drain_user_for_governance(CommsCore.Accounts.GovernanceErasureCommand.t()) ::
+          {:ok, CommsCore.Accounts.GovernanceErasureReceipt.t()}
+          | {:error,
+             :invalid_erasure_command
+             | :last_owner_required
+             | :not_found
+             | :transaction_required
+             | :user_erasure_failed}
+  def drain_user_for_governance(command), do: GovernanceErasure.drain(command)
+
+  @doc false
+  @spec finalize_user_for_governance_erasure(CommsCore.Accounts.GovernanceErasureCommand.t()) ::
+          {:ok, CommsCore.Accounts.GovernanceErasureReceipt.t()}
+          | {:error,
+             :invalid_erasure_command
+             | :last_owner_required
+             | :not_found
+             | :transaction_required
+             | :user_erasure_failed
+             | :user_erasure_not_drained}
+  def finalize_user_for_governance_erasure(command), do: GovernanceErasure.finalize(command)
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
     Bootstrap.tenant(attrs, bootstrap_effects())

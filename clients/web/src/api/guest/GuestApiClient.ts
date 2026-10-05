@@ -17,6 +17,7 @@ import type {
   WhiteboardOperationPage
 } from "../../types";
 import type { ApiRequestOptions, SendMessageInput } from "../contracts";
+import type { MeetingArtifact, MeetingArtifactPage } from "../../types/meeting-artifacts";
 import { ApiError, retryAfterSeconds } from "../errors";
 import { resolveSenderLabelBatches } from "../senderLabels";
 import { sameGuestSessionIdentity } from "../sessionIdentity";
@@ -251,6 +252,17 @@ export class GuestApiClient {
     return this.request<DataResponse<Call> | Call>(
       `/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/end`,
       { method: "POST" }
+    ).then(unwrapData);
+  }
+
+  meetingArtifacts(_conversationId: string, callId: string): Promise<MeetingArtifactPage> {
+    return this.request(`/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/artifacts`);
+  }
+
+  consentRecording(_conversationId: string, callId: string, artifactId: string, accepted: boolean): Promise<MeetingArtifact> {
+    return this.request<DataResponse<MeetingArtifact>>(
+      `/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/artifacts/${encodeURIComponent(artifactId)}/consent`,
+      { method: "POST", body: JSON.stringify({ accepted }) }
     ).then(unwrapData);
   }
 

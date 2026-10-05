@@ -73,7 +73,7 @@ async function expectContentToFit(page: Page, selector: string) {
   });
   expect(geometry.documentScroll).toBeLessThanOrEqual(geometry.viewport + 1);
   expect(geometry.bodyScroll).toBeLessThanOrEqual(geometry.viewport + 1);
-  expect(geometry.scroll).toBeLessThanOrEqual(geometry.client + 1);
+  expect(geometry.scroll, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.client + 1);
   expect(geometry.overflow).toEqual([]);
   expect(geometry.clippedControls).toEqual([]);
 }

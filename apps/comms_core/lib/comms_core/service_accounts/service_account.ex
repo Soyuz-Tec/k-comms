@@ -1,7 +1,14 @@
 defmodule CommsCore.ServiceAccounts.ServiceAccount do
   use CommsCore.Schema
 
-  @scopes ["conversations:read", "messages:read", "messages:write", "search:read"]
+  @scopes [
+    "conversations:read",
+    "messages:read",
+    "messages:write",
+    "search:read",
+    "scim:read",
+    "scim:write"
+  ]
 
   schema "service_accounts" do
     field(:tenant_id, Ecto.UUID)

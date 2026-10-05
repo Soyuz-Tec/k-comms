@@ -29,31 +29,38 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
   def reconcile(room_id, expected_generation) do
     with {:ok, room_id} <- Authority.cast_uuid(room_id),
          %EphemeralRoom{} = snapshot <- Repo.get(EphemeralRoom, room_id) do
-      Repo.transaction(fn ->
-        _policy = Authority.admission_policy!(snapshot.tenant_id)
-        {_conversation, link, room} = Authority.lock_room_scope!(snapshot)
+      Repo.transaction(
+        fn ->
+          {_conversation, link, room} = Authority.lock_room_scope!(snapshot, nil, false)
+          _policy = Authority.admission_policy!(snapshot.tenant_id)
 
-        cond do
-          room.status == :expired ->
-            :already_terminal
+          result =
+            cond do
+              room.status == :expired ->
+                :already_terminal
 
-          room.generation != expected_generation ->
-            :stale_generation
+              room.generation != expected_generation ->
+                :stale_generation
 
-          live_presence?(room.id, Authority.now()) ->
-            :active
+              live_presence?(room.id, Authority.now()) ->
+                :active
 
-          within_reconnect_grace?(room, Authority.now()) ->
-            :active
+              within_reconnect_grace?(room, Authority.now()) ->
+                :active
 
-          room.status == :idle ->
-            Scheduler.enqueue_expiry!(room, room.expires_at)
-            {:idle, room.expires_at, room.generation}
+              room.status == :idle ->
+                Scheduler.enqueue_expiry!(room, room.expires_at)
+                {:idle, room.expires_at, room.generation}
 
-          true ->
-            transition_to_idle!(room, link)
-        end
-      end)
+              true ->
+                transition_to_idle!(room, link)
+            end
+
+          Authority.ensure_identity_budget!(snapshot.tenant_id, false)
+          result
+        end,
+        timeout: 20_000
+      )
       |> Authority.transaction_result()
     else
       _ -> {:error, :ephemeral_room_not_found}
@@ -100,35 +107,42 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
              is_function(archived_conversation_revoker, 3) do
     with {:ok, room_id} <- Authority.cast_uuid(room_id),
          %EphemeralRoom{} = snapshot <- Repo.get(EphemeralRoom, room_id) do
-      Repo.transaction(fn ->
-        _policy = Authority.admission_policy!(snapshot.tenant_id)
-        {conversation, link, room} = Authority.lock_room_scope!(snapshot)
-        timestamp = Authority.now()
+      Repo.transaction(
+        fn ->
+          {conversation, link, room} = Authority.lock_room_scope!(snapshot, nil, false)
+          _policy = Authority.admission_policy!(snapshot.tenant_id)
+          timestamp = Authority.now()
 
-        cond do
-          room.status == :expired ->
-            :already_terminal
+          result =
+            cond do
+              room.status == :expired ->
+                :already_terminal
 
-          room.generation != expected_generation ->
-            :stale_generation
+              room.generation != expected_generation ->
+                :stale_generation
 
-          room.status == :active or live_presence?(room.id, timestamp) ->
-            :active
+              room.status == :active or live_presence?(room.id, timestamp) ->
+                :active
 
-          DateTime.compare(room.expires_at, timestamp) == :gt ->
-            {:not_due, max(DateTime.diff(room.expires_at, timestamp, :second), 1)}
+              DateTime.compare(room.expires_at, timestamp) == :gt ->
+                {:not_due, max(DateTime.diff(room.expires_at, timestamp, :second), 1)}
 
-          true ->
-            expire_locked!(
-              conversation,
-              link,
-              room,
-              timestamp,
-              call_access_revoker,
-              archived_conversation_revoker
-            )
-        end
-      end)
+              true ->
+                expire_locked!(
+                  conversation,
+                  link,
+                  room,
+                  timestamp,
+                  call_access_revoker,
+                  archived_conversation_revoker
+                )
+            end
+
+          Authority.ensure_identity_budget!(snapshot.tenant_id, false)
+          result
+        end,
+        timeout: 20_000
+      )
       |> Authority.transaction_result()
     else
       _ -> {:error, :ephemeral_room_not_found}

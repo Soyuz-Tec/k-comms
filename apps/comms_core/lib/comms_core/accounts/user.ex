@@ -6,6 +6,12 @@ defmodule CommsCore.Accounts.User do
     has_one(:platform_role_grant, CommsCore.Accounts.PlatformRoleGrant)
     field(:external_subject, :string)
     field(:display_name, :string)
+    field(:avatar_url, :string)
+    field(:timezone, :string, default: "Etc/UTC")
+    field(:presence_state, :string, default: "available")
+    field(:presence_expires_at, :utc_datetime_usec)
+    field(:dnd_until, :utc_datetime_usec)
+    field(:dnd_schedule, :map, default: %{})
     field(:email, :string)
     field(:password_hash, :string, redact: true)
     field(:account_type, Ecto.Enum, values: [:human, :service, :guest], default: :human)
@@ -43,6 +49,8 @@ defmodule CommsCore.Accounts.User do
       :tenant_id,
       :external_subject,
       :display_name,
+      :avatar_url,
+      :timezone,
       :email,
       :password_hash,
       :account_type,
@@ -72,6 +80,16 @@ defmodule CommsCore.Accounts.User do
         else: []
     end)
     |> validate_length(:display_name, min: 1, max: 120)
+    |> validate_change(:timezone, fn :timezone, zone ->
+      if CommsCore.Accounts.ProfileValidation.valid_timezone?(zone),
+        do: [],
+        else: [timezone: "must be an IANA timezone"]
+    end)
+    |> validate_change(:avatar_url, fn :avatar_url, avatar ->
+      if CommsCore.Accounts.ProfileValidation.valid_avatar?(avatar),
+        do: [],
+        else: [avatar_url: "must be a bounded PNG avatar"]
+    end)
     |> unique_constraint([:tenant_id, :external_subject])
     |> unique_constraint(:email, name: :users_tenant_email_unique)
   end

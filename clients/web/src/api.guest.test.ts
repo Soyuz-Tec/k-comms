@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient, GuestApiClient } from "./api";
 import type { GuestSession, Session } from "./types";
+import type { MeetingArtifact, MeetingArtifactPage } from "./types/meeting-artifacts";
 
 const session: Session = {
   access_token: "access-token",
@@ -60,6 +61,95 @@ describe("guest communication API", () => {
       email_hint: "a***@example.test"
     }
   };
+
+  const consentArtifact: MeetingArtifact = {
+    id: "artifact-1", conversation_id: "conversation-1", call_id: "call-1",
+    kind: "recording", status: "pending_consent", created_at: "2026-10-04T12:00:00Z",
+    expires_at: "2026-11-04T12:00:00Z", consent_required_count: 2,
+    consent_accepted_count: 0, my_consent: false, can_manage: false, content_type: "video/mp4"
+  };
+  const artifactPage: MeetingArtifactPage = {
+    data: [consentArtifact], capabilities: {
+      recording: false, recording_reason: "guest_participant_only", participant_consent_required: true,
+      persistent_transcript: false, persistent_transcript_reason: "guest_participant_only",
+      captions: "provider_events_only", automatic_capture: false
+    }
+  };
+
+  it("keeps guest recording disclosure and consent scoped to the admitted room", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(artifactPage), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...consentArtifact, my_consent: true } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    await expect(api.meetingArtifacts("caller-controlled-room", "call/1")).resolves.toEqual(artifactPage);
+    await expect(api.consentRecording("caller-controlled-room", "call/1", "artifact/1", true)).resolves.toMatchObject({ my_consent: true });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://comms.test/api/v1/guest/conversation/calls/call%2F1/artifacts",
+      "https://comms.test/api/v1/guest/conversation/calls/call%2F1/artifacts/artifact%2F1/consent"
+    ]);
+    const options = fetchMock.mock.calls[1]?.[1];
+    expect(options?.method).toBe("POST");
+    expect(JSON.parse(String(options?.body))).toEqual({ accepted: true });
+    expect(new Headers(options?.headers).get("Authorization")).toBe("Bearer guest-access");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("caller-controlled-room");
+    expect("requestRecording" in api).toBe(false);
+    expect("artifactPlayback" in api).toBe(false);
+  });
+
+  it("retries explicit guest consent under a refreshed token for the same visit", async () => {
+    const refreshed = { ...guestSession, access_token: "refreshed-guest-access", refresh_token: "refreshed-guest-refresh" };
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "invalid_access_token" } }), { status: 401, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(refreshed), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...consentArtifact, my_consent: false } }), { status: 200, headers: { "content-type": "application/json" } }));
+    const onSession = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, onSession);
+
+    await expect(api.consentRecording("unused-room", "call-1", "artifact-1", false)).resolves.toMatchObject({ my_consent: false });
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://comms.test/api/v1/guest/sessions/refresh");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(fetchMock.mock.calls[2]?.[0]);
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(fetchMock.mock.calls[2]?.[1]?.body);
+    expect(new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get("Authorization")).toBe("Bearer refreshed-guest-access");
+    expect(onSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards delayed guest recording disclosure after a different visit replaces it", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const response = new Promise<Response>(resolve => { resolveRequest = resolve; });
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(response);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+    const request = api.meetingArtifacts("unused-room", "call-1");
+    api.setSession({ ...guestSession, access_token: "replacement-access", refresh_token: "replacement-refresh", conversation: { ...guestSession.conversation, id: "conversation-2" } });
+    resolveRequest?.(new Response(JSON.stringify(artifactPage), { status: 200, headers: { "content-type": "application/json" } }));
+
+    await expect(request).rejects.toMatchObject({ status: 409, code: "session_changed" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay old consent or overwrite a replacement guest visit after a delayed refresh", async () => {
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const refreshResponse = new Promise<Response>(resolve => { resolveRefresh = resolve; });
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "invalid_access_token" } }), { status: 401, headers: { "content-type": "application/json" } }))
+      .mockReturnValueOnce(refreshResponse);
+    const onSession = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, onSession);
+    const request = api.consentRecording("unused-room", "call-1", "artifact-1", true);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    api.setSession({ ...guestSession, access_token: "replacement-access", refresh_token: "replacement-refresh", conversation: { ...guestSession.conversation, id: "conversation-2" } });
+    resolveRefresh?.(new Response(JSON.stringify({ ...guestSession, access_token: "old-visit-refreshed", refresh_token: "old-visit-refresh" }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onSession).not.toHaveBeenCalled();
+  });
 
   it("applies the same bounded deadline to ordinary guest requests", async () => {
     vi.useFakeTimers();

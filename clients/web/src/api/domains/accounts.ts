@@ -1,5 +1,6 @@
 import type { AccountSession, Conversation, DataResponse, Device, DirectConversationResponse, DirectoryPeoplePage, ListResponse, MeResponse, Session, User } from "../../types";
 import type { ApiRequest, BootstrapInput, LoginInput } from "../contracts";
+import type { LoginResult } from "../../types/enterpriseIdentity";
 
 interface AccountsApiSupport {
   withReceivedAt: <T extends Session>(session: T) => T;
@@ -19,11 +20,14 @@ export function createAccountsApi(
       },
 
     login(input: LoginInput): Promise<Session> {
-        return request<Session>("/api/v1/sessions", {
+        return request<LoginResult>("/api/v1/sessions", {
           method: "POST",
           body: JSON.stringify(input),
           retryAuthentication: false
-        }).then(withReceivedAt);
+        }).then((result) => {
+          if ("mfa_required" in result) throw new Error("Authenticator verification is required. Use the member sign-in form.");
+          return withReceivedAt(result);
+        });
       },
 
     requestPasswordRecovery(input: { tenant_slug: string; email: string }): Promise<void> {
@@ -34,7 +38,7 @@ export function createAccountsApi(
         });
       },
 
-    resetPassword(input: { token: string; new_password: string }): Promise<void> {
+    resetPassword(input: { token: string; new_password: string; mfa_code?: string }): Promise<void> {
         return request("/api/v1/password-recovery/resets", {
           method: "POST",
           body: JSON.stringify(input),
@@ -54,21 +58,21 @@ export function createAccountsApi(
         return request("/api/v1/me");
       },
 
-    updateProfile(input: { display_name: string }): Promise<User> {
+    updateProfile(input: { display_name: string; avatar_url?: string | null; timezone?: string }): Promise<User> {
         return request<DataResponse<User>>("/api/v1/me/profile", {
           method: "PATCH",
           body: JSON.stringify(input)
         }).then((response) => response.data);
       },
 
-    changePassword(input: { current_password: string; new_password: string }): Promise<void> {
+    changePassword(input: { current_password: string; new_password: string; mfa_code?: string }): Promise<void> {
         return request("/api/v1/me/password", { method: "PUT", body: JSON.stringify(input) });
       },
 
-    stepUp(currentPassword: string): Promise<{ step_up_at: string }> {
+    stepUp(currentPassword: string, mfaCode?: string): Promise<{ step_up_at: string }> {
         return request<DataResponse<{ step_up_at: string }>>("/api/v1/me/step-up", {
           method: "POST",
-          body: JSON.stringify({ current_password: currentPassword })
+          body: JSON.stringify({ current_password: currentPassword, ...(mfaCode ? { mfa_code: mfaCode } : {}) })
         }).then((response) => response.data);
       },
 

@@ -10,7 +10,13 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "instant_room_lifecycle_v1",
                                   "instant_room_presence_lease_v1",
                                   "instant_room_expiry_worker_v1",
-                                  "conversation_only_human_v1"
+                                  "conversation_only_human_v1",
+                                  "enterprise_identity_v1",
+                                  "uc_artifact_lifecycle_v1",
+                                  "uc_voicemail_lifecycle_v1",
+                                  "uc_advanced_telephony_v1",
+                                  "scheduled_meeting_lifecycle_v1",
+                                  "rich_content_erasure_v1"
                                 ],
                                 ","
                               )
@@ -66,7 +72,20 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       ephemeral_presence_leases: 5,
       active_ephemeral_room_lifecycle_jobs: 6,
       active_ephemeral_room_reconciler_jobs: 7,
-      conversation_only_humans: 8
+      conversation_only_humans: 8,
+      enterprise_identities: 1,
+      scim_credentials: 1,
+      retained_call_artifacts: 1,
+      active_artifact_jobs: 1,
+      voicemail_media: 1,
+      active_voicemail_jobs: 1,
+      advanced_controls: 1,
+      active_control_jobs: 1,
+      active_routing_jobs: 1,
+      scheduled_meetings: 1,
+      active_meeting_reminder_jobs: 1,
+      rich_messages: 1,
+      rich_whiteboards: 1
     }
 
     compatible = %{
@@ -148,5 +167,57 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                clean_hazards,
                guest_capable
              )
+
+    # The actual preceding release declares every old capability. None of its
+    # guest/instant-room support proves it can enforce these new controls.
+    previous_release = %{
+      target_revision: "23896227",
+      capabilities:
+        @communication_capabilities
+        |> String.split(",")
+        |> Enum.take(6)
+        |> MapSet.new()
+    }
+
+    assert ^clean_hazards =
+             Release.assert_communication_rollback_hazards!(clean_hazards, previous_release)
+
+    for {capability, keys} <- [
+          {"enterprise_identity_v1", [:enterprise_identities, :scim_credentials]},
+          {"uc_artifact_lifecycle_v1", [:retained_call_artifacts, :active_artifact_jobs]},
+          {"uc_voicemail_lifecycle_v1", [:voicemail_media, :active_voicemail_jobs]},
+          {"uc_advanced_telephony_v1",
+           [:advanced_controls, :active_control_jobs, :active_routing_jobs]},
+          {"scheduled_meeting_lifecycle_v1",
+           [:scheduled_meetings, :active_meeting_reminder_jobs]},
+          {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]}
+        ],
+        key <- keys do
+      state = Map.put(clean_hazards, key, 1)
+
+      assert_raise RuntimeError, ~r/target 23896227 lacks #{capability}.*#{key}=1/, fn ->
+        Release.assert_communication_rollback_hazards!(state, previous_release)
+      end
+
+      # Each capability authorizes only its own state; no unrelated new
+      # capability is required when the remaining owner projections are zero.
+      capable = %{
+        previous_release
+        | capabilities: MapSet.put(previous_release.capabilities, capability)
+      }
+
+      assert ^state = Release.assert_communication_rollback_hazards!(state, capable)
+    end
+
+    for invalid <- [
+          Map.delete(clean_hazards, :enterprise_identities),
+          Map.put(clean_hazards, :voicemail_media, nil),
+          Map.put(clean_hazards, :rich_whiteboards, -1),
+          Map.put(clean_hazards, :retained_call_artifacts, "0")
+        ] do
+      assert_raise RuntimeError, ~r/invalid hazard snapshot/, fn ->
+        Release.assert_communication_rollback_hazards!(invalid, compatible)
+      end
+    end
   end
 end

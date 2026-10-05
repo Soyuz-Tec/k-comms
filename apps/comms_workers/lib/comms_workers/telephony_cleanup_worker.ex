@@ -1,6 +1,6 @@
 defmodule CommsWorkers.TelephonyCleanupWorker do
   @moduledoc """
-  Repeats idempotent provider-room deletion until a terminal call is cleaned.
+  Verifies idempotent owned PBX and room deletion before a terminal call is cleaned.
 
   The domain retains an enforcement horizon for a still-running SIP create
   request so a late telephone participant cannot resurrect an ended call.
@@ -9,7 +9,6 @@ defmodule CommsWorkers.TelephonyCleanupWorker do
 
   alias CommsCore.Telephony
   alias CommsCore.Telephony.ProviderCommand
-  alias CommsIntegrations.Telephony, as: Provider
 
   @provider_retry_seconds 15
 
@@ -27,18 +26,26 @@ defmodule CommsWorkers.TelephonyCleanupWorker do
   def perform(_job), do: {:discard, :call_id_required}
 
   defp cleanup(%ProviderCommand{} = command) do
-    result =
-      case Provider.end_call(command.provider_room) do
-        :ok -> :ok
-        _error -> {:error, :telephony_provider_unavailable}
-      end
+    case Telephony.complete_cleanup(command.call_id, :execute, __MODULE__) do
+      :ok ->
+        :ok
 
-    case Telephony.complete_cleanup(command.call_id, result, __MODULE__) do
-      :ok -> :ok
-      {:ok, {:not_due, seconds}} -> {:snooze, max(seconds, 1)}
-      {:error, :telephony_provider_unavailable} -> {:snooze, @provider_retry_seconds}
-      {:error, :not_found} -> {:discard, :telephony_call_not_found}
-      {:error, reason} -> {:error, safe_reason(reason)}
+      {:ok, {:not_due, seconds}} ->
+        {:snooze, max(seconds, 1)}
+
+      {:error, reason}
+      when reason in [
+             :telephony_provider_unavailable,
+             :telephony_outcome_unknown,
+             :telephony_pbx_binding_invalid
+           ] ->
+        {:snooze, @provider_retry_seconds}
+
+      {:error, :not_found} ->
+        {:discard, :telephony_call_not_found}
+
+      {:error, reason} ->
+        {:error, safe_reason(reason)}
     end
   end
 

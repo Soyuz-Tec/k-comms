@@ -312,7 +312,11 @@ test.describe("authenticated mobile web acceptance", () => {
 
     const actions = page.locator(".call-session-actions a, .call-session-actions button");
     await expect(actions.first()).toBeVisible();
-    await expect(actions).toHaveCount(2);
+    await expect(actions).toHaveCount(3);
+    await expect(page.getByRole("button", { name: "View recordings and transcripts for General" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "View recordings and transcripts for General" }).locator(".app-icon")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open chat for General" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Join video call for General/ })).toBeVisible();
     await expectMinimumTargets(
       actions,
       "active-call actions"
@@ -461,7 +465,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.goto("/sign-in");
       const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
       const workspace = page.getByRole("textbox", { name: "Workspace address" });
-      const submit = page.getByRole("button", { name: "Sign in" });
+      const submit = page.getByRole("button", { name: "Sign in", exact: true });
       await expect(heading).toBeVisible();
       await expect(workspace).toBeVisible();
       await expect(submit).toBeVisible();

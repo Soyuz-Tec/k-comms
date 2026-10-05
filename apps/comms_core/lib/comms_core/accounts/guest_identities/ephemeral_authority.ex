@@ -74,6 +74,7 @@ defmodule CommsCore.Accounts.GuestIdentities.EphemeralAuthority do
         {:error, :session_expired}
 
       %Session{} = active_session ->
+        timestamp = Persistence.now()
         rolling_deadline = rolling_deadline(timestamp, deadline)
 
         if DateTime.compare(rolling_deadline, deadline) == :lt do
@@ -92,6 +93,8 @@ defmodule CommsCore.Accounts.GuestIdentities.EphemeralAuthority do
         {:error, :session_expired}
 
       %Session{} = active_session ->
+        timestamp = Persistence.now()
+
         if authority_covered?(active_session, deadline) do
           {:ok, receipt(active_session, deadline)}
         else
@@ -125,6 +128,9 @@ defmodule CommsCore.Accounts.GuestIdentities.EphemeralAuthority do
          rolling_deadline,
          receipt_deadline
        ) do
+    unless ActiveSession.live?(active_session), do: Repo.rollback(:session_expired)
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     user_changeset =
       User.guest_expiration_changeset(active_session.user, user_deadline)
 
@@ -138,6 +144,8 @@ defmodule CommsCore.Accounts.GuestIdentities.EphemeralAuthority do
          :ok <- valid_changeset(session_changeset) do
       _user = update_or_rollback(user_changeset)
       updated_session = update_or_rollback(session_changeset)
+      CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+      unless ActiveSession.live?(active_session), do: Repo.rollback(:session_expired)
       {:ok, receipt(updated_session, receipt_deadline)}
     end
   end
@@ -181,6 +189,8 @@ defmodule CommsCore.Accounts.GuestIdentities.EphemeralAuthority do
   defp valid_changeset(%Ecto.Changeset{}), do: {:error, :invalid_ephemeral_guest_deadline}
 
   defp update_or_rollback(changeset) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.update(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)

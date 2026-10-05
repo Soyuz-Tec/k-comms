@@ -11,6 +11,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
     NotificationCommand,
     PlatformGrants,
     Session,
+    SessionAuthority,
     User
   }
 
@@ -71,28 +72,43 @@ defmodule CommsCore.Accounts.UserLifecycle do
           status: :active
         })
 
-      Ecto.Multi.new()
-      |> Ecto.Multi.run(:admission_quota, fn _repo, _changes ->
-        with {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
-             :ok <- Directory.ensure_active_user_capacity(tenant_id, policy) do
-          {:ok, :admitted}
-        end
-      end)
-      |> Ecto.Multi.insert(:user, user_changeset)
-      |> Audit.append(%{
-        tenant_id: tenant_id,
-        actor_user_id: value(subject, :user_id),
-        action: "user.create",
-        resource_type: "user",
-        resource_id: user_id,
-        metadata: %{email: email, role: requested_role},
-        request_id: value(subject, :request_id)
-      })
-      |> Repo.transaction()
-      |> case do
-        {:ok, %{user: user}} -> {:ok, user}
-        {:error, _step, reason, _changes} -> {:error, reason}
-      end
+      deadline = System.monotonic_time(:millisecond) + 15_000
+
+      Repo.transaction(
+        fn ->
+          SessionAuthority.ensure_budget(deadline)
+          policy = AdmissionQuotas.locked_policy(tenant_id) |> admission_policy_or_rollback()
+
+          case SessionAuthority.lock(subject, deadline) do
+            {:ok, _grant} -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+          authorize_creation!(subject, requested_role, deadline)
+          quota_ok!(Directory.ensure_active_user_capacity(tenant_id, policy))
+          SessionAuthority.ensure_budget(deadline)
+
+          user =
+            case Repo.insert(user_changeset) do
+              {:ok, user} -> user
+              {:error, reason} -> Repo.rollback(reason)
+            end
+
+          # The actual insert can also wait on uniqueness or FK checks. A fresh
+          # current proof is required before committing this new identity.
+          authorize_creation!(subject, requested_role, deadline)
+
+          insert_audit!(subject, "user.create", "user", user.id, %{
+            email: email,
+            role: requested_role
+          })
+
+          SessionAuthority.ensure_budget(deadline)
+          user
+        end,
+        timeout: 20_000
+      )
+      |> transaction_result()
     end
   end
 
@@ -119,8 +135,18 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
       changes =
         case validate_unchanged_profile_email(attrs, user.email) do
-          :ok -> Map.take(attrs, [:display_name, "display_name"])
-          {:error, reason} -> Repo.rollback(reason)
+          :ok ->
+            Map.take(attrs, [
+              :display_name,
+              "display_name",
+              :avatar_url,
+              "avatar_url",
+              :timezone,
+              "timezone"
+            ])
+
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
 
       updated = user |> User.changeset(changes) |> update_or_rollback()
@@ -146,15 +172,18 @@ defmodule CommsCore.Accounts.UserLifecycle do
   def change_with_effects(user_id, attrs, subject, effects)
       when is_map(attrs) and is_map(subject) and is_map(effects) do
     with {:ok, command} <- validate_change(attrs, subject) do
-      Repo.transaction(fn ->
-        apply_change!(
-          user_id,
-          command,
-          subject,
-          :governance_policy_required,
-          effects
-        )
-      end)
+      Repo.transaction(
+        fn ->
+          apply_change!(
+            user_id,
+            command,
+            subject,
+            :governance_policy_required,
+            effects
+          )
+        end,
+        timeout: 20_000
+      )
       |> transaction_result()
     end
   end
@@ -256,9 +285,22 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
   defp apply_change!(user_id, command, subject, excluded_owner_ids, effects) do
     tenant_id = command.tenant_id
+    deadline = System.monotonic_time(:millisecond) + 15_000
 
+    # Match Settings' admission-advisory-before-Tenant order. Holding Tenant
+    # before waiting for the quota lock would introduce the reverse edge.
+    SessionAuthority.ensure_budget(deadline)
     policy = AdmissionQuotas.locked_policy(tenant_id) |> admission_policy_or_rollback()
+    SessionAuthority.ensure_budget(deadline)
+
+    case SessionAuthority.lock_active_tenant(tenant_id, deadline) do
+      {:ok, _tenant} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
+    SessionAuthority.ensure_budget(deadline)
     lock_tenant_users!(tenant_id)
+    SessionAuthority.ensure_budget(deadline)
 
     target =
       Repo.one(
@@ -266,11 +308,20 @@ defmodule CommsCore.Accounts.UserLifecycle do
           where:
             u.id == ^user_id and u.tenant_id == ^tenant_id and u.status != :deleted and
               u.account_type == :human,
-          lock: "FOR UPDATE"
+          lock: "FOR NO KEY UPDATE"
         )
       ) || Repo.rollback(:not_found)
 
+    SessionAuthority.ensure_budget(deadline)
     if target.lock_version != command.expected_version, do: Repo.rollback(:stale_version)
+
+    # Tenant and all Users are already retained in canonical order. These
+    # reacquisitions are reentrant; exact Device and Session locks now fence
+    # current initiating authority through the lifecycle effect.
+    case SessionAuthority.lock(subject, deadline) do
+      {:ok, _grant} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
 
     actor =
       Repo.get_by!(User,
@@ -294,6 +345,18 @@ defmodule CommsCore.Accounts.UserLifecycle do
       |> maybe_put(:status, command.status)
       |> maybe_put(:display_name, command.display_name)
 
+    SessionAuthority.ensure_budget(deadline)
+
+    # Wall-clock session/step-up expiry can cross a wait or eligibility read.
+    # Refresh immediately before the effect, not after legitimate self-demotion
+    # or suspension has intentionally removed the initiating authority.
+    case AccessControl.authorize_manage_user_lifecycle(subject) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
+    SessionAuthority.ensure_budget(deadline)
+
     updated =
       target
       |> User.changeset(changes)
@@ -309,6 +372,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
       after: %{role: updated.role, status: updated.status, display_name: updated.display_name}
     })
 
+    SessionAuthority.ensure_budget(deadline)
     %{user: updated, revoked_session_ids: revoked_session_ids}
   end
 
@@ -363,7 +427,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
         where: u.tenant_id == ^tenant_id,
         order_by: [asc: u.id],
         select: u.id,
-        lock: "FOR UPDATE"
+        lock: "FOR NO KEY UPDATE"
       )
     )
   end
@@ -410,6 +474,17 @@ defmodule CommsCore.Accounts.UserLifecycle do
   end
 
   defp authorize_user_change!(_, _, _, _), do: Repo.rollback(:forbidden)
+
+  defp authorize_creation!(subject, role, deadline) do
+    SessionAuthority.ensure_budget(deadline)
+
+    with :ok <- AccessControl.authorize_manage_user_lifecycle(subject),
+         :ok <- authorize_role_assignment(subject, role) do
+      SessionAuthority.ensure_budget(deadline)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
   defp authorize_role_assignment(subject, role)
        when role in [:member, :moderator, :admin, :compliance_admin, :security_admin] do

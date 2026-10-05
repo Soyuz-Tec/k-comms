@@ -1,8 +1,6 @@
 defmodule CommsCore.Accounts.GuestIdentities.Revocation do
   @moduledoc false
 
-  import Ecto.Query
-
   alias CommsCore.Accounts.{CallLifecycleCommand, Session, User}
   alias CommsCore.Accounts.GuestIdentities.{Persistence, Validation}
   alias CommsCore.{Audit, Repo}
@@ -30,16 +28,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Revocation do
   def revoke_session(_session_id, _reason, _effects), do: {:error, :invalid_reason}
 
   defp revoke_in_transaction(session_id, reason, effects) do
-    session =
-      Repo.one(
-        from(session in Session,
-          join: user in User,
-          on: user.id == session.user_id and user.tenant_id == session.tenant_id,
-          where: session.id == ^session_id and user.account_type == :guest,
-          preload: [user: user],
-          lock: "FOR UPDATE"
-        )
-      )
+    session = CommsCore.Accounts.GuestIdentities.ActiveSession.lock_cleanup(session_id)
 
     case session do
       nil ->
@@ -79,6 +68,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Revocation do
     })
     |> Persistence.audit_or_rollback()
 
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
     :ok
   end
 
@@ -93,6 +83,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Revocation do
   end
 
   defp update_or_rollback(changeset) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.update(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)

@@ -29,7 +29,8 @@ defmodule CommsCore.Accounts.DirectoryTest do
 
     assert Enum.all?(first_page.people, fn person ->
              match?(%DirectoryPersonView{}, person) and
-               Map.keys(Map.from_struct(person)) |> Enum.sort() == [:display_name, :id]
+               Map.keys(Map.from_struct(person)) |> Enum.sort() ==
+                 [:avatar_url, :display_name, :id, :presence_state, :timezone]
            end)
 
     assert {:ok, second_page} =

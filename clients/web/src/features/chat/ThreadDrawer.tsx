@@ -17,6 +17,8 @@ import {
   attachmentLabel,
   useThreadAttachments
 } from "./useThreadAttachments";
+import { CompositionToolbar } from "./CompositionToolbar";
+import { DraftSyncNotice } from "./DraftSyncNotice";
 import { useThreadComposer } from "./useThreadComposer";
 import { useThreadSenderIdentities } from "./useThreadSenderIdentities";
 
@@ -105,6 +107,7 @@ export function ThreadDrawer({
   const {
     composer,
     composerChanged,
+    draftSync,
     failedSend,
     initializeDraft,
     mentionedUserIds,
@@ -113,6 +116,7 @@ export function ThreadDrawer({
     sending,
     setMentionedUserIds
   } = useThreadComposer({
+    api,
     activeThreadKeyRef,
     attachmentsReady,
     clearPendingAttachments: clearPending,
@@ -267,7 +271,7 @@ export function ThreadDrawer({
   }
 
   function threadMessage(message: Message) {
-    return <MessageItem key={message.id} idPrefix="thread-message" message={message} currentUserId={currentUserId} senderName={senderIdentifier(message.sender_user_id, false)} seenCount={0} focused={false} onAttachment={(attachment) => void openAttachment(attachment)} onReaction={(emoji) => void toggleReaction(message, emoji)} onEdit={(body) => mutateMessage(() => api.editMessage(message.id, body))} onDelete={() => mutateMessage(() => api.deleteMessage(message.id))} onReport={onReport ? () => onReport(message) : undefined} />;
+    return <MessageItem key={message.id} idPrefix="thread-message" message={message} currentUserId={currentUserId} senderName={senderIdentifier(message.sender_user_id, false)} seenCount={0} focused={false} onAttachment={(attachment) => void openAttachment(attachment)} onReaction={(emoji) => void toggleReaction(message, emoji)} onEdit={(body) => mutateMessage(() => api.editMessage(message.id, body))} onDelete={() => mutateMessage(() => api.deleteMessage(message.id))} onReport={onReport ? () => onReport(message) : undefined} onSave={typeof api.saveMessage === "function" ? () => api.saveMessage(message.id) : undefined} />;
   }
 
   return (
@@ -296,12 +300,14 @@ export function ThreadDrawer({
               {failedSend && <div className="failed-send" role="alert" style={{ gridColumn: "1 / -1" }}><span>Reply not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
               {pendingAttachments.length > 0 && <div className="pending-files" aria-label="Files being attached to this thread" style={{ gridColumn: "1 / -1" }}>{pendingAttachments.map(({ attachment, localName }) => { const unsafe = ["quarantined", "scan_failed"].includes(attachment.status); const ready = attachment.status === "ready"; return <span className={`file-chip attachment-${attachment.status}`} key={attachment.id}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "check" : unsafe ? "triangleAlert" : "loader"} /></span><span>{localName}<small>{attachmentLabel(attachment)}</small></span><button type="button" aria-label={`Remove ${localName}`} onClick={() => removePendingAttachment(attachment)}><AppIcon name="x" /></button></span>; })}</div>}
               <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{attachmentAnnouncement}</p>
+              <DraftSyncNotice sync={draftSync} />
               <MentionPicker members={members} currentUserId={currentUserId} selectedUserIds={mentionedUserIds} disabled={sending} onChange={setMentionedUserIds} />
+              <CompositionToolbar value={composer} textareaId="thread-composer" disabled={sending} onChange={composerChanged} />
               <label htmlFor="thread-composer">Reply in thread</label>
               <textarea id="thread-composer" rows={3} value={composer} onChange={(event) => composerChanged(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} maxLength={65_535} disabled={sending} data-initial-focus />
               <label className={`attachment-button ${uploading ? "disabled" : ""}`}><input type="file" aria-label="Attach files to this thread" multiple disabled={uploading || sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" /><AppIcon name="paperclip" />{uploading ? "Uploading…" : "Attach"}</label>
               <span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span>
-              <button className="button primary compact" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Reply"}</button>
+              <button className="button primary compact" type="submit" disabled={sending || uploading || !attachmentsReady || (!composer.trim() && pendingAttachments.length === 0)}>{sending ? "Sending…" : "Reply"}</button>
             </form>
           </>
         )}

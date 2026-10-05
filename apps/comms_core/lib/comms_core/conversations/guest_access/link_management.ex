@@ -51,6 +51,9 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
         )
 
       Repo.transaction(fn ->
+        deadline = System.monotonic_time(:millisecond) + 15_000
+        parents = lock_parents!(grant.tenant_id, [grant.user_id], deadline)
+        lock_manager_identity!(grant, subject, deadline)
         conversation = lock_managed_conversation!(conversation.id, grant, subject)
         ensure_guest_capable!(conversation)
         authorize_conversion_email!(conversion_email, subject)
@@ -87,6 +90,10 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
           },
           value(subject, :request_id)
         )
+
+        ensure_manager_current!(conversation.id, grant, subject)
+        lock_parents!(parents.tenant_id, parents.user_ids, deadline)
+        authorize_conversion_email!(conversion_email, subject)
 
         %{
           guest_link: Projection.link(link, timestamp),
@@ -130,7 +137,30 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
          :ok <- ensure_guest_capable(conversation),
          {:ok, link_id} <- cast_uuid(link_id) do
       Repo.transaction(fn ->
+        deadline = System.monotonic_time(:millisecond) + 15_000
+        lock_parents!(grant.tenant_id, [], deadline)
         _policy = admission_policy!(grant.tenant_id)
+
+        target_bindings =
+          Repo.all(
+            from(admission in GuestAdmission,
+              where:
+                admission.tenant_id == ^grant.tenant_id and
+                  admission.conversation_id == ^conversation.id and
+                  admission.guest_link_id == ^link_id and
+                  is_nil(admission.revoked_at) and is_nil(admission.converted_at),
+              select: {admission.id, admission.guest_user_id, admission.session_id}
+            )
+          )
+
+        parents =
+          lock_parents!(
+            grant.tenant_id,
+            [grant.user_id | Enum.map(target_bindings, &elem(&1, 1))],
+            deadline
+          )
+
+        lock_manager_identity!(grant, subject, deadline)
         conversation = lock_managed_conversation!(conversation.id, grant, subject)
         ensure_guest_capable!(conversation)
 
@@ -158,6 +188,12 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
             )
           )
 
+        actual_bindings = Enum.map(admissions, &{&1.id, &1.guest_user_id, &1.session_id})
+
+        unless Enum.sort(actual_bindings) == Enum.sort(target_bindings),
+          do: Repo.rollback(:forbidden)
+
+        ensure_manager_current!(conversation.id, grant, subject)
         timestamp = now()
 
         revoked_session_ids =
@@ -195,6 +231,9 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
             value(subject, :request_id)
           )
         end
+
+        ensure_manager_current!(conversation.id, grant, subject)
+        lock_parents!(parents.tenant_id, parents.user_ids, deadline)
 
         %{
           guest_link: Projection.link(revoked_link, timestamp),
@@ -370,6 +409,44 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
          }) do
       {:ok, _event} -> :ok
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_parents!(tenant_id, user_ids, deadline) do
+    case Accounts.lock_guest_identity_parents(%Accounts.GuestIdentityParentsLockQuery{
+           tenant_id: tenant_id,
+           user_ids: user_ids,
+           deadline: deadline,
+           require_active_tenant: true
+         }) do
+      {:ok, receipt} -> receipt
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_manager_identity!(expected, subject, deadline) do
+    case Accounts.lock_content_write_grant(subject, deadline) do
+      {:ok, grant}
+      when grant.account_type == :human and
+             grant.tenant_id == expected.tenant_id and grant.user_id == expected.user_id and
+             grant.device_id == expected.device_id and grant.session_id == expected.session_id ->
+        :ok
+
+      _ ->
+        Repo.rollback(:forbidden)
+    end
+  end
+
+  defp ensure_manager_current!(conversation_id, expected, subject) do
+    case manager_scope(conversation_id, subject) do
+      {:ok, grant, _}
+      when grant.tenant_id == expected.tenant_id and
+             grant.user_id == expected.user_id and grant.device_id == expected.device_id and
+             grant.session_id == expected.session_id ->
+        :ok
+
+      _ ->
+        Repo.rollback(:forbidden)
     end
   end
 

@@ -11,6 +11,11 @@ organizational work listed below.
 The current 36-capability implementation and qualification comparison is
 maintained in the [feature progress matrix](feature-progress-matrix.md).
 
+The October 2026 full UC implementation and its separate application, provider
+and release gates are tracked in the
+[UC gap closure and qualification ledger](uc-gap-closure-delivery-plan.md).
+Its new source does not update the historical production snapshot below.
+
 ## Product surfaces
 
 | Surface | Route boundary | Primary users | Required capabilities |

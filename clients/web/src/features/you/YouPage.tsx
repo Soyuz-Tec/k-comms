@@ -51,6 +51,8 @@ export function YouPage() {
               <span>Workspace</span>
               <div className="you-role-card-grid">
                 <Link to="/app/whiteboard"><AppIcon name="whiteboard" /><span>Whiteboard</span><AppIcon name="arrowUpRight" /></Link>
+                <Link to="/app/meetings"><AppIcon name="clock" /><span>Meetings</span><AppIcon name="arrowUpRight" /></Link>
+                <Link to="/app/saved"><AppIcon name="bookmark" /><span>Saved items</span><AppIcon name="arrowUpRight" /></Link>
                 <button
                   className="you-shortcut-button"
                   type="button"

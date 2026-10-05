@@ -3,6 +3,7 @@ import type {
   CallMediaKind,
   CallSessionResponse
 } from "../../types";
+import type { MeetingArtifactsApi } from "../../api/domains/meeting-artifacts";
 
 export type CallPhase =
   | "loading"
@@ -29,7 +30,7 @@ export interface CallPanelSessionState {
   transportMode: "livekit" | "connecting_direct" | "direct" | "livekit_fallback";
 }
 
-export interface CallApi {
+export interface CallApi extends Partial<MeetingArtifactsApi> {
   socketTicket?: () => Promise<{ ticket: string; expires_in: number }>;
   call?: (conversationId: string) => Promise<Call | null>;
   startCall?: (

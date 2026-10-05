@@ -799,14 +799,22 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # ADR-0073 is already on the protected branch, so no guest-access
-        # exception may remain. Unrelated ADR-backed transitions are allowed;
-        # their exact immutable-base delta is checked by the transition tests.
+        # ADR-0073 is already on the protected branch, so its ownership
+        # exception may not return. ADR-0092 adds only these persistence-neutral
+        # IdentityAccess parent-lock DTOs; it does not transfer guest resources
+        # or reverse the Accounts-to-Conversations prohibition.
+        guest_parent_contract_changes = {
+            "context:identity_access:public_contracts:add:"
+            "CommsCore.Accounts.GuestIdentityParentsLockQuery",
+            "context:identity_access:public_contracts:add:"
+            "CommsCore.Accounts.GuestIdentityParentsLockReceipt",
+        }
         transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
         for transition in transitions:
             self.assertNotIn("/0073-", transition["adr"])
             for change in transition["approved_changes"]:
-                self.assertNotIn("Guest", change)
+                if "Guest" in change:
+                    self.assertIn(change, guest_parent_contract_changes)
                 self.assertNotIn("conversation_guest_", change)
                 self.assertNotEqual(
                     change,
@@ -1248,6 +1256,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             [
                 "CommsCore.Messaging.ActivityView",
                 "CommsCore.Messaging.DeliveryCursorView",
+                "CommsCore.Messaging.DraftView",
                 "CommsCore.Messaging.MessageView",
                 "CommsCore.Messaging.MessageDeletionCandidate",
                 "CommsCore.Messaging.GovernanceImpact",
@@ -1584,7 +1593,14 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(delivery["publishes"], [])
         self.assertEqual(
             delivery["consumes"],
-            ["message.created.v1", "mention.created.v1"],
+            [
+                "message.created.v1",
+                "mention.created.v1",
+                "meeting.scheduled.v1",
+                "meeting.updated.v1",
+                "meeting.cancelled.v1",
+                "meeting.reminder.v1",
+            ],
         )
         self.assertEqual(
             manifest["retired_modules"],
@@ -1741,7 +1757,13 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(interfaces),
             {
+                "call-artifact-provider",
+                "call-artifact-storage",
+                "call-artifact-transcription",
                 "notification-availability-adapter",
+                "telephony-provider-controls",
+                "telephony-voicemail-provider",
+                "telephony-voicemail-storage",
                 "telephony-provider-webhook-verification",
                 "web-distributed-public-rate-limit",
                 "web-validation-error-rendering",
@@ -1791,6 +1813,25 @@ class ValidateArchitectureTest(unittest.TestCase):
         calls = manifest["contexts"]["calls"]
         public_contracts = {
             "CommsCore.AudioCalls.ActivityView",
+            "CommsCore.AudioCalls.ArtifactErasurePlan",
+            "CommsCore.AudioCalls.ArtifactProtection",
+            "CommsCore.AudioCalls.ArtifactProtectionPort",
+            "CommsCore.AudioCalls.ArtifactProviderEvent",
+            "CommsCore.AudioCalls.ArtifactProviderPort",
+            "CommsCore.AudioCalls.ArtifactProviderPort.Contract",
+            "CommsCore.AudioCalls.ArtifactProviderReceipt",
+            "CommsCore.AudioCalls.ArtifactProviderRequest",
+            "CommsCore.AudioCalls.ArtifactStorageObject",
+            "CommsCore.AudioCalls.ArtifactStoragePort",
+            "CommsCore.AudioCalls.ArtifactStoragePort.Contract",
+            "CommsCore.AudioCalls.ArtifactTranscript",
+            "CommsCore.AudioCalls.ArtifactTranscriptSegment",
+            "CommsCore.AudioCalls.ArtifactTranscriptionPort",
+            "CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract",
+            "CommsCore.AudioCalls.ArtifactTranscriptionRequest",
+            "CommsCore.AudioCalls.ArtifactView",
+            "CommsCore.AudioCalls.MeetingView",
+            "CommsCore.AudioCalls.MeetingErasurePlan",
             "CommsCore.AudioCalls.CallParticipantView",
             "CommsCore.AudioCalls.CallView",
             "CommsCore.AudioCalls.CallSessionView",
@@ -1803,6 +1844,18 @@ class ValidateArchitectureTest(unittest.TestCase):
         internal_modules = {
             "CommsCore.AudioCalls.Access",
             "CommsCore.AudioCalls.Activity",
+            "CommsCore.AudioCalls.Artifacts",
+            "CommsCore.AudioCalls.Artifacts.Artifact",
+            "CommsCore.AudioCalls.Artifacts.Consent",
+            "CommsCore.AudioCalls.Artifacts.ProviderEvent",
+            "CommsCore.AudioCalls.Artifacts.Segment",
+            "CommsCore.AudioCalls.Meeting",
+            "CommsCore.AudioCalls.MeetingCalendar",
+            "CommsCore.AudioCalls.MeetingCallPolicy",
+            "CommsCore.AudioCalls.MeetingErasure",
+            "CommsCore.AudioCalls.MeetingOccurrence",
+            "CommsCore.AudioCalls.MeetingSchedule",
+            "CommsCore.AudioCalls.Meetings",
             "CommsCore.AudioCalls.AudioCall",
             "CommsCore.AudioCalls.AudioCallParticipant",
             "CommsCore.AudioCalls.AuthorizationPolicy",
@@ -1827,6 +1880,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "audio_call.ended.v1",
                 "call.started.v1",
                 "call.ended.v1",
+                "meeting.scheduled.v1",
+                "meeting.updated.v1",
+                "meeting.cancelled.v1",
+                "meeting.reminder.v1",
             ],
         )
         self.assertEqual(calls["consumes"], [])
@@ -1841,6 +1898,12 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "CommsCore.AudioCalls.AudioCallParticipant"
                 ),
                 "audio_calls": "CommsCore.AudioCalls.AudioCall",
+                "meetings": "CommsCore.AudioCalls.Meeting",
+                "meeting_occurrences": "CommsCore.AudioCalls.MeetingOccurrence",
+                "call_artifacts": "CommsCore.AudioCalls.Artifacts.Artifact",
+                "call_artifact_consents": "CommsCore.AudioCalls.Artifacts.Consent",
+                "call_artifact_provider_events": "CommsCore.AudioCalls.Artifacts.ProviderEvent",
+                "call_artifact_segments": "CommsCore.AudioCalls.Artifacts.Segment",
             },
         )
 
@@ -1866,6 +1929,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "call-artifact-governance-protection",
+                "telephony-voicemail-governance-protection",
+                "whiteboard-approved-content-assets",
                 "conversation-call-lifecycle",
                 "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
@@ -1884,6 +1950,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "result_contract": "CommsCore.Accounts.CallLifecycleReceipt",
                 "callers": [
                     "CommsCore.Accounts",
+                    "CommsCore.Accounts.GovernanceErasure",
                     "CommsCore.Accounts.PasswordRecovery",
                 ],
                 "operations": [{"name": "revoke_identity_access", "arity": 1}],
@@ -2098,6 +2165,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "call-artifact-governance-protection",
+                "telephony-voicemail-governance-protection",
+                "whiteboard-approved-content-assets",
                 "conversation-call-lifecycle",
                 "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
@@ -2296,18 +2366,23 @@ class ValidateArchitectureTest(unittest.TestCase):
             root / "apps/comms_core/lib/comms_core/service_accounts.ex"
         ).read_text(encoding="utf-8")
         self.assertNotIn("def list_conversations(", service_accounts_source)
-        self.assertNotIn(
-            "def authorize_service(subject, required_scope,",
+        self.assertIn(
+            "@spec authorize_service(map(), String.t(), integer())",
             service_accounts_source,
         )
+        self.assertIn(
+            "Authentication.authorize(subject, required_scope, deadline)",
+            service_accounts_source,
+        )
+        self.assertNotIn("conversation_id", service_accounts_source)
         self.assertNotIn("maybe_authorize_membership", service_accounts_source)
 
         messaging_source = module_family_source(
             root, "apps/comms_core/lib/comms_core/messaging.ex"
         )
         self.assertIn("Conversations.authorize_service_access(", messaging_source)
-        self.assertNotIn(
-            'ServiceAccounts.authorize_service(subject, "messages:',
+        self.assertIn(
+            'ServiceAccounts.authorize_service(subject, "messages:write", deadline)',
             messaging_source,
         )
 
@@ -2339,8 +2414,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "service_conversation_controller.ex"
                 ],
                 "ServiceAccounts.authorize_service(": [
+                    "apps/comms_core/lib/comms_core/accounts/scim.ex",
                     "apps/comms_core/lib/comms_core/conversations/access_policy.ex",
                     "apps/comms_core/lib/comms_core/conversations/directory.ex",
+                    "apps/comms_core/lib/comms_core/messaging/message_commands.ex",
                     "apps/comms_core/lib/comms_core/messaging/service_messages.ex",
                 ],
             },
@@ -3325,11 +3402,13 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
 
         for owner_call in (
-            "Accounts.erase_user_for_governance",
+            "Accounts.drain_user_for_governance",
+            "Accounts.finalize_user_for_governance_erasure",
             "Attachments.mark_deleted_for_erasure",
             "Conversations.archive_for_erasure",
             "Conversations.remove_user_memberships_for_erasure",
             "Messaging.tombstone_for_erasure",
+            "Messaging.lock_for_erasure",
         ):
             self.assertIn(owner_call, source)
 

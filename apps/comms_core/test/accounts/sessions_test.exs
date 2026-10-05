@@ -303,6 +303,40 @@ defmodule CommsCore.Accounts.SessionsTest do
     assert {:error, :invalid_refresh_token} = Accounts.refresh_session(account.refresh_token)
   end
 
+  test "step-up expiration disclosure remains bounded to the active owner's unrevoked device and session" do
+    account = Fixtures.account_fixture()
+    foreign = Fixtures.account_fixture()
+    expired_at = DateTime.add(DateTime.utc_now(), -60)
+
+    from(session in Session, where: session.id == ^account.session.id)
+    |> Repo.update_all(set: [expires_at: expired_at])
+
+    attrs = %{current_password: account_fixture_password(account)}
+    subject = Fixtures.subject(account)
+    assert {:error, :session_expired} = Accounts.step_up_view(attrs, subject)
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+
+    assert {:error, :forbidden} =
+             Accounts.step_up_view(
+               attrs,
+               Fixtures.subject(account, %{
+                 session_id: foreign.session.id,
+                 device_id: foreign.device.id
+               })
+             )
+
+    assert {:error, :forbidden} =
+             Accounts.step_up_view(
+               attrs,
+               Fixtures.subject(account, %{device_id: foreign.device.id})
+             )
+
+    from(session in Session, where: session.id == ^account.session.id)
+    |> Repo.update_all(set: [revoked_at: DateTime.utc_now()])
+
+    assert {:error, :forbidden} = Accounts.step_up_view(attrs, subject)
+  end
+
   defp account_fixture_password(account) do
     suffix = account.tenant.slug |> String.split("-") |> List.last()
     "correct-horse-battery-#{suffix}"

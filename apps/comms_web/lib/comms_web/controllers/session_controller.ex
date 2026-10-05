@@ -8,14 +8,25 @@ defmodule CommsWeb.SessionController do
     device = params["device"] || %{}
 
     with {:ok, result} <-
-           Accounts.authenticate_view(
+           Accounts.password_sign_in(
              params["tenant_slug"],
              params["email"],
              params["password"],
              device
            ) do
-      CommsObservability.execute([:auth, :success], %{count: 1}, %{tenant_id: result.tenant.id})
-      json(conn, Token.issue(result))
+      conn = put_resp_header(conn, "cache-control", "no-store")
+
+      case result do
+        %{mfa_required: true} = challenge ->
+          json(conn, challenge)
+
+        authentication ->
+          CommsObservability.execute([:auth, :success], %{count: 1}, %{
+            tenant_id: authentication.tenant.id
+          })
+
+          json(conn, Token.issue(authentication))
+      end
     else
       {:error, reason} = error ->
         CommsObservability.execute([:auth, :failure], %{count: 1}, %{reason: reason})

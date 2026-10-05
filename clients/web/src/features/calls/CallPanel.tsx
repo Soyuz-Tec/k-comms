@@ -27,6 +27,7 @@ import { useCallSession, type CallPanelProps } from "./useCallSession";
 import { formatCallDuration, mediaLabel } from "./callMedia";
 import { CallReadinessPanel } from "./CallReadinessPanel";
 import { downloadCallReadinessReport } from "./callReadiness";
+import { MeetingArtifactsPanel, type MeetingCaptureStatus } from "../meeting-artifacts/MeetingArtifactsPanel";
 
 export type {
   CallApi,
@@ -100,6 +101,7 @@ export function CallPanel({
 }: CallPanelProps) {
   const {
     accessRevoked,
+    roomRef,
     activeKind,
     audioBlocked,
     call,
@@ -189,6 +191,9 @@ export function CallPanel({
     onOpenChat,
     onSessionStateChange
   });
+  const [captureStatus, setCaptureStatus] = useState<MeetingCaptureStatus>(null);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  useEffect(() => { setCaptureStatus(null); setArtifactsOpen(false); }, [call?.id]);
   const [videoPreference, setVideoPreference] = useState<{
     callId: string | null;
     view: VideoView;
@@ -243,6 +248,13 @@ export function CallPanel({
    */
   const showCriticalCapsule =
     minimized || (immersiveStage && !overlayVisibility.visible);
+  const recordingCue = captureStatus ? <button
+    type="button"
+    className="status-pill call-recording-status"
+    aria-live="polite"
+    aria-label={captureStatus === "pending_consent" ? "Review recording consent" : "Review active recording"}
+    onClick={() => { setArtifactsOpen(true); setMinimized(false); setMobileWorkspaceOpen(true); }}
+  >{({ pending_consent: "Recording consent requested", starting: "Recording starting", recording: "Recording active", stopping: "Recording stopping" } as const)[captureStatus]}</button> : null;
 
   /*
    * The one strip the contract names as available when a canvas or a keyboard
@@ -349,6 +361,7 @@ export function CallPanel({
           }
           {...(immersiveStage ? overlayVisibility.surfaceProps : {})}
           data-call-control-labels={callControlLabelsVisible ? "visible" : "hidden"}
+          data-recording-status={captureStatus ?? undefined}
           role={expandedCallModal ? "dialog" : "region"}
           aria-modal={expandedCallModal || undefined}
           aria-labelledby="call-title"
@@ -361,6 +374,7 @@ export function CallPanel({
                 {conversation.title || "Conversation call"}
               </h2>
               <div className="call-progress-meta" aria-label="Call progress">
+                {!showCriticalCapsule && recordingCue}
                 <span className="call-progress-duration">
                   {formatCallDuration(elapsedSeconds)}
                 </span>
@@ -490,6 +504,7 @@ export function CallPanel({
             */}
           {showCriticalCapsule && (
             <div className="call-critical-status">
+              {recordingCue}
               {/*
                 * Named distinctly from the expanded panel's "Local capture
                 * status". The two report the same facts and only one is ever
@@ -671,6 +686,10 @@ export function CallPanel({
                 <small>Pin changes your view. Shared screens stay first.</small>
               </div>}
               <div className="call-workspace-body">
+                {call && typeof api.meetingArtifacts === "function" && <details className="call-artifacts-details" open={artifactsOpen} onToggle={event => setArtifactsOpen(event.currentTarget.open)}>
+                  <summary>Recording and captions</summary>
+                  <MeetingArtifactsPanel api={api} conversationId={conversation.id} callId={call.id} joined={joined} canManage={call.can_end} room={roomRef.current} captureAllowed={transportMode !== "direct" && transportMode !== "connecting_direct"} onCaptureStatus={setCaptureStatus} />
+                </details>}
                 {callWorkspaceTab === "chat" && (
                   <>
                     <strong>{conversation.title || "Conversation"}</strong>

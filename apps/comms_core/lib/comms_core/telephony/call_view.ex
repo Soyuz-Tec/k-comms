@@ -25,6 +25,7 @@ defmodule CommsCore.Telephony.CallView do
     :answered_at,
     :ended_at,
     :end_reason,
+    :control_state,
     :connected_seconds,
     :can_answer,
     :can_join,

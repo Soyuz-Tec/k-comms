@@ -144,17 +144,21 @@ defmodule CommsCore.Governance do
     tenant_id = value(subject, :tenant_id)
 
     with :ok <- Accounts.preflight_user_lifecycle_change(user_id, attrs, subject) do
-      Repo.transaction(fn ->
-        TenantLock.lock!(tenant_id)
+      Repo.transaction(
+        fn ->
+          bounded_policy_wait!()
+          TenantLock.lock!(tenant_id)
 
-        Accounts.apply_user_lifecycle_change(
-          user_id,
-          attrs,
-          subject,
-          DeletionWorkflow.pending_deletion_user_ids(tenant_id)
-        )
-        |> owner_command_or_rollback()
-      end)
+          Accounts.apply_user_lifecycle_change(
+            user_id,
+            attrs,
+            subject,
+            DeletionWorkflow.pending_deletion_user_ids(tenant_id)
+          )
+          |> owner_command_or_rollback()
+        end,
+        timeout: 35_000
+      )
       |> transaction_result()
     end
   end
@@ -162,17 +166,29 @@ defmodule CommsCore.Governance do
   def change_user_lifecycle_view(_user_id, _attrs, _subject), do: {:error, :not_found}
 
   def delete_message(message_id, subject) when is_binary(message_id) and is_map(subject) do
-    Repo.transaction(fn ->
-      case Messaging.delete_message(
-             message_id,
-             subject,
-             &DeletionWorkflow.authorize_message_deletion/1
-           ) do
-        {:ok, message} -> message
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-    |> transaction_result()
+    with {:ok, tenant_id} <- Ecto.UUID.cast(value(subject, :tenant_id)) do
+      Repo.transaction(
+        fn ->
+          bounded_policy_wait!()
+          # Completion retains this policy fence before its message resources.
+          # The owner callback can safely reacquire the same advisory lock.
+          TenantLock.lock!(tenant_id)
+
+          case Messaging.delete_message(
+                 message_id,
+                 subject,
+                 &DeletionWorkflow.authorize_message_deletion/1
+               ) do
+            {:ok, message} -> message
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        timeout: 35_000
+      )
+      |> transaction_result()
+    else
+      _ -> {:error, :not_found}
+    end
   end
 
   def delete_message(_message_id, _subject), do: {:error, :not_found}
@@ -198,4 +214,13 @@ defmodule CommsCore.Governance do
 
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp bounded_policy_wait! do
+    Repo.query!(
+      "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $1, true)",
+      ["15000ms"]
+    )
+
+    :ok
+  end
 end

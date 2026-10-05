@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { RichMessageBody } from "./RichMessageBody";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import type { Attachment, Message } from "../../types";
@@ -24,7 +25,8 @@ export function MessageItem({
   onThread,
   onEdit,
   onDelete,
-  onReport
+  onReport,
+  onSave
 }: {
   message: Message;
   currentUserId: string;
@@ -47,7 +49,11 @@ export function MessageItem({
   onEdit: (body: string) => Promise<void>;
   onDelete: () => Promise<void>;
   onReport?: () => void;
+  onSave?: () => Promise<void>;
 }) {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body || "");
   const [busy, setBusy] = useState(false);
@@ -126,7 +132,7 @@ export function MessageItem({
             {editError && <div className="form-error" role="alert">{editError}</div>}
             <div className="form-actions"><button className="button ghost compact" type="button" disabled={busy} onClick={() => { setEditing(false); setEditBody(message.body || ""); }}>Cancel</button><button className="button primary compact" type="submit" disabled={busy || !editBody.trim()}>Save</button></div>
           </form>
-        ) : <div className={`message-bubble ${message.status !== "active" ? "removed" : ""}`}>{message.status === "active" ? message.body : "Message removed"}</div>}
+        ) : <div className={`message-bubble ${message.status !== "active" ? "removed" : ""}`}>{message.status === "active" ? <RichMessageBody body={message.body || ""} /> : "Message removed"}</div>}
 
         {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <AttachmentButton attachment={attachment} key={attachment.id} onOpen={onAttachment} onRequestThumbnail={onRequestThumbnail} />)}</div>}
 
@@ -148,6 +154,8 @@ export function MessageItem({
           {mine && seenCount > 0 && <AppIcon className="message-seen-mark" name="check" />}
         </div>}
 
+        {saveError && <p role="alert">Could not save this message: {saveError}</p>}
+        {saved && <span className="sr-only" role="status">Message saved to your private list.</span>}
         <div className="message-tools">
           <div className="reaction-row">
             {groups.map(({ emoji, count, mine: reacted }) => <button type="button" key={emoji} className={reacted ? "reacted" : ""} aria-pressed={reacted} disabled={message.status !== "active"} aria-label={`${reacted ? "Remove" : "Add"} ${emoji} reaction; ${count} total`} onClick={() => onReaction(emoji)}>{emoji} <span>{count}</span></button>)}
@@ -162,7 +170,9 @@ export function MessageItem({
           >
             <AppIcon name="more" />
           </button>
-          <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <>{onReply && <button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button>}{onReport && <button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>}{mine && <button type="button" disabled={busy} onClick={() => { setActionsOpen(false); setEditError(null); setEditBody(message.body || ""); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
+          <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <>{onReply && <button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button>}{onSave && <button type="button" aria-label={saved ? "Message saved" : saving ? "Saving message" : "Save message"} disabled={saving || saved} onClick={() => {
+              setSaving(true); setSaveError(""); void onSave().then(() => { setSaved(true); setActionsOpen(false); }).catch(e => setSaveError(errorText(e))).finally(() => setSaving(false));
+            }}>{saved ? "Saved" : saving ? "Saving…" : "Save"}</button>}{onReport && <button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>}{mine && <button type="button" disabled={busy} onClick={() => { setActionsOpen(false); setEditError(null); setEditBody(message.body || ""); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
         {mine && (seenCount > 0 || deliveredDeviceCount > 0) && <small className="seen-copy">{deliveredDeviceCount > 0 ? `Delivered to ${deliveredDeviceCount} ${deliveredDeviceCount === 1 ? "device" : "devices"}` : "Sent"}{seenCount > 0 ? ` · Read by ${seenCount}` : ""}</small>}
       </article>

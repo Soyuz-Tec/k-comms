@@ -89,6 +89,100 @@ parse_boolean = fn value, environment_name ->
   end
 end
 
+# Optional credentials can be supplied through private regular files mounted
+# directly below /run/secrets. Values and paths are never included in failures.
+optional_secret = fn name ->
+  inline =
+    case System.get_env(name) do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+
+  filename =
+    case System.get_env(name <> "_FILE") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+
+  if inline && filename, do: raise("#{name} and #{name}_FILE are mutually exclusive")
+
+  if filename do
+    unless Regex.match?(~r|^/run/secrets/[A-Za-z0-9_.-]{1,128}$|, filename) and
+             not String.ends_with?(filename, ["/.", "/.."]) do
+      raise "#{name}_FILE must select a private regular file directly in /run/secrets"
+    end
+
+    case File.lstat(filename) do
+      {:ok, %{type: :regular, size: size, mode: mode}} when size in 1..65_536 ->
+        unless Bitwise.band(mode, 0o077) == 0,
+          do: raise("#{name}_FILE must deny group and other access")
+
+      _ ->
+        raise "#{name}_FILE must select a bounded private regular file"
+    end
+
+    case File.read(filename) do
+      {:ok, value} when byte_size(value) in 1..65_536 ->
+        unless String.valid?(value),
+          do: raise("#{name}_FILE must contain a bounded UTF-8 credential")
+
+        credential = String.trim_trailing(value, "\n") |> String.trim_trailing("\r")
+
+        if Regex.match?(~r/[\x00-\x1F\x7F]/u, credential),
+          do: raise("#{name}_FILE must contain a single-line credential")
+
+        credential
+
+      _ ->
+        raise "#{name}_FILE cannot be read"
+    end
+  else
+    inline
+  end
+end
+
+csv_values = fn name ->
+  values = System.get_env(name, "") |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+  if Enum.any?(values, &(&1 == "")) or length(values) > 100 or
+       length(values) != length(Enum.uniq(values)),
+     do: raise("#{name} must contain a bounded list of unique nonempty values")
+
+  values
+end
+
+https_dns_url? = fn value, origin_only? ->
+  if is_binary(value) and byte_size(value) in 1..2_048 do
+    uri = URI.parse(value)
+
+    dns? =
+      is_binary(uri.host) and Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/, uri.host) and
+        match?({:error, _}, :inet.parse_address(String.to_charlist(uri.host))) and
+        not String.ends_with?(String.downcase(uri.host), ".invalid")
+
+    uri.scheme == "https" and uri.port == 443 and dns? and is_nil(uri.userinfo) and
+      is_nil(uri.query) and is_nil(uri.fragment) and
+      (not origin_only? or uri.path in [nil, "", "/"])
+  else
+    false
+  end
+end
+
+parse_json_list = fn value, name ->
+  case Jason.decode(value || "[]") do
+    {:ok, values} when is_list(values) and length(values) <= 10 ->
+      if Enum.all?(values, &(is_binary(&1) and byte_size(&1) in 1..2_048)) and
+           length(Enum.uniq(values)) == length(values),
+         do: values,
+         else: raise("#{name} must contain unique bounded strings")
+
+    _ ->
+      raise "#{name} must be a JSON array with at most ten strings"
+  end
+end
+
 if config_env() == :prod do
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
@@ -303,6 +397,226 @@ if config_env() == :prod do
     allow_insecure_local_media: local_release? and development_adapters?
   )
 
+  telephony_control_provider = System.get_env("TELEPHONY_CONTROL_PROVIDER", "livekit")
+
+  telephony_control_adapter =
+    case telephony_control_provider do
+      "livekit" -> CommsIntegrations.Telephony.LiveKit
+      "asterisk_ari" -> CommsIntegrations.Telephony.AsteriskARI
+      _ -> raise "TELEPHONY_CONTROL_PROVIDER must be livekit or asterisk_ari"
+    end
+
+  telephony_transfer_enabled? =
+    parse_boolean.(
+      System.get_env("TELEPHONY_TRANSFER_ENABLED", "false"),
+      "TELEPHONY_TRANSFER_ENABLED"
+    )
+
+  telephony_transfer_prefixes = csv_values.("TELEPHONY_TRANSFER_DESTINATION_PREFIXES")
+  telephony_pbx_prefixes = csv_values.("TELEPHONY_PBX_DESTINATION_PREFIXES")
+
+  for {name, prefixes} <- [
+        {"TELEPHONY_TRANSFER_DESTINATION_PREFIXES", telephony_transfer_prefixes},
+        {"TELEPHONY_PBX_DESTINATION_PREFIXES", telephony_pbx_prefixes}
+      ] do
+    unless Enum.all?(prefixes, &Regex.match?(~r/^\+[1-9][0-9]{0,14}$/, &1)),
+      do: raise("#{name} must contain explicit international phone prefixes")
+  end
+
+  if telephony_transfer_enabled? and
+       (telephony_provider_mode != "livekit" or telephony_transfer_prefixes == []),
+     do:
+       raise(
+         "TELEPHONY_TRANSFER_ENABLED requires LiveKit telephony and explicit destination prefixes"
+       )
+
+  telephony_pbx_enabled? =
+    parse_boolean.(System.get_env("TELEPHONY_PBX_ENABLED", "false"), "TELEPHONY_PBX_ENABLED")
+
+  telephony_pbx_qualified? =
+    parse_boolean.(System.get_env("TELEPHONY_PBX_QUALIFIED", "false"), "TELEPHONY_PBX_QUALIFIED")
+
+  telephony_pbx_origin = System.get_env("TELEPHONY_PBX_API_URL")
+  telephony_pbx_username = optional_secret.("TELEPHONY_PBX_USERNAME")
+  telephony_pbx_password = optional_secret.("TELEPHONY_PBX_PASSWORD")
+  telephony_pbx_endpoint = System.get_env("TELEPHONY_PBX_ENDPOINT")
+  telephony_pbx_application = System.get_env("TELEPHONY_PBX_APPLICATION", "k-comms")
+  telephony_pbx_webhook_secret = optional_secret.("TELEPHONY_PBX_WEBHOOK_SECRET")
+
+  if telephony_pbx_webhook_secret && byte_size(telephony_pbx_webhook_secret) < 32,
+    do: raise("TELEPHONY_PBX_WEBHOOK_SECRET must contain at least 32 bytes")
+
+  if telephony_pbx_enabled? or telephony_pbx_qualified? do
+    unless telephony_control_provider == "asterisk_ari" and
+             https_dns_url?.(telephony_pbx_origin, true) and
+             is_binary(telephony_pbx_username) and byte_size(telephony_pbx_username) in 1..256 and
+             is_binary(telephony_pbx_password) and byte_size(telephony_pbx_password) >= 24 and
+             is_binary(telephony_pbx_endpoint) and
+             Regex.match?(~r/^[A-Za-z0-9_-]{1,100}$/, telephony_pbx_endpoint) and
+             Regex.match?(~r/^[A-Za-z0-9_-]{1,100}$/, telephony_pbx_application) do
+      raise "TELEPHONY_PBX_ENABLED or QUALIFIED requires an explicit Asterisk ARI control provider and complete HTTPS PBX configuration"
+    end
+  end
+
+  voicemail_storage_qualified? =
+    parse_boolean.(
+      System.get_env("TELEPHONY_VOICEMAIL_STORAGE_QUALIFIED", "false"),
+      "TELEPHONY_VOICEMAIL_STORAGE_QUALIFIED"
+    )
+
+  artifact_privacy_approved? =
+    parse_boolean.(
+      System.get_env("MEETING_ARTIFACT_PRIVACY_APPROVED", "false"),
+      "MEETING_ARTIFACT_PRIVACY_APPROVED"
+    )
+
+  artifact_provider_qualified? =
+    parse_boolean.(
+      System.get_env("MEETING_ARTIFACT_PROVIDER_QUALIFIED", "false"),
+      "MEETING_ARTIFACT_PROVIDER_QUALIFIED"
+    )
+
+  artifact_tenant_ids = csv_values.("MEETING_ARTIFACT_ENABLED_TENANT_IDS")
+
+  unless Enum.all?(artifact_tenant_ids, &match?({:ok, _}, Ecto.UUID.cast(&1))),
+    do: raise("MEETING_ARTIFACT_ENABLED_TENANT_IDS must contain tenant UUIDs")
+
+  artifact_tenant_ids =
+    Enum.map(artifact_tenant_ids, fn id ->
+      {:ok, value} = Ecto.UUID.cast(id)
+      value
+    end)
+
+  meeting_artifacts_enabled? =
+    parse_boolean.(
+      System.get_env("MEETING_ARTIFACTS_ENABLED", "false"),
+      "MEETING_ARTIFACTS_ENABLED"
+    )
+
+  egress_enabled? =
+    parse_boolean.(System.get_env("LIVEKIT_EGRESS_ENABLED", "false"), "LIVEKIT_EGRESS_ENABLED")
+
+  unless meeting_artifacts_enabled? == egress_enabled?,
+    do: raise("MEETING_ARTIFACTS_ENABLED and LIVEKIT_EGRESS_ENABLED must be enabled together")
+
+  artifact_transcription_enabled? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_TRANSCRIPTION_ENABLED", "false"),
+      "ARTIFACT_TRANSCRIPTION_ENABLED"
+    )
+
+  artifact_transcription_qualified? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_TRANSCRIPTION_QUALIFIED", "false"),
+      "ARTIFACT_TRANSCRIPTION_QUALIFIED"
+    )
+
+  artifact_transcription_origin = System.get_env("ARTIFACT_TRANSCRIPTION_ORIGIN")
+  artifact_transcription_model = System.get_env("ARTIFACT_TRANSCRIPTION_MODEL", "whisper-1")
+
+  artifact_transcription_language =
+    case System.get_env("ARTIFACT_TRANSCRIPTION_LANGUAGE") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+
+  if meeting_artifacts_enabled? or artifact_transcription_enabled? do
+    unless artifact_privacy_approved? and artifact_provider_qualified? and
+             artifact_tenant_ids != [] and audio_provider_mode == "livekit",
+           do:
+             raise(
+               "Meeting recording and transcription require privacy approval, qualified LiveKit and explicit tenant UUIDs"
+             )
+
+    if direct_audio_p2p_enabled?,
+      do: raise("Meeting recording and transcription require DIRECT_AUDIO_P2P_ENABLED=false")
+  end
+
+  if artifact_transcription_enabled? and
+       (not artifact_transcription_qualified? or
+          not https_dns_url?.(artifact_transcription_origin, true)),
+     do: raise("ARTIFACT_TRANSCRIPTION_ENABLED requires a qualified fixed HTTPS provider origin")
+
+  unless Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/, artifact_transcription_model),
+    do: raise("ARTIFACT_TRANSCRIPTION_MODEL is invalid")
+
+  unless is_nil(artifact_transcription_language) or
+           Regex.match?(~r/^[a-z]{2,3}$/, artifact_transcription_language),
+         do: raise("ARTIFACT_TRANSCRIPTION_LANGUAGE must be a two or three letter language code")
+
+  artifact_transcription = [
+    enabled: artifact_transcription_enabled?,
+    qualified: artifact_transcription_qualified?,
+    origin: artifact_transcription_origin,
+    max_media_bytes:
+      parse_bounded_integer.(
+        System.get_env("ARTIFACT_TRANSCRIPTION_MAX_MEDIA_BYTES", "26214400"),
+        "ARTIFACT_TRANSCRIPTION_MAX_MEDIA_BYTES",
+        1..26_214_400
+      ),
+    max_response_bytes:
+      parse_bounded_integer.(
+        System.get_env("ARTIFACT_TRANSCRIPTION_MAX_RESPONSE_BYTES", "1048576"),
+        "ARTIFACT_TRANSCRIPTION_MAX_RESPONSE_BYTES",
+        1..1_048_576
+      ),
+    timeout_ms:
+      parse_bounded_integer.(
+        System.get_env("ARTIFACT_TRANSCRIPTION_TIMEOUT_MS", "30000"),
+        "ARTIFACT_TRANSCRIPTION_TIMEOUT_MS",
+        1_000..60_000
+      ),
+    model: artifact_transcription_model,
+    language: artifact_transcription_language
+  ]
+
+  oidc_enabled? = parse_boolean.(System.get_env("OIDC_ENABLED", "false"), "OIDC_ENABLED")
+  oidc_issuer = System.get_env("OIDC_ISSUER")
+  oidc_client_id = System.get_env("OIDC_CLIENT_ID")
+  oidc_client_secret = optional_secret.("OIDC_CLIENT_SECRET")
+  oidc_redirect_uri = System.get_env("OIDC_REDIRECT_URI")
+
+  oidc_allowed_redirect_uris =
+    parse_json_list.(
+      System.get_env("OIDC_ALLOWED_REDIRECT_URIS_JSON"),
+      "OIDC_ALLOWED_REDIRECT_URIS_JSON"
+    )
+
+  oidc_acr_values = csv_values.("OIDC_REQUIRED_ACR_VALUES")
+
+  oidc_scim_subject_mapping? =
+    parse_boolean.(
+      System.get_env("OIDC_SCIM_SUBJECT_MAPPING", "false"),
+      "OIDC_SCIM_SUBJECT_MAPPING"
+    )
+
+  if oidc_enabled? do
+    unless https_dns_url?.(oidc_issuer, false) and https_dns_url?.(oidc_redirect_uri, false) and
+             is_binary(oidc_client_id) and byte_size(oidc_client_id) in 1..512 and
+             is_binary(oidc_client_secret) and byte_size(oidc_client_secret) >= 16 and
+             oidc_redirect_uri in oidc_allowed_redirect_uris and
+             Enum.all?(oidc_allowed_redirect_uris, &https_dns_url?.(&1, false)) and
+             length(oidc_acr_values) in 1..10 and
+             Enum.all?(oidc_acr_values, &(byte_size(&1) in 1..256)) do
+      raise "OIDC_ENABLED requires complete HTTPS identity configuration, approved redirects and required assurance values"
+    end
+  end
+
+  if oidc_scim_subject_mapping? and not oidc_enabled?,
+    do: raise("OIDC_SCIM_SUBJECT_MAPPING requires enabled OIDC")
+
+  oidc_config = %{
+    enabled: oidc_enabled?,
+    issuer: oidc_issuer,
+    client_id: oidc_client_id,
+    client_secret: oidc_client_secret,
+    redirect_uri: oidc_redirect_uri,
+    allowed_redirect_uris: oidc_allowed_redirect_uris,
+    required_acr_values: oidc_acr_values,
+    scim_subject_mapping: oidc_scim_subject_mapping?
+  }
+
   audio_token_ttl_seconds =
     case Integer.parse(System.get_env("AUDIO_TOKEN_TTL_SECONDS", "300")) do
       {value, ""} -> value
@@ -362,6 +676,47 @@ if config_env() == :prod do
       "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"
     )
 
+  identity_secret_encryption_key = optional_secret.("IDENTITY_SECRET_ENCRYPTION_KEY")
+
+  identity_secret_encryption_key_id =
+    System.get_env("IDENTITY_SECRET_ENCRYPTION_KEY_ID", "primary")
+
+  identity_keys_csv = optional_secret.("IDENTITY_SECRET_ENCRYPTION_KEYS")
+  identity_keys_json = optional_secret.("IDENTITY_SECRET_ENCRYPTION_KEYS_JSON")
+
+  if identity_keys_csv && identity_keys_json,
+    do: raise("IDENTITY_SECRET_ENCRYPTION_KEYS and KEYS_JSON are mutually exclusive")
+
+  identity_secret_encryption_keys =
+    if identity_keys_json do
+      case Jason.decode(identity_keys_json, objects: :ordered_objects) do
+        {:ok, %Jason.OrderedObject{values: entries}} when length(entries) in 1..20 ->
+          unless Enum.all?(entries, fn {id, value} -> is_binary(id) and is_binary(value) end),
+            do:
+              raise(
+                "IDENTITY_SECRET_ENCRYPTION_KEYS_JSON must map key identifiers to Base64 keys"
+              )
+
+          encoded = Enum.map_join(entries, ",", fn {id, value} -> id <> ":" <> value end)
+          parse_keyring.(encoded, "IDENTITY_SECRET_ENCRYPTION_KEYS_JSON")
+
+        _ ->
+          raise "IDENTITY_SECRET_ENCRYPTION_KEYS_JSON must contain a bounded key object"
+      end
+    else
+      parse_keyring.(identity_keys_csv, "IDENTITY_SECRET_ENCRYPTION_KEYS")
+    end
+
+  if identity_secret_encryption_key_id == "legacy" or
+       (is_map(identity_secret_encryption_keys) and
+          Map.has_key?(identity_secret_encryption_keys, "legacy")),
+     do: raise("Identity encryption must not use the reserved legacy key identifier")
+
+  identity_break_glass_secret = optional_secret.("IDENTITY_BREAK_GLASS_SECRET")
+
+  if identity_break_glass_secret && byte_size(identity_break_glass_secret) < 32,
+    do: raise("IDENTITY_BREAK_GLASS_SECRET must contain at least 32 bytes")
+
   for {environment_name, current_key_id, keys} <- [
         {
           "WEBHOOK_SECRET_ENCRYPTION_KEYS",
@@ -372,7 +727,9 @@ if config_env() == :prod do
           "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
           push_subscription_encryption_key_id,
           push_subscription_encryption_keys
-        }
+        },
+        {"IDENTITY_SECRET_ENCRYPTION_KEYS", identity_secret_encryption_key_id,
+         identity_secret_encryption_keys}
       ] do
     unless Regex.match?(~r/^[A-Za-z0-9_.-]{1,64}$/, current_key_id) do
       raise "#{environment_name} active key identifier is invalid"
@@ -410,6 +767,62 @@ if config_env() == :prod do
       "PUSH_SUBSCRIPTION_ENCRYPTION_KEY",
       push_subscription_encryption_keys
     )
+
+  identity_materials =
+    encryption_materials.(
+      identity_secret_encryption_key,
+      "IDENTITY_SECRET_ENCRYPTION_KEY",
+      identity_secret_encryption_keys
+    )
+
+  shared_secret_materials =
+    Enum.reduce(
+      [
+        secret_key_base,
+        recovery_signing_key,
+        identity_break_glass_secret,
+        oidc_client_secret,
+        telephony_pbx_password,
+        telephony_pbx_webhook_secret,
+        livekit_api_secret,
+        turn_static_auth_secret
+      ],
+      MapSet.new(),
+      fn
+        value, set when is_binary(value) ->
+          set = MapSet.put(set, value)
+
+          case Base.decode64(value) do
+            {:ok, decoded} -> MapSet.put(set, decoded)
+            _ -> set
+          end
+
+        _, set ->
+          set
+      end
+    )
+
+  for {name, materials} <- [
+        {"identity", identity_materials},
+        {"webhook", webhook_materials},
+        {"push", push_materials}
+      ] do
+    unless MapSet.disjoint?(materials, shared_secret_materials),
+      do:
+        raise(
+          "#{name} encryption keys must be independent from signing, recovery, provider and break-glass credentials"
+        )
+  end
+
+  unless MapSet.disjoint?(identity_materials, webhook_materials) and
+           MapSet.disjoint?(identity_materials, push_materials),
+         do:
+           raise(
+             "Identity encryption key material must not be reused across webhook or push domains"
+           )
+
+  if oidc_enabled? and MapSet.size(identity_materials) == 0,
+    do: raise("OIDC_ENABLED requires a dedicated identity encryption key")
 
   unless MapSet.disjoint?(webhook_materials, push_materials) do
     raise "encryption key material must not be reused across webhook and push domains"
@@ -618,6 +1031,20 @@ if config_env() == :prod do
     end
 
   config :comms_core,
+    telephony_control_adapter: telephony_control_adapter,
+    telephony_control_fingerprint_key:
+      :crypto.mac(:hmac, :sha256, secret_key_base, "k-comms-telephony-controls-v1"),
+    direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
+    meeting_artifact_policy: [
+      privacy_approved: artifact_privacy_approved?,
+      provider_qualified: artifact_provider_qualified?,
+      enabled_tenant_ids: artifact_tenant_ids
+    ],
+    identity_secret_encryption_key: identity_secret_encryption_key,
+    identity_secret_encryption_key_id: identity_secret_encryption_key_id,
+    identity_secret_encryption_keys: identity_secret_encryption_keys,
+    identity_break_glass_secret: identity_break_glass_secret,
+    oidc: oidc_config,
     audio_participant_eviction_enforcement_seconds:
       audio_participant_eviction_enforcement_seconds,
     cluster_topologies: topologies,
@@ -802,6 +1229,21 @@ if config_env() == :prod do
   config :comms_integrations,
     audio_provider_mode: audio_provider_mode,
     telephony_provider_mode: telephony_provider_mode,
+    telephony_transfer_enabled: telephony_transfer_enabled?,
+    telephony_transfer_destination_prefixes: telephony_transfer_prefixes,
+    telephony_pbx_enabled: telephony_pbx_enabled?,
+    telephony_pbx_qualified: telephony_pbx_qualified?,
+    telephony_pbx_api_url: telephony_pbx_origin,
+    telephony_pbx_username: telephony_pbx_username,
+    telephony_pbx_password: telephony_pbx_password,
+    telephony_pbx_endpoint: telephony_pbx_endpoint,
+    telephony_pbx_application: telephony_pbx_application,
+    telephony_pbx_destination_prefixes: telephony_pbx_prefixes,
+    telephony_pbx_webhook_secret: telephony_pbx_webhook_secret,
+    telephony_voicemail_storage_qualified: voicemail_storage_qualified?,
+    meeting_artifacts_enabled: meeting_artifacts_enabled?,
+    egress_enabled: egress_enabled?,
+    artifact_transcription: artifact_transcription,
     telephony_ring_timeout_seconds: telephony_ring_timeout_seconds,
     telephony_max_duration_seconds: telephony_max_duration_seconds,
     livekit_server_url: livekit_server_url,

@@ -16,6 +16,8 @@ defmodule CommsWeb.Presenters.Identity do
       id: user.id,
       tenant_id: user.tenant_id,
       display_name: user.display_name,
+      avatar_url: user.avatar_url,
+      timezone: user.timezone,
       email: if(user.account_type == :guest, do: nil, else: user.email),
       account_type: user.account_type,
       access_scope: user.access_scope,
@@ -61,7 +63,13 @@ defmodule CommsWeb.Presenters.Identity do
   def admin_user(%UserView{} = user), do: identity_user(user)
 
   def directory_person(%DirectoryPersonView{} = person) do
-    %{id: person.id, display_name: person.display_name}
+    %{
+      id: person.id,
+      display_name: person.display_name,
+      avatar_url: person.avatar_url,
+      timezone: person.timezone,
+      presence_state: person.presence_state
+    }
   end
 
   def retained_sender_label(%RetainedSenderLabelView{} = label) do

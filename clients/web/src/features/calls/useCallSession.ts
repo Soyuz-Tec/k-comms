@@ -1382,6 +1382,7 @@ export function useCallSession({
 
   return {
     accessRevoked,
+    roomRef,
     activeKind,
     audioBlocked,
     available,

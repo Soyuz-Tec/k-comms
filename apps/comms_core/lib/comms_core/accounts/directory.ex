@@ -7,9 +7,12 @@ defmodule CommsCore.Accounts.Directory do
     AccessGrant,
     Device,
     DirectoryPersonView,
+    DirectoryUsersLockQuery,
+    LockedDirectoryUser,
     NotificationRecipient,
     Projector,
     RetainedSenderLabelView,
+    SessionAuthority,
     User,
     UserView
   }
@@ -207,6 +210,63 @@ defmodule CommsCore.Accounts.Directory do
   end
 
   def lock_active_human_directory_users(_tenant_id, _user_ids), do: {:error, :not_found}
+
+  @spec lock_active_directory_users(DirectoryUsersLockQuery.t()) ::
+          {:ok, [LockedDirectoryUser.t()]}
+          | {:error, :not_found | :transaction_required | :forbidden}
+  def lock_active_directory_users(%DirectoryUsersLockQuery{
+        tenant_id: tenant_id,
+        user_ids: user_ids,
+        deadline: deadline
+      })
+      when is_list(user_ids) and is_integer(deadline) do
+    normalized_ids = user_ids |> Enum.uniq() |> Enum.sort()
+
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(tenant_id) or normalized_ids == [] or
+        length(normalized_ids) > 100_000 or
+          not Enum.all?(normalized_ids, &valid_uuid?/1) ->
+        {:error, :not_found}
+
+      deadline > System.monotonic_time(:millisecond) + 15_000 ->
+        {:error, :forbidden}
+
+      true ->
+        with {:ok, _tenant} <- SessionAuthority.lock_active_tenant(tenant_id, deadline) do
+          SessionAuthority.ensure_budget(deadline)
+
+          users =
+            Repo.all(
+              from(user in User,
+                where:
+                  user.tenant_id == ^tenant_id and user.id in ^normalized_ids and
+                    user.status == :active and user.account_type in [:human, :service] and
+                    user.access_scope == :workspace,
+                order_by: [asc: user.id],
+                select: %{
+                  id: user.id,
+                  tenant_id: user.tenant_id,
+                  account_type: user.account_type
+                },
+                lock: "FOR SHARE"
+              )
+            )
+
+          SessionAuthority.ensure_budget(deadline)
+
+          if Enum.map(users, & &1.id) == normalized_ids do
+            {:ok, Enum.map(users, &struct!(LockedDirectoryUser, &1))}
+          else
+            {:error, :not_found}
+          end
+        end
+    end
+  end
+
+  def lock_active_directory_users(_query), do: {:error, :not_found}
 
   @spec validate_governance_user(String.t(), String.t()) :: :ok | {:error, :not_found}
   def validate_governance_user(tenant_id, user_id) do

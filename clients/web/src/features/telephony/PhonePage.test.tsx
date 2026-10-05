@@ -6,7 +6,7 @@ import { PhonePage } from "./PhonePage";
 import type { PhoneCall, PhoneConfiguration } from "./types";
 
 const missed: PhoneCall = { id: "missed-1", direction: "inbound", status: "no_answer", from_number: "+14155550199", to_number: "+14155550123", extension: "101", started_at: "2026-10-03T12:00:00Z", answered_at: null, ended_at: "2026-10-03T12:00:30Z", connected_seconds: 0, can_answer: false, can_join: false, can_end: false, active_on_this_device: false };
-const harness = vi.hoisted(() => { const calls = vi.fn(); return { api: { phoneCalls: calls }, calls, dial: vi.fn(), refresh: vi.fn(), configuration: null as PhoneConfiguration | null, loading: false, error: null as string | null, conversationBusy: false }; });
+const harness = vi.hoisted(() => { const calls = vi.fn(); return { api: { phoneCalls: calls, voicemails: vi.fn().mockResolvedValue({ data: [], configured: false, page: { has_more: false, next_cursor: null, limit: 30 } }) }, calls, dial: vi.fn(), refresh: vi.fn(), configuration: null as PhoneConfiguration | null, loading: false, error: null as string | null, conversationBusy: false }; });
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api }) }));
 vi.mock("./TelephonyProvider", () => ({ useTelephony: () => ({ configuration: harness.configuration, loading: harness.loading, busy: false, currentCall: null, error: harness.error, conversationBusy: harness.conversationBusy, dial: harness.dial, refresh: harness.refresh, join: vi.fn() }) }));
 

@@ -11,6 +11,7 @@ import type { PhoneMedia, PhoneMediaState } from "./phoneMedia";
 import { CALL_SESSION_TEARDOWN_EVENT } from "../calls/callSessionEvents";
 import { setPhoneMediaBusy } from "./mediaOwnership";
 import { usePhoneRingtone } from "./usePhoneRingtone";
+import { AdvancedPhoneControls } from "./AdvancedPhoneControls";
 import "./telephony.css";
 
 interface PhoneContext {
@@ -65,6 +66,18 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
   const reconcile = useCallback((call: PhoneCall) => {
     callRef.current = call;
     setCurrentCall(call);
+    if (phoneCallIsActive(call) && call.active_on_this_device && ["voicemail", "transferred"].includes(call.control_state ?? "")) {
+      // The confirmed provider handoff keeps its durable End authority while
+      // caller-only capture or the external pair continues outside browser media.
+      if (mediaRef.current) {
+        operation.current += 1;
+        releaseMedia();
+        actionBusy.current = false;
+        setBusy(false);
+      }
+      setPhoneMediaBusy(false);
+      return;
+    }
     if (!phoneCallIsActive(call) || !call.active_on_this_device) {
       operation.current += 1;
       releaseMedia();
@@ -313,6 +326,11 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
         {error && <p className="form-error" role="alert">{error}</p>}
         {playbackBlocked && <button className="button primary" type="button" onClick={() => void mediaRef.current?.startPlayback()}>Enable phone audio</button>}
         {ownsActive && configuration?.enabled && configuration.configured && configuration.number && currentCall.can_join && (mediaState === "disconnected" || mediaState === null) && <button className="button primary" type="button" disabled={busy || conversationBusy} onClick={() => void connectAction(() => api.joinPhoneCall(currentCall.id), currentCall.id)}>Reconnect phone audio</button>}
+        {ownsActive && currentCall.status === "answered" && currentCall.active_on_this_device && <AdvancedPhoneControls call={currentCall} disabled={busy || mediaState !== "connected"} recoveryDisabled={busy || !currentCall.can_end} sendDtmf={async (digit) => {
+          const media = mediaRef.current;
+          if (!media || callRef.current?.id !== currentCall.id || mediaState !== "connected") throw new Error("Phone audio is unavailable.");
+          await media.sendDtmf(digit);
+        }} refresh={loadActive} />}
         <div className="phone-actions">
           {ownsActive && <><button className="button ghost" type="button" disabled={busy || mediaState !== "connected"} aria-pressed={muted} onClick={() => void toggleMute()}>{muted ? "Unmute" : "Mute"}</button><button className="button danger" type="button" onClick={() => void end()}>End call</button></>}
           {!ownsActive && <button className="button ghost" type="button" onClick={() => { setCurrentCall(null); callRef.current = null; }}>Dismiss</button>}

@@ -113,7 +113,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
                 user.id == ^preview.user_id and user.tenant_id == ^preview.tenant_id and
                   user.status == :active and user.account_type == :human and
                   user.access_scope == :workspace,
-              lock: "FOR UPDATE"
+              lock: "FOR NO KEY UPDATE"
             )
           ) || Repo.rollback(:invalid_password_recovery_token)
 
@@ -150,6 +150,12 @@ defmodule CommsCore.Accounts.PasswordRecovery do
           |> User.changeset(%{password_hash: password_hash})
           |> Ecto.Changeset.optimistic_lock(:lock_version)
           |> update_or_rollback()
+
+        CommsCore.Accounts.Sessions.Persistence.invalidate_identity_challenges!(
+          user.tenant_id,
+          user.id,
+          timestamp
+        )
 
         revoked_session_ids = revoke_access!(updated_user, timestamp)
 

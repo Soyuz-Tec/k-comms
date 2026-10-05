@@ -71,7 +71,7 @@ test("authentication gateway remains usable over the canvas on a phone", async (
     page.getByRole("heading", { name: "Sign in to your workspace" })
   ).toBeVisible();
   await expect(page.getByLabel("Workspace address")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Start an instant room/i })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
     document.documentElement.scrollWidth <= window.innerWidth
@@ -97,7 +97,7 @@ test("returning member signs in with one submitted form and reaches Inbox", asyn
   await expect(page.getByText("acme", { exact: true })).toBeVisible();
   await page.getByLabel("Email address").fill("taylor@example.test");
   await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect.poll(() =>
@@ -226,6 +226,7 @@ async function installAuthApi(
     bootstrapRequests: [] as unknown[],
     unexpectedRequests: [] as string[]
   };
+  const drafts = new Map<string, { body: string; version: number }>();
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -258,6 +259,18 @@ async function installAuthApi(
     }
     if (method === "GET" && path === "/api/v1/conversations") {
       return json(route, { data: [general] });
+    }
+    if (path === `/api/v1/conversations/${general.id}/draft` && (method === "GET" || method === "PUT")) {
+      const input = method === "PUT" ? request.postDataJSON() as { thread_key: string; body: string; expected_version: number } : null;
+      const key = input?.thread_key || new URL(request.url()).searchParams.get("thread_key") || "main";
+      const current = drafts.get(key) || { body: "", version: 0 };
+      if (input) {
+        if (input.expected_version !== current.version) return json(route, { error: { code: "stale_draft", detail: "This draft changed on another device." } }, 409);
+        current.body = input.body;
+        current.version += 1;
+        drafts.set(key, current);
+      }
+      return json(route, { data: { conversation_id: general.id, thread_key: key, ...current, expires_at: "2099-01-01T00:00:00Z" } });
     }
     if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/members$/.test(path)) {
       return json(route, {

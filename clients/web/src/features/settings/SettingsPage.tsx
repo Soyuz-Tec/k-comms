@@ -14,6 +14,9 @@ import {
   type CallControlPreferenceName
 } from "../experience/call-control-preferences";
 import { PushNotifications } from "./PushNotifications";
+import { EnterpriseProfileSettings } from "./EnterpriseProfileSettings";
+import { EnterpriseSecuritySettings } from "./EnterpriseSecuritySettings";
+import { AvailabilitySettings } from "./AvailabilitySettings";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import {
   PwaInstallHelpDialog,
@@ -159,7 +162,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
     setBusy("password");
     setError(null);
     try {
-      await api.changePassword({ current_password: stringValue(values, "current_password"), new_password: newPassword });
+      await api.changePassword({ current_password: stringValue(values, "current_password"), new_password: newPassword, mfa_code: stringValue(values, "mfa_code") || undefined });
       form.reset();
       setNotice("Password changed. Other sessions were revoked.");
       await refreshSecurity();
@@ -339,6 +342,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       )}
 
       {section === "profile" && <section id="settings-profile-panel" role="tabpanel" aria-labelledby="settings-profile-tab">
+        <EnterpriseProfileSettings />
         <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
           <div className="profile-identity">
             <AvatarBadge name={session.user.display_name} />
@@ -351,11 +355,13 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       </section>}
 
       {section === "security" && <section id="settings-security-panel" role="tabpanel" aria-labelledby="settings-security-tab">
+        {typeof api.identitySecurity === "function" && <EnterpriseSecuritySettings />}
         <form className="settings-card" id="password-settings" onSubmit={(event) => void changePassword(event)}>
           <div className="card-heading"><h2>Password</h2></div>
           <label className="field">Current password<input name="current_password" type="password" autoComplete="current-password" required /></label>
           <label className="field">New password<input name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required /></label>
           <label className="field">Confirm new password<input name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required /></label>
+          <label className="field">Authenticator or recovery code, if enabled<input name="mfa_code" autoComplete="one-time-code" /></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "password"}>{busy === "password" ? "Changing…" : "Change password"}</button></div>
         </form>
       </section>}
@@ -400,6 +406,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       </section>}
 
       {section === "notifications" && <section id="settings-notifications-panel" role="tabpanel" aria-labelledby="settings-notifications-tab">
+        {typeof api.availability === "function" && <AvailabilitySettings />}
       {preference && <form key={preference.updated_at} className="settings-card notification-settings" id="notification-settings" onSubmit={(event) => void updateNotifications(event)} onChange={(event) => {
         if (!(event.target instanceof HTMLInputElement)) return;
         const input = event.target;

@@ -3,7 +3,7 @@ defmodule CommsCore.Accounts.Sessions.Persistence do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, PlatformAccess, Session, User}
+  alias CommsCore.Accounts.{Device, PlatformAccess, Session}
   alias CommsCore.{Administration, Repo}
   alias CommsCore.Audit
 
@@ -26,6 +26,9 @@ defmodule CommsCore.Accounts.Sessions.Persistence do
       )
 
     with %Session{} = session <- Repo.one(query),
+         true <-
+           not CommsCore.Accounts.MfaFactorState.enabled?(session.user_id, session.tenant_id) or
+             not is_nil(session.mfa_verified_at),
          {:ok, tenant} <- Administration.active_tenant(session.tenant_id) do
       {:ok, session, tenant}
     else
@@ -83,39 +86,21 @@ defmodule CommsCore.Accounts.Sessions.Persistence do
   end
 
   def lock_active_guest(subject) do
-    timestamp = now()
-
     case subject_identity(subject) do
       {tenant_id, user_id, device_id, session_id}
       when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
              is_binary(session_id) ->
-        session =
-          Repo.one(
-            from(s in Session,
-              join: u in User,
-              on: u.id == s.user_id and u.tenant_id == s.tenant_id,
-              join: d in Device,
-              on:
-                d.id == s.device_id and d.user_id == s.user_id and
-                  d.tenant_id == s.tenant_id,
-              where:
-                s.id == ^session_id and s.tenant_id == ^tenant_id and
-                  s.user_id == ^user_id and s.device_id == ^device_id and
-                  is_nil(s.revoked_at) and s.expires_at > ^timestamp and
-                  s.absolute_expires_at > ^timestamp and u.status == :active and
-                  u.account_type == :guest and not is_nil(u.guest_expires_at) and
-                  u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
-              preload: [user: u, device: d],
-              lock: "FOR UPDATE"
-            )
-          )
-
-        with %Session{} = session <- session,
+        with true <- Repo.in_transaction?(),
+             %Session{tenant_id: ^tenant_id, user_id: ^user_id, device_id: ^device_id} = session <-
+               CommsCore.Accounts.GuestIdentities.ActiveSession.lock_active(
+                 session_id,
+                 now(),
+                 user_id
+               ),
              {:ok, tenant} <- Administration.active_tenant(tenant_id) do
           {:ok, session, tenant}
         else
-          nil -> {:error, :session_expired}
-          {:error, _reason} = error -> error
+          _ -> {:error, :session_expired}
         end
 
       _ ->
@@ -144,6 +129,17 @@ defmodule CommsCore.Accounts.Sessions.Persistence do
       %Device{} = device -> device |> Device.changeset(changes) |> Repo.update()
       nil -> %Device{} |> Device.changeset(changes) |> Repo.insert()
     end
+  end
+
+  def invalidate_identity_challenges!(tenant_id, user_id, timestamp \\ now()) do
+    from(challenge in CommsCore.Accounts.AuthChallenge,
+      where:
+        challenge.tenant_id == ^tenant_id and challenge.user_id == ^user_id and
+          is_nil(challenge.consumed_at)
+    )
+    |> Repo.update_all(set: [consumed_at: timestamp, updated_at: timestamp])
+
+    :ok
   end
 
   def insert_audit!(subject, action, resource_type, resource_id, metadata) do

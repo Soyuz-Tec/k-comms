@@ -393,9 +393,10 @@ function DirectoryPeople({
       {people.map((person) => {
         const identifier = participantIdentifier(person, duplicateNames);
         return <li key={person.id} className="directory-row">
-          <AvatarBadge name={person.display_name} />
+          <AvatarBadge name={person.display_name} avatarUrl={person.avatar_url} />
           <div className="directory-row-copy">
             <strong>{identifier}</strong>
+            {(person.presence_state || person.timezone) && <small>{[person.presence_state && ({ available: "Available", away: "Away", busy: "Busy", dnd: "Do not disturb", offline: "Offline" }[person.presence_state]), person.timezone].filter(Boolean).join(" · ")}</small>}
             {actionFailure?.id === person.id && <DirectoryActionError failure={actionFailure} name={identifier} />}
           </div>
           <QuickActions

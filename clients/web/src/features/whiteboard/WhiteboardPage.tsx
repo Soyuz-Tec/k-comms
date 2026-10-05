@@ -2,10 +2,16 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
+import { useSession } from "../../app/session";
+import { BoardGallery } from "./BoardGallery";
+import "./board-library.css";
 import { CollaborativeWhiteboard } from "./CollaborativeWhiteboard";
 
 export function WhiteboardPage() {
+  const { api } = useSession();
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [statusContainer, setStatusContainer] = useState<HTMLDivElement | null>(null);
+  const [libraryTriggerContainer, setLibraryTriggerContainer] = useState<HTMLDivElement | null>(null);
   const { conversations, loading } = useWorkspaceData();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,7 +44,8 @@ export function WhiteboardPage() {
           <p className="visually-hidden">Sketch, diagram, and plan together in the selected conversation.</p>
         </div>
         <div ref={setStatusContainer} className="whiteboard-heading-status" />
-        <div className="whiteboard-context-actions">
+        <div ref={setLibraryTriggerContainer} className="whiteboard-context-actions">
+        <button type="button" className="button ghost" aria-expanded={galleryOpen} onClick={() => setGalleryOpen(value => !value)}>Board gallery</button>
         <label>
           <span>Conversation</span>
           <select
@@ -65,12 +72,16 @@ export function WhiteboardPage() {
         </div>
       </header>
 
+      {galleryOpen && <BoardGallery api={api} onOpen={id => {
+        setSearchParams({ conversation: id }); setGalleryOpen(false);
+      }} />}
       {activeConversation ? (
         <CollaborativeWhiteboard
           key={activeConversation.id}
           conversationId={activeConversation.id}
           conversationTitle={activeConversation.title || "Untitled conversation"}
           statusContainer={statusContainer}
+          libraryTriggerContainer={libraryTriggerContainer}
           focusElementIds={focusElementIds}
           onMessageReference={(reference) => {
             const params = new URLSearchParams({

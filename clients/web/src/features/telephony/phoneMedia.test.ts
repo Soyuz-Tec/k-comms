@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PhoneMedia } from "./phoneMedia";
 
 const harness = vi.hoisted(() => ({
-  events: new Map<string, (...args: unknown[]) => void>(), connect: vi.fn(), disconnect: vi.fn(), microphone: vi.fn(), startAudio: vi.fn(), stop: vi.fn(), options: vi.fn()
+  events: new Map<string, (...args: unknown[]) => void>(), connect: vi.fn(), disconnect: vi.fn(), microphone: vi.fn(), startAudio: vi.fn(), stop: vi.fn(), options: vi.fn(), dtmf: vi.fn()
 }));
 vi.mock("livekit-client", () => ({
   Track: { Kind: { Audio: "audio" } },
@@ -14,7 +14,7 @@ vi.mock("livekit-client", () => ({
     disconnect = harness.disconnect;
     startAudio = harness.startAudio;
     canPlaybackAudio = true;
-    localParticipant = { setMicrophoneEnabled: harness.microphone, trackPublications: new Map([["mic", { track: { stop: harness.stop } }]]) };
+    localParticipant = { setMicrophoneEnabled: harness.microphone, publishDtmf: harness.dtmf, trackPublications: new Map([["mic", { track: { stop: harness.stop } }]]) };
   }
 }));
 const credential = { server_url: "wss://media.example.test", participant_token: "token", expires_in: 60, ice_servers: [{ urls: ["turns:relay.example.test:443"], username: "ephemeral", credential: "ephemeral-secret" }] };
@@ -59,5 +59,15 @@ describe("phone media lifecycle", () => {
     await media.startPlayback();
     expect(blocked).toHaveBeenLastCalledWith(false);
     media.disconnect();
+  });
+  it("uses native reliable SIP DTMF codes and refuses stopped or malformed tones", async () => {
+    const media = new PhoneMedia(credential, document.createElement("div"), vi.fn(), vi.fn());
+    await media.connect(credential);
+    await media.sendDtmf("#");
+    expect(harness.dtmf).toHaveBeenCalledWith(11, "#");
+    await expect(media.sendDtmf("12")).rejects.toThrow();
+    media.disconnect();
+    await expect(media.sendDtmf("1")).rejects.toThrow();
+    expect(harness.dtmf).toHaveBeenCalledOnce();
   });
 });

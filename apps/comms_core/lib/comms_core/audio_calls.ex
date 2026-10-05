@@ -9,7 +9,7 @@ defmodule CommsCore.AudioCalls do
 
   @behaviour CommsCore.Conversations.CallLifecyclePort
 
-  alias CommsCore.AudioCalls.{Activity, Collaboration, Lifecycle}
+  alias CommsCore.AudioCalls.{Activity, Artifacts, Collaboration, Lifecycle, Meetings}
 
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
@@ -31,6 +31,8 @@ defmodule CommsCore.AudioCalls do
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
           CommsCore.AudioCalls.ActivityView.t()
+          | CommsCore.AudioCalls.ArtifactErasurePlan.t()
+          | CommsCore.AudioCalls.ArtifactView.t()
           | CommsCore.AudioCalls.CallParticipantView.t()
           | CommsCore.AudioCalls.CallSessionView.t()
           | CommsCore.AudioCalls.CallView.t()
@@ -38,6 +40,8 @@ defmodule CommsCore.AudioCalls do
           | CommsCore.AudioCalls.EvictionClaim.t()
           | CommsCore.AudioCalls.EvictionProgress.t()
           | CommsCore.AudioCalls.ModerationTarget.t()
+          | CommsCore.AudioCalls.MeetingErasurePlan.t()
+          | CommsCore.AudioCalls.MeetingView.t()
           | CommsCore.AudioCalls.ProviderCall.t()
 
   @type public_value :: public_scalar() | public_map() | public_contract()
@@ -88,6 +92,143 @@ defmodule CommsCore.AudioCalls do
 
   @doc false
   defdelegate release_tenant_fingerprint_fragment(repo, tenant_id), to: Lifecycle
+
+  @spec schedule_meeting(binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.MeetingView.t()} | {:error, public_error()}
+  defdelegate schedule_meeting(conversation_id, attrs, subject), to: Meetings, as: :create
+
+  @spec update_meeting(binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.MeetingView.t()} | {:error, public_error()}
+  defdelegate update_meeting(id, attrs, subject), to: Meetings, as: :update
+
+  @spec cancel_meeting(binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.MeetingView.t()} | {:error, public_error()}
+  defdelegate cancel_meeting(id, attrs, subject), to: Meetings, as: :cancel
+
+  @spec get_meeting(binary(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.MeetingView.t()} | {:error, public_error()}
+  defdelegate get_meeting(id, subject), to: Meetings, as: :get
+
+  @spec list_meetings(public_map(), public_map()) ::
+          {:ok, %{meetings: [CommsCore.AudioCalls.MeetingView.t()], truncated: boolean()}}
+          | {:error, public_error()}
+  defdelegate list_meetings(subject, params), to: Meetings, as: :list
+
+  @spec search_meetings(public_map(), public_map()) ::
+          {:ok, %{meetings: [CommsCore.AudioCalls.MeetingView.t()], truncated: boolean()}}
+          | {:error, public_error()}
+  defdelegate search_meetings(subject, params), to: Meetings, as: :search
+
+  @spec meeting_calendar(binary(), public_map()) :: {:ok, String.t()} | {:error, public_error()}
+  defdelegate meeting_calendar(id, subject), to: Meetings, as: :calendar
+
+  @spec start_meeting(binary(), binary(), public_map(), :audio | :video, function(), function()) ::
+          {:ok,
+           %{
+             call: CommsCore.AudioCalls.CallView.t(),
+             status: :created | :existing,
+             credential: public_map()
+           }}
+          | {:error, public_error()}
+  defdelegate start_meeting(id, occurrence_id, subject, kind, cleanup, issuer),
+    to: Meetings,
+    as: :start
+
+  @spec deliver_meeting_reminder(binary(), pos_integer(), module()) ::
+          {:ok, :ignored | :already_delivered | :delivered} | {:error, public_error()}
+  defdelegate deliver_meeting_reminder(occurrence_id, version, caller),
+    to: Meetings,
+    as: :deliver_reminder
+
+  @doc false
+  @spec rollback_artifact_hazard_count() :: non_neg_integer()
+  defdelegate rollback_artifact_hazard_count(), to: Artifacts, as: :rollback_hazard_count
+
+  @doc false
+  @spec rollback_meeting_hazard_count() :: non_neg_integer()
+  defdelegate rollback_meeting_hazard_count(), to: Meetings, as: :rollback_hazard_count
+
+  @doc false
+  @spec prepare_meeting_governance_erasure(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, CommsCore.AudioCalls.MeetingErasurePlan.t()} | {:error, public_error()}
+  defdelegate prepare_meeting_governance_erasure(tenant_id, target_type, target_id),
+    to: Meetings,
+    as: :prepare_governance_erasure
+
+  @doc false
+  @spec meeting_governance_erasure_pending?(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, boolean()} | {:error, public_error()}
+  defdelegate meeting_governance_erasure_pending?(tenant_id, target_type, target_id),
+    to: Meetings,
+    as: :governance_erasure_pending?
+
+  @spec list_artifacts(binary(), binary(), public_map()) ::
+          {:ok, %{artifacts: [CommsCore.AudioCalls.ArtifactView.t()], capabilities: public_map()}}
+          | {:error, public_error()}
+  defdelegate list_artifacts(conversation_id, call_id, subject), to: Artifacts, as: :list
+
+  @spec search_artifacts(public_map(), public_map()) ::
+          {:ok, [CommsCore.AudioCalls.ArtifactView.t()]} | {:error, public_error()}
+  defdelegate search_artifacts(subject, params), to: Artifacts, as: :search
+
+  @spec request_artifact(binary(), binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate request_artifact(conversation_id, call_id, attrs, subject),
+    to: Artifacts,
+    as: :request
+
+  @spec consent_artifact(binary(), binary(), binary(), boolean(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate consent_artifact(conversation_id, call_id, id, accepted, subject),
+    to: Artifacts,
+    as: :consent
+
+  @spec start_artifact(binary(), binary(), binary(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate start_artifact(conversation_id, call_id, id, subject), to: Artifacts, as: :start
+
+  @spec stop_artifact(binary(), binary(), binary(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate stop_artifact(conversation_id, call_id, id, subject), to: Artifacts, as: :stop
+
+  @spec delete_artifact(binary(), binary(), binary(), public_map()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactView.t()} | {:error, public_error()}
+  defdelegate delete_artifact(conversation_id, call_id, id, subject), to: Artifacts, as: :delete
+
+  @spec artifact_playback(binary(), binary(), binary(), public_map()) ::
+          {:ok, %{artifact: CommsCore.AudioCalls.ArtifactView.t(), download: public_map()}}
+          | {:error, public_error()}
+  defdelegate artifact_playback(conversation_id, call_id, id, subject),
+    to: Artifacts,
+    as: :playback
+
+  @spec artifact_transcript(binary(), binary(), binary(), public_map()) ::
+          {:ok,
+           %{
+             artifact: CommsCore.AudioCalls.ArtifactView.t(),
+             segments: [CommsCore.AudioCalls.ArtifactTranscriptSegment.t()]
+           }}
+          | {:error, public_error()}
+  defdelegate artifact_transcript(conversation_id, call_id, id, subject),
+    to: Artifacts,
+    as: :transcript
+
+  @spec handle_artifact_callback(binary(), binary()) :: public_response()
+  defdelegate handle_artifact_callback(body, authorization), to: Artifacts, as: :handle_callback
+
+  @spec process_artifact(binary(), module()) :: public_response()
+  defdelegate process_artifact(id, caller), to: Artifacts, as: :process
+
+  @spec reconcile_artifacts(module()) :: public_response()
+  defdelegate reconcile_artifacts(caller), to: Artifacts, as: :reconcile
+
+  @spec prepare_governance_erasure(binary(), atom(), binary()) ::
+          {:ok, CommsCore.AudioCalls.ArtifactErasurePlan.t()} | {:error, public_error()}
+  defdelegate prepare_governance_erasure(tenant_id, subject_type, subject_id), to: Artifacts
+
+  @spec governance_erasure_pending?(binary(), atom(), binary()) ::
+          {:ok, boolean()} | {:error, public_error()}
+  defdelegate governance_erasure_pending?(tenant_id, subject_type, subject_id), to: Artifacts
 
   def start(conversation_id, subject), do: Lifecycle.start(conversation_id, subject)
 

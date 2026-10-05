@@ -339,9 +339,10 @@ describe("ChatPage durable sequence recovery", () => {
       ...message(42),
       id: "44444444-4444-4444-8444-444444444444"
     };
-    harness.api.searchMessagePage!.mockResolvedValue({
-      data: [result],
-      page: { limit: 25, has_more: false, next_cursor: null }
+    harness.api.unifiedSearch!.mockResolvedValue({
+      data: [{ id: result.id, kind: "message", title: "General", excerpt: result.body, conversation_id: result.conversation_id, occurred_at: result.inserted_at, score: 100, path: `/app/?conversation=${result.conversation_id}&search_message=${result.id}&search_sequence=${result.conversation_sequence}` }],
+      facets: { message: 1 },
+      page: { has_more: false, next_cursor: null, source_limits: { messages: false, files: false, whiteboards: false, meetings: false, artifacts: false }, ranking_scope: "authorized_source_candidates", meeting_window_days: 732 }
     });
 
     render(
@@ -352,7 +353,7 @@ describe("ChatPage durable sequence recovery", () => {
     );
 
     await user.click(within(screen.getByLabelText("Conversations")).getByRole("button", { name: "Search workspace content" }));
-    await user.type(screen.getByRole("searchbox", { name: "Search accessible workspace content" }), "Message 42");
+    await user.type(screen.getByRole("searchbox", { name: "Search messages, files, boards and meetings" }), "Message 42");
     await user.click(screen.getByRole("button", { name: "Search" }));
     await user.click(await screen.findByText("Message 42"));
 

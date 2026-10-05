@@ -33,6 +33,7 @@ import type { CallPanelSessionState } from "./CallPanel";
 import { phoneMediaIsBusy } from "../telephony/mediaOwnership";
 import { requestCallSessionTeardown } from "./callSessionEvents";
 import type { CallReadinessMode } from "./callReadinessNavigation";
+import { meetingCallApi, type MeetingLaunchContext } from "../meetings/meetingCallApi";
 
 const PersistentCallPanel = lazy(() =>
   import("./CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
@@ -51,7 +52,8 @@ interface CallSessionContextValue {
   launchCall: (
     conversation: Conversation,
     kind: CallMediaKind,
-    readinessMode?: CallReadinessMode | null
+    readinessMode?: CallReadinessMode | null,
+    meeting?: MeetingLaunchContext | null
   ) => boolean;
   publishRealtimeEvent: (event: CallRealtimeEvent) => void;
   teardownCall: () => void;
@@ -71,6 +73,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const [targetConversation, setTargetConversation] = useState<Conversation | null>(null);
   const [sessionState, setSessionState] = useState<CallPanelSessionState | null>(null);
   const [launchRequest, setLaunchRequest] = useState<LaunchRequest | null>(null);
+  const [meetingLaunch, setMeetingLaunch] = useState<{ context: MeetingLaunchContext; kind: CallMediaKind } | null>(null);
   const [realtimeEvent, setRealtimeEvent] = useState<CallRealtimeEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [switchState, switchDispatch] = useReducer(
@@ -86,6 +89,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     conversation: Conversation;
     kind: CallMediaKind;
     readinessMode: CallReadinessMode | null;
+    meeting: MeetingLaunchContext | null;
   } | null>(null);
   const requestSequenceRef = useRef(0);
   const targetConversationRef = useRef<Conversation | null>(null);
@@ -95,7 +99,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const startLaunch = useCallback((
     conversation: Conversation,
     kind: CallMediaKind,
-    readinessMode: CallReadinessMode | null
+    readinessMode: CallReadinessMode | null,
+    meeting: MeetingLaunchContext | null = null
   ) => {
     const request = {
       id: ++requestSequenceRef.current,
@@ -110,12 +115,14 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     setRealtimeEvent(null);
     setNotice(null);
     setLaunchRequest(request);
+    setMeetingLaunch(meeting ? { context: meeting, kind } : null);
   }, []);
 
   const launchCall = useCallback((
     conversation: Conversation,
     kind: CallMediaKind,
-    readinessMode: CallReadinessMode | null = null
+    readinessMode: CallReadinessMode | null = null,
+    meeting: MeetingLaunchContext | null = null
   ) => {
     if (phoneMediaIsBusy()) {
       setNotice("End your phone call before starting a conversation call.");
@@ -159,7 +166,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       pendingSwitchRef.current = {
         conversation,
         kind,
-        readinessMode: kind === "audio" ? readinessMode : null
+        readinessMode: kind === "audio" ? readinessMode : null,
+        meeting
       };
       switchDispatch({
         type: "REQUEST",
@@ -182,7 +190,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    startLaunch(conversation, kind, readinessMode);
+    startLaunch(conversation, kind, readinessMode, meeting);
     return true;
   }, [
     audioCallsAvailable,
@@ -208,7 +216,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       const queued = pendingSwitchRef.current;
       pendingSwitchRef.current = null;
       switchDispatch({ type: "RELEASED" });
-      if (queued) startLaunch(queued.conversation, queued.kind, queued.readinessMode);
+      if (queued) startLaunch(queued.conversation, queued.kind, queued.readinessMode, queued.meeting);
       return;
     }
 
@@ -259,6 +267,9 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   // readiness probe must not eject an otherwise connected participant.
   const audioPolicyEnabled = capabilities?.allow_audio_calls === true;
   const videoPolicyEnabled = capabilities?.allow_video_calls === true;
+  const panelApi = useMemo(() => meetingLaunch
+    ? meetingCallApi(api, meetingLaunch.context, meetingLaunch.kind)
+    : api, [api, meetingLaunch]);
 
   return (
     <CallSessionContext.Provider value={value}>
@@ -266,8 +277,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       {targetConversation && session && (
         <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
           <PersistentCallPanel
-            key={targetConversation.id}
-            api={api}
+            key={meetingLaunch ? `${targetConversation.id}:${meetingLaunch.context.meetingId}:${meetingLaunch.context.occurrenceId}` : targetConversation.id}
+            api={panelApi}
             conversation={targetConversation}
             audioEnabled={audioPolicyEnabled}
             videoEnabled={videoPolicyEnabled}

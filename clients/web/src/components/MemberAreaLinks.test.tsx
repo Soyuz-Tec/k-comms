@@ -14,7 +14,9 @@ describe("MemberAreaLinks", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
-    expect(navigation.querySelectorAll("svg")).toHaveLength(6);
+    expect(navigation.querySelectorAll("svg")).toHaveLength(8);
+    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
+    expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
     expect(screen.getByRole("link", { name: "Whiteboard" })).toHaveAttribute(
       "href",
       "/app/whiteboard"
@@ -61,6 +63,8 @@ describe("MemberAreaLinks", () => {
     expect(screen.getByRole("link", { name: "Files" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "You" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Whiteboard" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Meetings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Saved items" })).not.toBeInTheDocument();
   });
 
   it("groups desktop destinations and keeps Whiteboard in collaboration", () => {
@@ -78,6 +82,8 @@ describe("MemberAreaLinks", () => {
       "aria-current",
       "page"
     );
-    expect(screen.getAllByRole("link")).toHaveLength(6);
+    expect(screen.getByRole("region", { name: "Communicate" })).toContainElement(screen.getByRole("link", { name: "Meetings" }));
+    expect(screen.getByRole("region", { name: "Personal" })).toContainElement(screen.getByRole("link", { name: "Saved items" }));
+    expect(screen.getAllByRole("link")).toHaveLength(8);
   });
 });

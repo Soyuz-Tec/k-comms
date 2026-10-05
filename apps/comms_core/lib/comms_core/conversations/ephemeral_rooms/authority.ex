@@ -54,7 +54,9 @@ defmodule CommsCore.Conversations.EphemeralRooms.Authority do
     end
   end
 
-  def lock_room_scope_by_link!(snapshot, token_secret) do
+  def lock_room_scope_by_link!(snapshot, token_secret, actor_user_id) do
+    lock_room_identity_parents!(snapshot, actor_user_id, true)
+
     conversation =
       Repo.one(
         from(conversation in Conversation,
@@ -92,7 +94,9 @@ defmodule CommsCore.Conversations.EphemeralRooms.Authority do
     {conversation, link, room}
   end
 
-  def lock_room_scope!(snapshot) do
+  def lock_room_scope!(snapshot, actor_user_id, require_active_tenant) do
+    lock_room_identity_parents!(snapshot, actor_user_id, require_active_tenant)
+
     conversation =
       Repo.one(
         from(conversation in Conversation,
@@ -116,12 +120,60 @@ defmodule CommsCore.Conversations.EphemeralRooms.Authority do
     room =
       Repo.one(
         from(room in EphemeralRoom,
-          where: room.id == ^snapshot.id and room.tenant_id == ^snapshot.tenant_id,
+          where:
+            room.id == ^snapshot.id and room.tenant_id == ^snapshot.tenant_id and
+              room.conversation_id == ^snapshot.conversation_id and
+              room.guest_link_id == ^snapshot.guest_link_id,
           lock: "FOR UPDATE"
         )
       ) || Repo.rollback(:ephemeral_room_not_found)
 
     {conversation, link, room}
+  end
+
+  def lock_identity_parents!(tenant_id, user_ids, require_active_tenant, deadline) do
+    case Accounts.lock_guest_identity_parents(%Accounts.GuestIdentityParentsLockQuery{
+           tenant_id: tenant_id,
+           user_ids: user_ids,
+           deadline: deadline,
+           require_active_tenant: require_active_tenant
+         }) do
+      {:ok, %Accounts.GuestIdentityParentsLockReceipt{}} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  def ensure_identity_budget!(tenant_id, require_active_tenant) do
+    # The owner facade keeps the earliest deadline in this transaction.
+    # Reentrant prefix locks introduce no new parents after resource locks.
+    lock_identity_parents!(
+      tenant_id,
+      [],
+      require_active_tenant,
+      System.monotonic_time(:millisecond) + 15_000
+    )
+  end
+
+  defp lock_room_identity_parents!(snapshot, actor_user_id, require_active_tenant) do
+    deadline = System.monotonic_time(:millisecond) + 15_000
+
+    # The shared admission prefix stabilizes the exact pending target set.
+    # Cleanup must not require an active tenant or a live Guest session.
+    lock_identity_parents!(snapshot.tenant_id, [], require_active_tenant, deadline)
+
+    pending_guest_ids =
+      Repo.all(
+        from(admission in GuestAdmission,
+          where:
+            admission.tenant_id == ^snapshot.tenant_id and
+              admission.conversation_id == ^snapshot.conversation_id and
+              is_nil(admission.revoked_at) and is_nil(admission.converted_at),
+          select: admission.guest_user_id
+        )
+      )
+
+    user_ids = if actor_user_id, do: [actor_user_id | pending_guest_ids], else: pending_guest_ids
+    lock_identity_parents!(snapshot.tenant_id, user_ids, require_active_tenant, deadline)
   end
 
   def available_room!(room, link, conversation, timestamp) do

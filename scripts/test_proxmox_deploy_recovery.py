@@ -55,6 +55,7 @@ validate_ipv4() { :; }
 current_app_image() { echo old-image; }
 current_app_revision() { printf '%040d\n' 1; }
 current_app_capabilities() { echo fixture-capabilities; }
+image_rollback_capabilities() { [[ "$FAIL_AT" != missing_capabilities ]] || return 0; echo fixture-capabilities; }
 classify_image_ref() { echo immutable-ghcr; }
 configured_livekit_topology() { echo managed_cloud; }
 unit_active() { [[ "$FAIL_AT" != first_install ]]; }
@@ -188,6 +189,15 @@ class DeployRecoveryTest(unittest.TestCase):
         self.assertFalse((root / "running").exists())
         self.assertIn("recovery=stopped", self.failure_record(root))
 
+    def test_unqualified_candidate_is_refused_before_stopping_current_writers(self):
+        result, root, calls = self.run_deployment("missing_capabilities")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("systemctl stop k-comms-app.service", calls)
+        self.assertFalse(any("CommsCore.Release.migrate" in call for call in calls))
+        self.assertNotIn("backup", calls)
+        self.assertIn("supported rollback capability contract", result.stderr)
+        self.assertFalse((root / "receipts/current.json").exists())
+
     def test_failed_previous_restart_or_health_is_not_reported_as_recovered(self):
         for stage in ("start", "recovery_health"):
             with self.subTest(stage=stage):
@@ -230,6 +240,86 @@ class DeployRecoveryTest(unittest.TestCase):
         self.assertTrue((root / "receipts/current.json").is_symlink())
         self.assertFalse((root / "guard").exists())
         self.assertFalse((root / "receipts/failed-deployments").exists())
+
+
+class RollbackCapabilityProvenanceTest(unittest.TestCase):
+    """Run the actual shared capability guard with synthetic image metadata."""
+
+    def run_guard(self, action: str, immutable: str, declared: str) -> subprocess.CompletedProcess:
+        self.assertTrue(BASH and Path(BASH).is_file(), "Bash is required for capability tests")
+        script = r'''
+source "$K_COMMS_TEST_COMMON"
+container_exists() { return 0; }
+current_app_image() { printf '%s\n' fixture-image; }
+podman() {
+  case "$*" in
+    'image inspect fixture-image --format '*rollback-capabilities*)
+      printf '%s\n' "$K_COMMS_TEST_IMMUTABLE";;
+    'inspect k-comms-app --format '*rollback-capabilities*)
+      printf '%s\n' "$K_COMMS_TEST_DECLARED";;
+    *) printf 'unexpected synthetic podman request\n' >&2; return 99;;
+  esac
+}
+case "$K_COMMS_TEST_ACTION" in
+  current) current_app_capabilities;;
+  assert) assert_image_rollback_capabilities fixture-image "$K_COMMS_TEST_DECLARED";;
+  *) exit 98;;
+esac
+'''
+        return subprocess.run(
+            [BASH, "-c", script],
+            env={**os.environ,
+                 "K_COMMS_TEST_COMMON": str(ROOT / "deploy/proxmox/bin/common.sh"),
+                 "K_COMMS_TEST_ACTION": action,
+                 "K_COMMS_TEST_IMMUTABLE": immutable,
+                 "K_COMMS_TEST_DECLARED": declared},
+            capture_output=True, text=True, timeout=20,
+        )
+
+    def capability_contract(self) -> tuple[str, str]:
+        common = (ROOT / "deploy/proxmox/bin/common.sh").read_text(encoding="utf-8")
+        values = dict(
+            line.split("=", 1) for line in common.splitlines()
+            if line.startswith(("K_COMMS_LEGACY_CAPABILITIES=", "K_COMMS_CAPABILITIES="))
+        )
+        return values["K_COMMS_LEGACY_CAPABILITIES"], values["K_COMMS_CAPABILITIES"]
+
+    def test_current_host_template_cannot_promote_an_old_binary(self):
+        legacy, current = self.capability_contract()
+        result = self.run_guard("current", "", current)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), legacy)
+        self.assertNotIn("enterprise_identity_v1", result.stdout)
+
+    def test_current_capabilities_come_from_the_immutable_image(self):
+        legacy, current = self.capability_contract()
+        result = self.run_guard("current", current, legacy)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), current)
+
+    def test_old_target_cannot_claim_current_security_capabilities(self):
+        legacy, current = self.capability_contract()
+        for absent in ("", "<no value>", "<nil>"):
+            with self.subTest(absent=absent):
+                result = self.run_guard("assert", absent, current)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("lacks immutable proof", result.stderr)
+                permitted = self.run_guard("assert", absent, legacy)
+                self.assertEqual(permitted.returncode, 0, permitted.stderr)
+
+    def test_receipt_must_match_current_image_capabilities(self):
+        legacy, current = self.capability_contract()
+        result = self.run_guard("assert", current, legacy)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the immutable image", result.stderr)
+        permitted = self.run_guard("assert", current, current)
+        self.assertEqual(permitted.returncode, 0, permitted.stderr)
+
+    def test_unknown_or_unsafe_capability_claim_fails_closed(self):
+        for value in ("future_unreviewed_v99", "enterprise_identity_v1\nextra"):
+            with self.subTest(value=value):
+                result = self.run_guard("assert", value, value)
+                self.assertNotEqual(result.returncode, 0)
 
 
 class StagingQualificationReuseTest(unittest.TestCase):

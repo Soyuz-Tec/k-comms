@@ -1,5 +1,10 @@
 # Implementation Roadmap
 
+The current full UC delivery increment and its remaining qualification gates
+are recorded in the
+[UC gap closure and qualification ledger](uc-gap-closure-delivery-plan.md).
+The phases below retain the broader platform roadmap.
+
 ## Phase 0 — Decisions and proof points
 
 - Resolve E2EE, call/media-plane boundaries, scale, retention, RPO/RTO,

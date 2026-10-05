@@ -27,7 +27,8 @@ const allowedElementTypes = new Set([
   "arrow",
   "freedraw",
   "text",
-  "frame"
+  "frame",
+  "image"
 ]);
 
 type RefCell<T> = { current: T };

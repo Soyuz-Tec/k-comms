@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/voicemail.v1.json",
+  "title": "voicemail.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/VoicemailMessage"
+    },
+    {
+      "$ref": "#/$defs/VoicemailMailbox"
+    },
+    {
+      "$ref": "#/$defs/VoicemailPlayback"
+    }
+  ],
+  "$defs": {
+    "VoicemailMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "call_id",
+        "status",
+        "duration_seconds",
+        "retention_expires_at",
+        "available_at",
+        "inserted_at",
+        "read_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "call_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "available",
+            "failed",
+            "deleting",
+            "deleted"
+          ]
+        },
+        "duration_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 120
+        },
+        "retention_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "available_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "inserted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "read_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "VoicemailMailbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "user_id",
+        "enabled",
+        "retention_days",
+        "notice_media",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "notice_media": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 156,
+          "pattern": "^sound:[A-Za-z0-9_/-]{1,150}$"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "VoicemailPlayback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "approved_origin",
+        "development_http",
+        "expires_at",
+        "expires_in",
+        "content_type"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "format": "uri"
+        },
+        "approved_origin": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "format": "uri"
+        },
+        "development_http": {
+          "type": "boolean"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_in": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "content_type": {
+          "const": "audio/wav"
+        }
+      }
+    }
+  }
+}

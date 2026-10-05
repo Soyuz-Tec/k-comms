@@ -34,6 +34,42 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "CommsWorkers.EphemeralRoomReconcilerWorker",
     ),
     "conversation_only_human_v1": ("users.access_scope=conversation_only",),
+    "enterprise_identity_v1": (
+        "identity_mfa_factors",
+        "identity_auth_challenges",
+        "federated_identities",
+        "scim_directory_resources",
+        "sessions.authentication_method",
+        "service_accounts.scopes=scim",
+    ),
+    "uc_artifact_lifecycle_v1": (
+        "call_artifacts",
+        "call_artifact_segments",
+        "CommsWorkers.CallArtifactWorker",
+    ),
+    "uc_voicemail_lifecycle_v1": (
+        "telephony_voicemails",
+        "telephony_voicemail_reads",
+        "CommsWorkers.TelephonyVoicemailWorker",
+    ),
+    "uc_advanced_telephony_v1": (
+        "telephony_control_commands",
+        "telephony_calls.control_state/routing_status/pbx_state",
+        "CommsWorkers.TelephonyControlWorker",
+        "CommsWorkers.TelephonyRoutingWorker",
+    ),
+    "scheduled_meeting_lifecycle_v1": (
+        "meetings",
+        "meeting_occurrences",
+        "CommsWorkers.MeetingReminderWorker",
+    ),
+    "rich_content_erasure_v1": (
+        "message_drafts",
+        "message_saved_items",
+        "whiteboard_versions",
+        "whiteboard_assets",
+        "whiteboard_operations.source_actor_user_ids",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -938,6 +974,11 @@ def validate_guest_rollback_preflight(
     required_values = {
         "K_COMMS_RUNTIME_PURPOSE": "one_shot",
         "K_COMMS_ROLLBACK_WRITES_QUIESCED": "true",
+        "AUDIO_PROVIDER_MODE": "disabled",
+        "TELEPHONY_PROVIDER_MODE": "disabled",
+        "MEETING_ARTIFACTS_ENABLED": "false",
+        "LIVEKIT_EGRESS_ENABLED": "false",
+        "ARTIFACT_TRANSCRIPTION_ENABLED": "false",
     }
     for name, expected in required_values.items():
         if environment.get(name) != expected:

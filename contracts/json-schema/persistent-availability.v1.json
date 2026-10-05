@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/persistent-availability.v1.json",
+  "title": "persistent-availability.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Availability"
+    }
+  ],
+  "$defs": {
+    "Availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "presence_state",
+        "presence_expires_at",
+        "dnd_until",
+        "dnd_schedule",
+        "status",
+        "dnd_active",
+        "retry_at",
+        "timezone"
+      ],
+      "properties": {
+        "presence_state": {
+          "type": "string",
+          "enum": [
+            "available",
+            "away",
+            "busy",
+            "dnd",
+            "offline"
+          ]
+        },
+        "presence_expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Optional manual-state expiry, between now and seven days."
+        },
+        "dnd_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Optional DND deadline, between now and seven days."
+        },
+        "dnd_schedule": {
+          "$ref": "#/$defs/DndSchedule"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "away",
+            "busy",
+            "dnd",
+            "offline"
+          ]
+        },
+        "dnd_active": {
+          "type": "boolean"
+        },
+        "retry_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "IANA timezone."
+        }
+      }
+    },
+    "DndSchedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "days",
+            "start",
+            "end"
+          ],
+          "properties": {
+            "days": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 7
+              },
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true
+            },
+            "start": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+            },
+            "end": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 5,
+              "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

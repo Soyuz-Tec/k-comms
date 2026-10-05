@@ -129,41 +129,54 @@ defmodule CommsCore.Conversations.EphemeralRooms.Admission do
          idempotency_digest,
          request_fingerprint
        ) do
-    Repo.transaction(fn ->
-      _policy = Authority.admission_policy!(link_snapshot.tenant_id)
-
-      {conversation, link, room} =
-        Authority.lock_room_scope_by_link!(link_snapshot, token_secret)
-
-      timestamp = Authority.now()
-      Authority.available_room!(room, link, conversation, timestamp)
-      room = Lifecycle.reactivate_room!(room, link, Request.value(attrs, :request_id))
-
-      case joiner_scope.account_type do
-        :guest ->
-          join_guest!(
-            room,
-            conversation,
-            link,
-            attrs,
-            display_name,
-            device,
-            idempotency_digest,
-            request_fingerprint
+    Repo.transaction(
+      fn ->
+        {conversation, link, room} =
+          Authority.lock_room_scope_by_link!(
+            link_snapshot,
+            token_secret,
+            Map.get(joiner_scope, :user_id)
           )
 
-        :human ->
-          join_human!(
-            room,
-            conversation,
-            link,
-            attrs,
-            joiner_scope,
-            idempotency_digest,
-            request_fingerprint
-          )
-      end
-    end)
+        _policy = Authority.admission_policy!(link_snapshot.tenant_id)
+        ensure_joiner_current!(joiner_scope)
+
+        timestamp = Authority.now()
+        Authority.available_room!(room, link, conversation, timestamp)
+        room = Lifecycle.reactivate_room!(room, link, Request.value(attrs, :request_id))
+
+        result =
+          case joiner_scope.account_type do
+            :guest ->
+              join_guest!(
+                room,
+                conversation,
+                link,
+                attrs,
+                display_name,
+                device,
+                idempotency_digest,
+                request_fingerprint
+              )
+
+            :human ->
+              join_human!(
+                room,
+                conversation,
+                link,
+                attrs,
+                joiner_scope,
+                idempotency_digest,
+                request_fingerprint
+              )
+          end
+
+        Authority.ensure_identity_budget!(link_snapshot.tenant_id, true)
+        ensure_joiner_current!(joiner_scope)
+        result
+      end,
+      timeout: 20_000
+    )
     |> Authority.transaction_result()
   end
 
@@ -448,10 +461,25 @@ defmodule CommsCore.Conversations.EphemeralRooms.Admission do
     case Accounts.access_grant(subject) do
       {:ok, %{account_type: :human, tenant_id: tenant_id} = grant}
       when tenant_id == link.tenant_id ->
-        {:ok, grant}
+        {:ok, Map.put(grant, :subject, subject)}
 
       _ ->
         {:error, :ephemeral_room_unavailable}
+    end
+  end
+
+  defp ensure_joiner_current!(%{account_type: :guest}), do: :ok
+
+  defp ensure_joiner_current!(%{account_type: :human, subject: subject} = expected) do
+    case Accounts.access_grant(subject) do
+      {:ok, current}
+      when current.tenant_id == expected.tenant_id and current.user_id == expected.user_id and
+             current.session_id == expected.session_id and current.device_id == expected.device_id and
+             current.account_type == :human and current.access_scope == expected.access_scope ->
+        :ok
+
+      _ ->
+        Repo.rollback(:ephemeral_room_unavailable)
     end
   end
 

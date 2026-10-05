@@ -8,6 +8,7 @@ import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
 import { authenticationReturnTarget, guestContinuationState, safeMemberReturnTarget } from "./app/authNavigation";
 import { AuthScreen } from "./features/auth/AuthScreen";
+import { OidcCallback } from "./features/auth/OidcCallback";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
 import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
@@ -31,11 +32,20 @@ const AdminPage = lazy(() =>
 const PhonePage = lazy(() =>
   import("./features/telephony/PhonePage").then(({ PhonePage: page }) => ({ default: page }))
 );
+const MeetingsPage = lazy(() =>
+  import("./features/meetings/MeetingsPage").then(({ MeetingsPage: page }) => ({ default: page }))
+);
+const MeetingArtifactsPage = lazy(() =>
+  import("./features/meeting-artifacts/MeetingArtifactsPage").then(({ MeetingArtifactsPage: page }) => ({ default: page }))
+);
 const CallsPage = lazy(() =>
   import("./features/calls/CallsPage").then(({ CallsPage: page }) => ({ default: page }))
 );
 const ChatPage = lazy(() =>
   import("./features/chat/ChatPage").then(({ ChatPage: page }) => ({ default: page }))
+);
+const SavedItemsPage = lazy(() =>
+  import("./features/chat/SavedItemsPage").then(({ SavedItemsPage: page }) => ({ default: page }))
 );
 const DirectoryPage = lazy(() =>
   import("./features/directory/DirectoryPage").then(({ DirectoryPage: page }) => ({ default: page }))
@@ -77,6 +87,9 @@ function ApplicationRoutes() {
     location.pathname === "/"
       ? "/"
       : location.pathname.replace(/\/+$/, "");
+  if (normalizedPathname === "/sign-in/oidc-callback") {
+    return <><RouteOrientation authenticated={false} /><OidcCallback /></>;
+  }
   if (normalizedPathname === "/join") {
     return (
       <>
@@ -155,12 +168,15 @@ function ApplicationRoutes() {
               <Route element={<ProductShell />}>
                 <Route path="/app/" element={<ChatPage />} />
                 <Route path="/app/calls" element={<CallsPage />} />
+                <Route path="/app/meetings" element={<MeetingsPage />} />
+                <Route path="/app/artifacts" element={<MeetingArtifactsPage />} />
+                <Route path="/app/saved" element={<SavedItemsPage />} />
                 <Route path="/app/calls/phone" element={<PhonePage />} />
                 <Route path="/app/directory" element={<DirectoryPage />} />
                 <Route path="/app/files" element={<FilesPage />} />
                 <Route path="/app/whiteboard" element={<WhiteboardPage />} />
                 <Route path="/app/you" element={<YouPage />} />
-                <Route path="/app/settings" element={<Navigate to="/app/you" replace />} />
+                <Route path="/app/settings" element={<Navigate to={`/app/you${location.search}${location.hash}`} replace />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/ops" element={<OpsPage />} />
               </Route>
