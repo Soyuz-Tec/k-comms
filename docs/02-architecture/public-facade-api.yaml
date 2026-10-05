@@ -119,6 +119,21 @@ contexts:
       - activity/2
       - list_operations/2
       - search/2
+    CommsCore.SharedDocuments:
+      public_operations:
+      - apply_operation/3
+      - authorize/2
+      - copy/3
+      - create/3
+      - export/2
+      - get/2
+      - list/3
+      - replay/5
+      collaboration_operations:
+      - erase_for_governance/4
+      - release_tenant_fingerprint_fragment/2
+      - rollback_hazard_count/0
+      owner_internal_operations: []
   conversation_content:
     CommsCore.Attachments:
       public_operations:
@@ -700,6 +715,11 @@ contexts:
       - release_legal_hold/3
       - transition_deletion_request/3
       - update_retention_policy/3
+    CommsCore.Governance.DocumentProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
     CommsCore.Governance.ArtifactProtection:
       public_operations: []
       collaboration_operations:

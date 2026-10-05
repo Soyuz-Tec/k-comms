@@ -22,6 +22,7 @@ from validate_contracts import (
     validate_telephony_contract,
     validate_enterprise_identity_contract,
     validate_member_workflow_contract,
+    validate_shared_document_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -124,6 +125,66 @@ class ReferenceValidationTests(unittest.TestCase):
             source = Path(directory) / "openapi.yaml"
             (source.parent / "schema.json").write_text("{}", encoding="utf-8")
             validate_refs({"nested": {"$ref": "schema.json#/$defs/Node"}}, source)
+
+
+class SharedDocumentContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        self.asyncapi = load_yaml(CONTRACTS / "asyncapi/asyncapi.yaml")
+        self.payloads = {"shared-document.v1.json": json.loads((CONTRACTS / "json-schema/shared-document.v1.json").read_text())}
+
+    def validate(self, openapi=None, payloads=None, asyncapi=None) -> None:
+        validate_shared_document_contract(openapi or self.openapi, payloads or self.payloads, asyncapi or self.asyncapi)
+
+    def test_actual_shared_document_owner_contracts_pass(self) -> None:
+        self.validate()
+
+    def test_all_document_routes_refuse_public_guest_and_service_authentication(self) -> None:
+        paths = {"/api/v1/conversations/{conversationId}/documents": ["get", "post"], "/api/v1/documents/{documentId}": ["get"], "/api/v1/documents/{documentId}/copies": ["post"], "/api/v1/documents/{documentId}/operations": ["get", "post"], "/api/v1/documents/{documentId}/export": ["get"]}
+        for path, methods in paths.items():
+            for method in methods:
+                for security in [[], [{"guestBearerAuth": []}], [{"serviceAccountAuth": []}]]:
+                    with self.subTest(path=path, method=method, security=security):
+                        document = copy.deepcopy(self.openapi)
+                        document["paths"][path][method]["security"] = security
+                        with self.assertRaisesRegex(ValueError, "authority cannot become public"):
+                            self.validate(openapi=document)
+
+    def test_private_receipts_cannot_become_cacheable(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/documents/{documentId}"]["get"]["responses"]["200"]["headers"]["Cache-Control"]["schema"]["const"] = "public"
+        with self.assertRaisesRegex(ValueError, "responses must remain private"):
+            self.validate(openapi=document)
+
+    def test_client_lineage_and_opaque_atom_updates_cannot_enter_closed_dtos(self) -> None:
+        for schema, field in [("SharedDocumentAtom", "update"), ("SharedDocumentCreation", "author_user_ids"), ("SharedDocumentSnapshot", "lineage_verified")]:
+            with self.subTest(schema=schema, field=field):
+                document = copy.deepcopy(self.openapi)
+                document["components"]["schemas"][schema]["properties"][field] = {}
+                with self.assertRaisesRegex(ValueError, "exact server-owned fields"):
+                    self.validate(openapi=document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["SharedDocumentEdit"]["oneOf"][0]["properties"]["author_user_ids"] = {}
+        with self.assertRaisesRegex(ValueError, "opaque state or client lineage"):
+            self.validate(openapi=document)
+
+    def test_document_replay_and_edit_limits_cannot_be_unbounded(self) -> None:
+        for schema, field, limit in [("SharedDocumentSnapshot", "atoms", "maxItems"), ("SharedDocumentSnapshot", "content", "maxLength"), ("SharedDocumentChange", "insert", "maxLength"), ("SharedDocumentReplay", "data", "maxItems")]:
+            with self.subTest(schema=schema, field=field):
+                document = copy.deepcopy(self.openapi)
+                del document["components"]["schemas"][schema]["properties"][field][limit]
+                with self.assertRaisesRegex(ValueError, "limits drifted|remain bounded"):
+                    self.validate(openapi=document)
+
+    def test_standalone_and_socket_receipts_cannot_diverge(self) -> None:
+        payloads = copy.deepcopy(self.payloads)
+        payloads["shared-document.v1.json"]["$defs"]["SharedDocumentSnapshot"]["properties"]["version"]["minimum"] = -1
+        with self.assertRaisesRegex(ValueError, "standalone shared document schemas diverged"):
+            self.validate(payloads=payloads)
+        asyncapi = copy.deepcopy(self.asyncapi)
+        del asyncapi["components"]["schemas"]["SharedDocumentOperation"]["properties"]["generation"]
+        with self.assertRaisesRegex(ValueError, "socket payload diverged"):
+            self.validate(asyncapi=asyncapi)
 
 
 class ContractValidationTests(unittest.TestCase):

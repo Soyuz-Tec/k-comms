@@ -1,0 +1,477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.soyuz-tec.io/contracts/shared-document.v1.json",
+  "title": "Bounded server-owned shared documents",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SharedDocumentCreation"
+    },
+    {
+      "$ref": "#/$defs/SharedDocumentEdit"
+    },
+    {
+      "$ref": "#/$defs/SharedDocumentSnapshot"
+    },
+    {
+      "$ref": "#/$defs/SharedDocumentReplay"
+    },
+    {
+      "$ref": "#/$defs/SharedDocumentPresence"
+    }
+  ],
+  "$defs": {
+    "SharedDocumentAtom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "after_id",
+        "text",
+        "deleted",
+        "order"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+          "minLength": 38,
+          "maxLength": 45
+        },
+        "after_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+              "minLength": 38,
+              "maxLength": 45
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1,
+          "pattern": "^[^\\u0000]$"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SharedDocumentChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after_id",
+        "delete_ids",
+        "insert"
+      ],
+      "properties": {
+        "after_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+              "minLength": 38,
+              "maxLength": 45
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delete_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+            "minLength": 38,
+            "maxLength": 45
+          },
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "insert": {
+          "type": "string",
+          "maxLength": 2048,
+          "x-max-utf8-bytes": 8192
+        }
+      }
+    },
+    "SharedDocumentCreation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_document_id",
+        "title"
+      ],
+      "properties": {
+        "client_document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "x-max-utf8-bytes": 640
+        }
+      }
+    },
+    "SharedDocumentEdit": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client_operation_id",
+            "generation",
+            "base_version",
+            "kind",
+            "changes"
+          ],
+          "properties": {
+            "client_operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "base_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kind": {
+              "const": "edit"
+            },
+            "changes": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/SharedDocumentChange"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "client_operation_id",
+            "generation",
+            "base_version",
+            "kind",
+            "title"
+          ],
+          "properties": {
+            "client_operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "base_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kind": {
+              "const": "rename"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "x-max-utf8-bytes": 640
+            }
+          }
+        }
+      ],
+      "description": "Exact document generation; edits use server-validated RGA anchors, title changes require current version CAS. Total inserted scalars <=2048 and selected IDs <=4096; arbitrary client lineage and opaque graphs are rejected."
+    },
+    "SharedDocumentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "conversation_id",
+        "title",
+        "excerpt",
+        "generation",
+        "version",
+        "updated_at",
+        "readonly"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "readonly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SharedDocumentSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "conversation_id",
+        "title",
+        "content",
+        "atoms",
+        "generation",
+        "version",
+        "updated_at",
+        "readonly"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 16000,
+          "x-max-utf8-bytes": 65536
+        },
+        "atoms": {
+          "type": "array",
+          "maxItems": 32000,
+          "items": {
+            "$ref": "#/$defs/SharedDocumentAtom"
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "readonly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SharedDocumentOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_id",
+        "conversation_id",
+        "client_operation_id",
+        "generation",
+        "version",
+        "kind",
+        "title",
+        "inserted_atoms",
+        "deleted_atom_ids",
+        "inserted_at"
+      ],
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "client_operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "create",
+            "copy",
+            "edit",
+            "rename"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "inserted_atoms": {
+          "type": "array",
+          "maxItems": 16000,
+          "items": {
+            "$ref": "#/$defs/SharedDocumentAtom"
+          }
+        },
+        "deleted_atom_ids": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+            "minLength": 38,
+            "maxLength": 45
+          }
+        },
+        "inserted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "SharedDocumentReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "page"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/SharedDocumentOperation"
+          }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "generation",
+            "through_version",
+            "next_after_version",
+            "has_more"
+          ],
+          "properties": {
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "through_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "next_after_version": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "has_more": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "SharedDocumentPresence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "device_id",
+        "generation",
+        "anchor_id",
+        "head_id"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "anchor_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+              "minLength": 38,
+              "maxLength": 45
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "head_id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f-]{36}:[0-9]{1,8}$",
+              "minLength": 38,
+              "maxLength": 45
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
