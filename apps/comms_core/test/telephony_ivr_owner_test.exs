@@ -79,6 +79,75 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
     :ok
   end
 
+  test "retained completed IVR and expired agent rows remain owner rollback hazards" do
+    {account, subject} = ready()
+    {call, run, _claim} = prepare(subject)
+    assert Telephony.rollback_ivr_hazard_count() == 3
+
+    Repo.get!(Call, call.id)
+    |> Ecto.Changeset.change(
+      status: :ended,
+      routing_status: "individual",
+      ended_at: DateTime.utc_now()
+    )
+    |> Repo.update!()
+
+    Repo.get!(IvrRun, run.id)
+    |> Ecto.Changeset.change(phase: :completed, completed_at: DateTime.utc_now())
+    |> Repo.update!()
+
+    assert Telephony.rollback_ivr_hazard_count() == 2
+
+    assert {:ok, %{version: 2, enabled: false}} =
+             Telephony.save_ivr(%{menu() | enabled: false, version: 1}, subject)
+
+    assert Telephony.rollback_ivr_hazard_count() == 2
+
+    assert {:ok, _} =
+             Telephony.save_route(
+               %{
+                 name: "Retained queue",
+                 mode: "queue",
+                 policy: "round_robin",
+                 member_ids: [account.user.id],
+                 max_waiting: 10,
+                 max_wait_seconds: 120,
+                 enabled: true,
+                 reason: "Synthetic retained eligibility"
+               },
+               subject
+             )
+
+    assert {:ok, _} =
+             Telephony.set_agent_queue_state(
+               %{state: "away", duration_seconds: 60, version: 0},
+               subject
+             )
+
+    past = DateTime.utc_now() |> DateTime.add(-120, :second)
+
+    Repo.update_all(from(s in AgentState, where: s.tenant_id == ^call.tenant_id),
+      set: [updated_at: DateTime.add(past, -60, :second), expires_at: past]
+    )
+
+    assert {:ok, %{state: :ready, explicit: false}} = Telephony.agent_queue_state(subject)
+    assert Telephony.rollback_agent_state_hazard_count() == 1
+
+    fragment = Telephony.release_tenant_fingerprint_fragment(Repo, call.tenant_id)
+    assert fragment.telephony_calls == [call.id]
+    assert fragment.telephony_ivr_runs == [run.id]
+    assert length(fragment.telephony_agent_states) == 1
+    other = Fixtures.account_fixture()
+
+    assert Telephony.release_tenant_fingerprint_fragment(Repo, other.tenant.id) == %{
+             telephony_calls: [],
+             telephony_ivr_menus: [],
+             telephony_ivr_runs: [],
+             telephony_ivr_event_receipts: [],
+             telephony_agent_states: []
+           }
+  end
+
   test "enabled menus require qualified provider while disabled policy remains editable" do
     {_account, subject} = ready()
     Application.put_env(:comms_core, :ivr_test_ready, false)

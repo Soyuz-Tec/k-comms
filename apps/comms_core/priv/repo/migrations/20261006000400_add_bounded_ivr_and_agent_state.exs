@@ -20,10 +20,9 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
     create(unique_index(:telephony_ivr_menus, [:number_id]))
     create(unique_index(:telephony_ivr_menus, [:tenant_id, :id]))
 
-    execute(
-      "ALTER TABLE telephony_ivr_menus ADD CONSTRAINT telephony_ivr_menu_number_fk " <>
-        "FOREIGN KEY (tenant_id, number_id) REFERENCES telephony_numbers (tenant_id, id)"
-    )
+    execute("""
+    ALTER TABLE telephony_ivr_menus ADD CONSTRAINT telephony_ivr_menu_number_fk FOREIGN KEY (tenant_id, number_id) REFERENCES telephony_numbers (tenant_id, id)
+    """)
 
     create(
       constraint(:telephony_ivr_menus, :telephony_ivr_menu_bounds,
@@ -67,15 +66,13 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
     create(unique_index(:telephony_ivr_runs, [:tenant_id, :id]))
     create(index(:telephony_ivr_runs, [:tenant_id, :phase, :expires_at]))
 
-    execute(
-      "ALTER TABLE telephony_ivr_runs ADD CONSTRAINT telephony_ivr_run_call_fk " <>
-        "FOREIGN KEY (tenant_id, call_id) REFERENCES telephony_calls (tenant_id, id)"
-    )
+    execute("""
+    ALTER TABLE telephony_ivr_runs ADD CONSTRAINT telephony_ivr_run_call_fk FOREIGN KEY (tenant_id, call_id) REFERENCES telephony_calls (tenant_id, id)
+    """)
 
-    execute(
-      "ALTER TABLE telephony_ivr_runs ADD CONSTRAINT telephony_ivr_run_menu_fk " <>
-        "FOREIGN KEY (tenant_id, menu_id) REFERENCES telephony_ivr_menus (tenant_id, id)"
-    )
+    execute("""
+    ALTER TABLE telephony_ivr_runs ADD CONSTRAINT telephony_ivr_run_menu_fk FOREIGN KEY (tenant_id, menu_id) REFERENCES telephony_ivr_menus (tenant_id, id)
+    """)
 
     create(
       constraint(:telephony_ivr_runs, :telephony_ivr_run_bounds,
@@ -109,10 +106,9 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
     create(unique_index(:telephony_ivr_event_receipts, [:event_id]))
     create(index(:telephony_ivr_event_receipts, [:run_id]))
 
-    execute(
-      "ALTER TABLE telephony_ivr_event_receipts ADD CONSTRAINT telephony_ivr_receipt_run_fk " <>
-        "FOREIGN KEY (tenant_id, run_id) REFERENCES telephony_ivr_runs (tenant_id, id)"
-    )
+    execute("""
+    ALTER TABLE telephony_ivr_event_receipts ADD CONSTRAINT telephony_ivr_receipt_run_fk FOREIGN KEY (tenant_id, run_id) REFERENCES telephony_ivr_runs (tenant_id, id)
+    """)
 
     create(
       constraint(:telephony_ivr_event_receipts, :telephony_ivr_receipt_bounds,
@@ -134,10 +130,9 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
 
     create(unique_index(:telephony_agent_states, [:tenant_id, :user_id]))
 
-    execute(
-      "ALTER TABLE telephony_agent_states ADD CONSTRAINT telephony_agent_state_tenant_user_fk " <>
-        "FOREIGN KEY (tenant_id, user_id) REFERENCES users (tenant_id, id)"
-    )
+    execute("""
+    ALTER TABLE telephony_agent_states ADD CONSTRAINT telephony_agent_state_tenant_user_fk FOREIGN KEY (tenant_id, user_id) REFERENCES users (tenant_id, id)
+    """)
 
     create(
       constraint(:telephony_agent_states, :telephony_agent_state_bounds,
@@ -170,7 +165,9 @@ defmodule CommsCore.Repo.Migrations.AddBoundedIvrAndAgentState do
          OR EXISTS (SELECT 1 FROM telephony_ivr_runs)
          OR EXISTS (SELECT 1 FROM telephony_ivr_event_receipts)
          OR EXISTS (SELECT 1 FROM telephony_agent_states)
-         OR EXISTS (SELECT 1 FROM telephony_calls WHERE routing_status IN ('ivr', 'ivr_destination')) THEN
+         OR EXISTS (SELECT 1 FROM telephony_calls WHERE routing_status IN ('ivr', 'ivr_destination'))
+         OR EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.TelephonyIvrWorker'
+                    AND state::text IN ('available', 'scheduled', 'executing', 'retryable')) THEN
         RAISE EXCEPTION 'IVR or agent state is retained; destructive rollback is prohibited';
       END IF;
     END $$;

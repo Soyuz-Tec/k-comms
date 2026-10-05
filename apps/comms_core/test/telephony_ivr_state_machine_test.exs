@@ -33,7 +33,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     run = run(:playing)
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(run, %{type: :digit, step: 1, digit: "1"}, @now)
+             IvrStateMachine.transition(run, %{type: :digit, step: 1, digit: "1"}, @now)
   end
 
   test "completion requires the exact run-step playback and approved frozen prompt" do
@@ -46,19 +46,19 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
       media_uri: "sound:custom/menu"
     }
 
-    assert {:applied, changes} = IvrStateMachine.apply(run, event, @now)
+    assert {:applied, changes} = IvrStateMachine.transition(run, event, @now)
     assert changes.phase == :awaiting_digit
     assert changes.prompt_completed_at == @now
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(
+             IvrStateMachine.transition(
                run,
                %{event | playback_id: IvrStateMachine.playback_id(@id, 2)},
                @now
              )
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(run, %{event | media_uri: "sound:custom/other"}, @now)
+             IvrStateMachine.transition(run, %{event | media_uri: "sound:custom/other"}, @now)
   end
 
   test "digit deadline is clamped to the unchanged caller lifetime" do
@@ -83,7 +83,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     run = %{run(:awaiting_digit) | digit_deadline: DateTime.add(@now, 10, :second)}
 
     assert {:applied, changes} =
-             IvrStateMachine.apply(run, %{type: :digit, step: 1, digit: "1"}, @now)
+             IvrStateMachine.transition(run, %{type: :digit, step: 1, digit: "1"}, @now)
 
     assert changes == %{
              phase: :selected,
@@ -93,14 +93,14 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     selected = struct!(run, changes)
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(selected, %{type: :digit, step: 1, digit: "2"}, @now)
+             IvrStateMachine.transition(selected, %{type: :digit, step: 1, digit: "2"}, @now)
   end
 
   test "invalid digits have at most two retries and each retry changes the playback step" do
     first = %{run(:awaiting_digit) | digit_deadline: DateTime.add(@now, 10, :second)}
 
     assert {:applied, change1} =
-             IvrStateMachine.apply(first, %{type: :digit, step: 1, digit: "#"}, @now)
+             IvrStateMachine.transition(first, %{type: :digit, step: 1, digit: "#"}, @now)
 
     assert change1.phase == :pending and change1.retries == 1 and change1.step == 2
 
@@ -111,7 +111,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
       )
 
     assert {:applied, change2} =
-             IvrStateMachine.apply(second, %{type: :digit, step: 2, digit: "0"}, @now)
+             IvrStateMachine.transition(second, %{type: :digit, step: 2, digit: "0"}, @now)
 
     assert change2.retries == 2 and change2.step == 3
 
@@ -122,7 +122,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
       )
 
     assert {:applied, %{phase: :selected, selected_target: %{"kind" => "hangup"}}} =
-             IvrStateMachine.apply(third, %{type: :digit, step: 3, digit: "0"}, @now)
+             IvrStateMachine.transition(third, %{type: :digit, step: 3, digit: "0"}, @now)
   end
 
   test "prior-step late input cannot consume a newer retry" do
@@ -134,7 +134,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     }
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(run, %{type: :digit, step: 1, digit: "1"}, @now)
+             IvrStateMachine.transition(run, %{type: :digit, step: 1, digit: "1"}, @now)
   end
 
   test "delayed input from before actual playback completion cannot be revived by later delivery" do
@@ -150,7 +150,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     }
 
     assert {:applied, completion} =
-             IvrStateMachine.apply(playing, playback, DateTime.add(@now, 4, :second))
+             IvrStateMachine.transition(playing, playback, DateTime.add(@now, 4, :second))
 
     awaiting = struct!(playing, completion)
     assert awaiting.prompt_completed_at == completion_time
@@ -164,13 +164,13 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     }
 
     assert {:ignored, %{}} =
-             IvrStateMachine.apply(awaiting, before_prompt, DateTime.add(@now, 5, :second))
+             IvrStateMachine.transition(awaiting, before_prompt, DateTime.add(@now, 5, :second))
 
     after_prompt = %{before_prompt | occurred_at: DateTime.add(@now, 3, :second)}
 
     assert {:applied,
             %{phase: :selected, selected_target: %{"kind" => "route", "route_id" => @id}}} =
-             IvrStateMachine.apply(awaiting, after_prompt, DateTime.add(@now, 5, :second))
+             IvrStateMachine.transition(awaiting, after_prompt, DateTime.add(@now, 5, :second))
   end
 
   test "delivery delay does not extend a provider-completed prompt's digit window" do
@@ -185,7 +185,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     }
 
     assert {:applied, completion} =
-             IvrStateMachine.apply(playing, playback, DateTime.add(@now, 8, :second))
+             IvrStateMachine.transition(playing, playback, DateTime.add(@now, 8, :second))
 
     assert completion.digit_deadline == DateTime.add(@now, 10, :second)
     awaiting = struct!(playing, completion)
@@ -209,7 +209,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
              IvrStateMachine.timeout(run, @now)
 
     assert {:applied, %{phase: :failed, failure_reason: "ivr_deadline"}} =
-             IvrStateMachine.apply(run, %{type: :digit, step: 1, digit: "1"}, @now)
+             IvrStateMachine.transition(run, %{type: :digit, step: 1, digit: "1"}, @now)
   end
 
   test "terminal runs cannot reopen on current valid playback or digit evidence" do
@@ -217,7 +217,7 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
       run = run(phase)
 
       assert {:ignored, %{}} =
-               IvrStateMachine.apply(run, %{type: :digit, step: 1, digit: "1"}, @now)
+               IvrStateMachine.transition(run, %{type: :digit, step: 1, digit: "1"}, @now)
 
       assert {:ignored, %{}} = IvrStateMachine.timeout(run, DateTime.add(@now, 60, :second))
     end

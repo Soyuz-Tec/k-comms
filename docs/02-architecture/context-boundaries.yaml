@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
+  sha256: c88392f29c89519c86f6946206c1e0675b84ceb57e7ac8bb07d6dc73f715b957
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -11,39 +11,38 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-administrative-evidence-owner-contracts
-    previous_manifest_sha256: 2ae4724b084c1f36b583fd1f864f551eb19dfa03b5da89bc386520ca9afc913c
+  - id: compose-bounded-ivr-and-current-agent-queue-owner-contracts
+    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
     approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
-    adr: docs/02-architecture/adr/0093-private-member-organization-and-synchronized-setup.md
-    removal_condition: Remove this exact ADR-0093 through ADR-0096 transition after the member organization and administrative
-      evidence composition reviewed against protected parent 734c9e1daf48f2280789a13f977d220f250b9890 reaches the protected
-      branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
+    - context:telephony:public_contracts:add:CommsCore.Telephony.AgentQueueStateView
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrConfigView
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrEffectClaim
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrEvent
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrMenuView
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderPort
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderPort.Contract
+    - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderRequest
+    - context:telephony:public_contracts:add:CommsCore.Telephony.QueueSupervisorSnapshot
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->c88392f29c89519c86f6946206c1e0675b84ceb57e7ac8bb07d6dc73f715b957
+    - table:telephony_agent_states:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.AgentState","owner":"telephony","role":"source"}
+    - table:telephony_ivr_event_receipts:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrEventReceipt","owner":"telephony","role":"source"}
+    - table:telephony_ivr_menus:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrMenu","owner":"telephony","role":"source"}
+    - table:telephony_ivr_runs:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrRun","owner":"telephony","role":"source"}
+    - technical_interfaces:telephony-ivr-provider:add:{"behaviour":"CommsCore.Telephony.IvrProviderPort.Contract","binding":{"application":"comms_core","key":"telephony_ivr_adapter","module":"CommsIntegrations.Telephony.IvrARI"},"callers":["CommsCore.Telephony.Ivr"],"condition":"ADR-0099
+      permits only caller-bound prompt preparation, playback, one qualified destination effect and authenticated original-timestamp
+      event normalization. Telephony consumes a durable effect claim once under current tenant, identity, call and run
+      authority; independent provider I/O uses the claim's original absolute deadline. Uncertain effects reconcile read-only
+      and cannot invalidate a legitimate consumed in-flight claim or redial. The selected qualified ARI adapter defaults
+      unavailable, shares the existing application event relay with voicemail, and requires exact server-owned bindings
+      and provider proof before opening a digit window or confirming handoff.","contracts":["CommsCore.Telephony.IvrProviderPort","CommsCore.Telephony.IvrProviderPort.Contract","CommsCore.Telephony.IvrProviderRequest","CommsCore.Telephony.IvrEvent"],"dispatch":"configured","id":"telephony-ivr-provider","implementation":"CommsIntegrations.Telephony.IvrARI","interface":"CommsCore.Telephony.IvrProviderPort","operations":[{"arity":0,"name":"ready?"},{"arity":1,"name":"prepare"},{"arity":1,"name":"play"},{"arity":1,"name":"destination"},{"arity":2,"name":"verify_event"}],"owner":"telephony","transaction":"independent"}
+    - technical_interfaces:telephony-provider-controls:callers:add:"CommsCore.Telephony.Ivr"
+    - technical_interfaces:telephony-voicemail-provider:callers:add:"CommsCore.Telephony.Ivr"
+    - technical_interfaces:telephony-voicemail-storage:callers:add:"CommsCore.Telephony.Ivr"
+    - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Ivr"
+    adr: docs/02-architecture/adr/0099-add-bounded-caller-ivr-and-current-queue-supervision.md
+    removal_condition: Remove this exact ADR-0099 transition after the IVR composition from immutable Member/History
+      source parent 610b6acd6bd2cd20a8607481cedc1e35fc1cd956 reaches the protected branch; it authorizes no later
+      contract, operation, owner access or provider capability growth.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -462,7 +461,7 @@ contexts:
     consumes: []
   telephony:
     kind: business
-    responsibility: Tenant phone assignment, SIP/PSTN call lifecycle, device-exclusive admission, advanced controls, shared-line and queue routing, voicemail, durable provider work, and call records.
+    responsibility: Tenant phone assignment, SIP/PSTN call lifecycle, device-exclusive admission, advanced controls, bounded caller IVR, current agent eligibility and queue supervision, shared-line and queue routing, voicemail, durable provider work, and call records.
     current_contexts: [Telephony]
     fold_in: []
     public_facades: [CommsCore.Telephony]
@@ -488,6 +487,15 @@ contexts:
       - CommsCore.Telephony.VoicemailStoragePort
       - CommsCore.Telephony.VoicemailStoragePort.Contract
       - CommsCore.Telephony.VoicemailProtectionPort
+      - CommsCore.Telephony.IvrConfigView
+      - CommsCore.Telephony.IvrMenuView
+      - CommsCore.Telephony.AgentQueueStateView
+      - CommsCore.Telephony.QueueSupervisorSnapshot
+      - CommsCore.Telephony.IvrEffectClaim
+      - CommsCore.Telephony.IvrEvent
+      - CommsCore.Telephony.IvrProviderRequest
+      - CommsCore.Telephony.IvrProviderPort
+      - CommsCore.Telephony.IvrProviderPort.Contract
     internal_namespaces: [CommsCore.Telephony]
     allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
     publishes: [telephony.call.updated, telephony.control.updated]
@@ -966,7 +974,7 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsCore.Accounts, CommsCore.AudioCalls.Artifacts, CommsCore.AudioCalls.Meetings, CommsCore.Telephony.Lifecycle, CommsCore.Telephony.Mailboxes, CommsCore.Telephony.Routing, CommsWeb.FallbackController]
+    callers: [CommsCore.Accounts, CommsCore.AudioCalls.Artifacts, CommsCore.AudioCalls.Meetings, CommsCore.Telephony.Ivr, CommsCore.Telephony.Lifecycle, CommsCore.Telephony.Mailboxes, CommsCore.Telephony.Routing, CommsWeb.FallbackController]
     operations:
       - {name: from, arity: 1}
     dispatch: direct
@@ -1110,6 +1118,7 @@ technical_interfaces:
     interface: CommsCore.Telephony.ProviderControlPort
     callers:
     - CommsCore.Telephony.Controls
+    - CommsCore.Telephony.Ivr
     - CommsCore.Telephony.Lifecycle
     - CommsCore.Telephony.Mailboxes
     - CommsCore.Telephony.Routing
@@ -1150,10 +1159,47 @@ technical_interfaces:
       The default LiveKit adapter fails closed for unavailable controls; qualified ARI capability is selected by runtime
       composition without exposing credentials or treating adapter acceptance as carrier acknowledgement.
 
+  - id: telephony-ivr-provider
+    owner: telephony
+    interface: CommsCore.Telephony.IvrProviderPort
+    callers:
+    - CommsCore.Telephony.Ivr
+    operations:
+    - name: ready?
+      arity: 0
+    - name: prepare
+      arity: 1
+    - name: play
+      arity: 1
+    - name: destination
+      arity: 1
+    - name: verify_event
+      arity: 2
+    dispatch: configured
+    contracts:
+    - CommsCore.Telephony.IvrProviderPort
+    - CommsCore.Telephony.IvrProviderPort.Contract
+    - CommsCore.Telephony.IvrProviderRequest
+    - CommsCore.Telephony.IvrEvent
+    behaviour: CommsCore.Telephony.IvrProviderPort.Contract
+    implementation: CommsIntegrations.Telephony.IvrARI
+    binding:
+      application: comms_core
+      key: telephony_ivr_adapter
+      module: CommsIntegrations.Telephony.IvrARI
+    transaction: independent
+    condition: ADR-0099 permits only caller-bound prompt preparation, playback, one qualified destination effect and
+      authenticated original-timestamp event normalization. Telephony consumes a durable effect claim once under current
+      tenant, identity, call and run authority; independent provider I/O uses the claim's original absolute deadline.
+      Uncertain effects reconcile read-only and cannot invalidate a legitimate consumed in-flight claim or redial.
+      The selected qualified ARI adapter defaults unavailable, shares the existing application event relay with voicemail,
+      and requires exact server-owned bindings and provider proof before opening a digit window or confirming handoff.
+
   - id: telephony-voicemail-provider
     owner: telephony
     interface: CommsCore.Telephony.VoicemailProviderPort
     callers:
+    - CommsCore.Telephony.Ivr
     - CommsCore.Telephony.Mailboxes
     - CommsWorkers.TelephonyVoicemailWorker
     operations:
@@ -1184,6 +1230,7 @@ technical_interfaces:
     owner: telephony
     interface: CommsCore.Telephony.VoicemailStoragePort
     callers:
+    - CommsCore.Telephony.Ivr
     - CommsCore.Telephony.Mailboxes
     operations:
     - name: ingest
@@ -1296,6 +1343,10 @@ tables:
   message_drafts: {owner: conversation_content, canonical_schema: CommsCore.Messaging.PersonalContent.Draft, role: source}
 
   telephony_voicemail_reads: {owner: telephony, canonical_schema: CommsCore.Telephony.VoicemailRead, role: source}
+  telephony_ivr_menus: {owner: telephony, canonical_schema: CommsCore.Telephony.IvrMenu, role: source, access: owner_only, access_namespaces: [CommsCore.Telephony]}
+  telephony_ivr_runs: {owner: telephony, canonical_schema: CommsCore.Telephony.IvrRun, role: source, access: owner_only, access_namespaces: [CommsCore.Telephony]}
+  telephony_ivr_event_receipts: {owner: telephony, canonical_schema: CommsCore.Telephony.IvrEventReceipt, role: source, access: owner_only, access_namespaces: [CommsCore.Telephony]}
+  telephony_agent_states: {owner: telephony, canonical_schema: CommsCore.Telephony.AgentState, role: source, access: owner_only, access_namespaces: [CommsCore.Telephony]}
 
 read_model_exceptions:
   - id: operations-cross-context-read-model

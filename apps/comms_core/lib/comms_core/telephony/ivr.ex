@@ -337,7 +337,7 @@ defmodule CommsCore.Telephony.Ivr do
           if event.type == :disconnected do
             fail_call!(call, run, "ivr_caller_disconnected")
           else
-            {result, changes} = IvrStateMachine.apply(run, event, now())
+            {result, changes} = IvrStateMachine.transition(run, event, now())
 
             if changes != %{} do
               update!(run, changes)
@@ -962,7 +962,7 @@ defmodule CommsCore.Telephony.Ivr do
         queue: :lifecycle,
         max_attempts: 100
       )
-      |> Repo.insert!()
+      |> Oban.insert!()
 
   defp effect_budget!(deadline) do
     budget!(deadline)

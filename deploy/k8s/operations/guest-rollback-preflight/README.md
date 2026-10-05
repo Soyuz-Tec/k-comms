@@ -11,12 +11,13 @@ The target is communication-compatible only when both its edge and worker pod
 templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,ivr_routing_v1
 ```
 
-The exact qualified M1 twelve-capability annotation is also preserved as a known
-subset. It does not support Member or History state; those current-image row and
-continuation-job hazards must be zero. Missing, partial, unknown, or different
+The exact qualified M1 twelve-capability and Member/History fourteen-capability
+annotations are preserved as known subsets. M1 requires zero Member/History
+row and continuation-job hazards. Both older targets require zero retained IVR
+menu, run, receipt, agent-state and IVR-marked call rows, and zero active IVR jobs. Missing, partial, unknown, or different
 annotations classify the target as legacy. For a legacy target, the release operation requires an exclusive
 database client and evaluates each state hazard against the target capability
 that owns it. It fails when unsupported persisted guest users, conversation-only
@@ -38,6 +39,7 @@ The same preflight includes owner-only aggregate UC hazards:
 | `rich_content_erasure_v1` | Draft/saved content, approved board assets/checkpoints and restored author lineage |
 | `member_workspace_v1` | All retained private workspace rows, including empty state and unusable identities |
 | `governance_history_v1` | All retained audit history snapshots, including expired rows, and active `continue:true` purge jobs; empty periodic cron jobs do not require retained history state |
+| `ivr_routing_v1` | All retained IVR menu, run, receipt and explicit agent-state rows, including completed/expired rows; calls marked `ivr` or `ivr_destination`; available, scheduled, executing or retryable `TelephonyIvrWorker` jobs |
 
 No owner projection returns content or exposes a foreign schema. Unsupported
 retained state blocks the target; quiescence alone does not make an older binary
@@ -107,7 +109,7 @@ expected = (
     "instant_room_expiry_worker_v1,conversation_only_human_v1,"
     "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
     "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
-    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,ivr_routing_v1"
 )
 values = [
     deployments[name]["spec"]["template"]
@@ -115,7 +117,8 @@ values = [
     for name in names
 ]
 m1_expected = "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
-known = {expected, m1_expected}
+member_history_expected = m1_expected + ",member_workspace_v1,governance_history_v1"
+known = {expected, m1_expected, member_history_expected}
 capabilities = values[0] if values[0] in known and values[0] == values[1] else ""
 revision = images[0].rsplit("@sha256:", 1)[1]
 print(images[0], revision, capabilities, sep="\t")

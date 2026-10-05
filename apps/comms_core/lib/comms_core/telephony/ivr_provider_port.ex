@@ -3,7 +3,7 @@ defmodule CommsCore.Telephony.IvrProviderPort do
   alias CommsCore.Telephony.{IvrEvent, IvrProviderRequest}
 
   @spec ready?() :: boolean()
-  def ready? do
+  def ready?() do
     case adapter() do
       {:ok, module} -> module.ready?()
       _ -> false

@@ -98,6 +98,45 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
     assert Repo.active_continuation_oban_job_count!(worker) == initial
   end
 
+  test "active exact IVR jobs remain hazards even without a retained call or run" do
+    worker = RuntimePorts.job_worker_name!(:telephony_ivr)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    initial = Repo.active_oban_job_count!(worker)
+
+    for state <- ~w(available scheduled executing retryable) do
+      insert_job(worker, state, %{"run_id" => Ecto.UUID.generate()}, timestamp)
+    end
+
+    for state <- ~w(completed discarded cancelled) do
+      insert_job(worker, state, %{"run_id" => Ecto.UUID.generate()}, timestamp)
+    end
+
+    insert_job("CommsWorkers.UnrelatedIvrRollbackProbe", "available", %{}, timestamp)
+    assert Repo.active_oban_job_count!(worker) == initial + 4
+    hazards = Map.put(clean_hazards(), :active_ivr_jobs, initial + 4)
+
+    member_history = %{
+      m1_target()
+      | capabilities:
+          @m1_capabilities
+          |> MapSet.put("member_workspace_v1")
+          |> MapSet.put("governance_history_v1")
+    }
+
+    assert_raise RuntimeError, ~r/ivr_routing_v1.*active_ivr_jobs=/, fn ->
+      Release.assert_communication_rollback_hazards!(hazards, member_history)
+    end
+
+    assert ^hazards =
+             Release.assert_communication_rollback_hazards!(
+               hazards,
+               %{
+                 member_history
+                 | capabilities: MapSet.put(member_history.capabilities, "ivr_routing_v1")
+               }
+             )
+  end
+
   test "all persisted private workspace rows remain hazards when their identity becomes unusable" do
     account = Fixtures.account_fixture()
     assert Accounts.rollback_member_workspace_hazard_count() == 0
@@ -318,7 +357,10 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :rich_whiteboards,
         :member_workspaces,
         :governance_history_snapshots,
-        :active_history_purge_jobs
+        :active_history_purge_jobs,
+        :ivr_state,
+        :agent_queue_states,
+        :active_ivr_jobs
       ],
       &{&1, 0}
     )

@@ -75,6 +75,14 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "ivr_routing_v1": (
+        "telephony_ivr_menus",
+        "telephony_ivr_runs",
+        "telephony_ivr_event_receipts",
+        "telephony_agent_states",
+        "telephony_calls.routing_status=ivr/ivr_destination",
+        "CommsWorkers.TelephonyIvrWorker",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -1009,11 +1017,13 @@ def validate_guest_rollback_preflight(
     m1_capabilities = (
         "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
     )
+    member_history_capabilities = m1_capabilities + ",member_workspace_v1,governance_history_v1"
     allowed_capabilities = {
         None,
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
+        member_history_capabilities,
     }
     if capability_value not in allowed_capabilities:
         errors.append(

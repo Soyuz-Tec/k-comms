@@ -7,7 +7,7 @@ defmodule CommsIntegrations.Telephony.IvrARI do
   @max_resources 2_000
 
   @impl true
-  def ready? do
+  def ready?() do
     secret = Application.get_env(:comms_integrations, :telephony_pbx_webhook_secret)
 
     Application.get_env(:comms_integrations, :telephony_ivr_qualified, false) == true and
