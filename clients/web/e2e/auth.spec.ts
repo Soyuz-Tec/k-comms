@@ -180,6 +180,7 @@ async function installAuthApi(
     display_name: role === "owner" ? "Taylor Owner" : "Taylor Member",
     email: role === "owner" ? "owner@example.test" : "taylor@example.test",
     account_type: "human",
+    access_scope: "workspace",
     role,
     status: "active",
     version: 1
@@ -232,6 +233,9 @@ async function installAuthApi(
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
+    if (method === "GET" && path === "/api/v1/me/workspace") {
+      return route.fallback();
+    }
     if (method === "GET" && path === "/api/v1/telephony/config") {
       return json(route, { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: false } });
     }

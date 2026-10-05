@@ -262,6 +262,7 @@ async function installGuestCommunicationFixture(
     display_name: "Ada Host",
     email: "ada@example.test",
     account_type: "human",
+    access_scope: "workspace",
     role: "owner",
     status: "active",
     version: 1
@@ -271,6 +272,7 @@ async function installGuestCommunicationFixture(
     tenant_id: tenantId,
     display_name: "Jordan Guest",
     account_type: "guest",
+    access_scope: "conversation_only",
     role: "member",
     status: "active",
     version: 1
@@ -278,7 +280,8 @@ async function installGuestCommunicationFixture(
   const converted = {
     ...guest,
     email: "jordan@example.test",
-    account_type: "human"
+    account_type: "human",
+    access_scope: "workspace"
   };
   const hostDevice = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -351,6 +354,9 @@ async function installGuestCommunicationFixture(
     const url = new URL(request.url());
     const path = url.pathname;
     const method = request.method();
+    if (method === "GET" && path === "/api/v1/me/workspace") {
+      return route.fallback();
+    }
     const authorization = request.headers().authorization || "";
     const convertedRequest = authorization === "Bearer converted-access";
 
