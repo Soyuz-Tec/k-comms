@@ -2388,6 +2388,78 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+def validate_workspace_domain_contract(openapi: dict[str, Any]) -> None:
+    """Keep anonymous disclosure neutral and retained owner mutations bounded."""
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    public = paths.get("/api/v1/workspaces/discover", {}).get("post", {})
+    if public.get("security") != [] or set(public.get("responses", {})) != {"200", "403", "429"}:
+        raise ValueError("workspace discovery requires anonymous neutral disclosure")
+    if {"$ref": "#/components/parameters/RequiredTrustedOrigin"} not in public.get("parameters", []):
+        raise ValueError("workspace discovery requires trusted Origin")
+    request = schemas.get("WorkspaceDomainDiscoveryRequest", {})
+    if (request.get("additionalProperties") is not False or request.get("required") != ["domain"]
+            or set(request.get("properties", {})) != {"domain"}
+            or request["properties"]["domain"].get("type") != "string"
+            or request["properties"]["domain"].get("maxLength") != 254):
+        raise ValueError("workspace discovery accepts exactly one bounded domain, never email")
+    data = schemas.get("WorkspaceDomainDiscoveryResponse", {}).get("properties", {}).get("data", {})
+    expected_pattern = r"^/sign-in\?tenant_slug=[a-z0-9]+(?:-[a-z0-9]+)*$"
+    if (data.get("additionalProperties") is not False
+            or set(data.get("required", [])) != {"available", "sign_in_path"}
+            or set(data.get("properties", {})) != {"available", "sign_in_path"}
+            or data["properties"]["sign_in_path"].get("pattern") != expected_pattern):
+        raise ValueError("workspace discovery exposes only a safe relative workspace hint")
+    validator = validator_for(data)(data)
+    if not validator.is_valid({"available": False, "sign_in_path": None}) or not validator.is_valid(
+            {"available": True, "sign_in_path": "/sign-in?tenant_slug=example-team"}):
+        raise ValueError("workspace discovery must admit its neutral and explicit-hint views")
+    for unsafe in ({"available": True, "sign_in_path": None},
+                   {"available": False, "sign_in_path": "/sign-in?tenant_slug=private"},
+                   {"available": True, "sign_in_path": "https://outside.example/sign-in"}):
+        if validator.is_valid(unsafe):
+            raise ValueError("workspace discovery cannot expose inconsistent or external hints")
+    base = "/api/v1/admin/workspace-domains"
+    expected_operations = {base: {"get", "post"}, base + "/{id}": {"patch", "delete"},
+                           base + "/{id}/challenge": {"post"}, base + "/{id}/verify": {"post"}}
+    for path, methods in expected_operations.items():
+        item = paths.get(path, {})
+        if {key for key in item if key != "parameters"} != methods:
+            raise ValueError("workspace domain owner routes must retain their exact lifecycle")
+        for method in methods:
+            operation = item[method]
+            if (operation.get("security") != [{"bearerAuth": []}]
+                    or not {"401", "403", "428", "503"}.issubset(operation.get("responses", {}))):
+                raise ValueError("workspace domain administration requires current recent human authority")
+            if method == "get":
+                inventory = operation["responses"]["200"]["content"]["application/json"]["schema"]
+                if (inventory["properties"]["data"].get("maxItems") != 8
+                        or inventory["properties"]["limits"]["properties"]["domains"].get("const") != 8):
+                    raise ValueError("workspace domain inventory is bounded to eight retained rows")
+                continue
+            body = operation.get("requestBody", {})
+            schema = body.get("content", {}).get("application/json", {}).get("schema", {})
+            if "$ref" in schema:
+                schema = schemas.get(schema["$ref"].rsplit("/", 1)[-1], {})
+            version = schema.get("properties", {}).get("version", {})
+            creation = path == base
+            if (body.get("required") is not True or schema.get("additionalProperties") is not False
+                    or "version" not in schema.get("required", [])
+                    or version.get("type") != "integer"
+                    or (version.get("const") != 0 if creation else version.get("minimum") != 1)):
+                raise ValueError("workspace domain mutations require exact creation/current versions")
+            if creation and schema["properties"].get("discovery_enabled", {}).get("default") is not False:
+                raise ValueError("workspace domain discovery must default off")
+            if not {"409", "422"}.issubset(operation.get("responses", {})):
+                raise ValueError("workspace domain mutations must disclose CAS/input refusal")
+    claim = schemas.get("WorkspaceDomainClaim", {})
+    fields = {"id", "domain", "version", "status", "discovery_enabled", "challenge_name",
+              "challenge_value", "challenge_expires_at", "verified_at", "proof_expires_at"}
+    if (claim.get("additionalProperties") is not False or set(claim.get("required", [])) != fields
+            or set(claim.get("properties", {})) != fields):
+        raise ValueError("workspace domain claim receipts expose only exact privileged proof fields")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2413,6 +2485,7 @@ def main() -> None:
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_workspace_domain_contract(openapi)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

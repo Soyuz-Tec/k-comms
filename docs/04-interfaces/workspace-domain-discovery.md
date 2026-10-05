@@ -35,3 +35,6 @@ check preserves prior state and never displays verification success.
 
 See [ADR-0097](../02-architecture/adr/0097-verify-opt-in-workspace-domain-discovery.md)
 for retained-state governance and release gates.
+
+The [operator runbook](../14-operations/workspace-domain-discovery-runbook.md)
+describes renewal, revocation, erasure receipts and retained-state rollback.

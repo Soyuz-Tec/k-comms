@@ -1,6 +1,7 @@
 defmodule CommsCore.Governance.WorkspaceDomainFence do
   @moduledoc false
-  alias CommsCore.Administration.{DomainGovernanceFenceQuery, DomainGovernanceFenceReceipt}
+  alias CommsCore.Administration.DomainGovernanceFenceQuery
+  alias CommsCore.Administration.DomainGovernanceFenceReceipt
   alias CommsCore.Governance.TenantLock
   alias CommsCore.Repo
 

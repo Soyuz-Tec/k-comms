@@ -392,6 +392,7 @@ contexts:
       - validate_governance_user/2
       - validate_invitation_password/1
       - validate_moderation_assignee/2
+      - authorize_workspace_domain/1
       owner_internal_operations:
       - access_context/1
       - admin_revoke_session/4
@@ -626,6 +627,13 @@ contexts:
       - member_capabilities/1
       - revoke_invitation/3
       - update_tenant_settings_view/2
+      - create_workspace_domain/2
+      - discover_workspace_domain/1
+      - list_workspace_domains/1
+      - renew_workspace_domain/3
+      - revoke_workspace_domain/3
+      - update_workspace_domain_discovery/3
+      - verify_workspace_domain/3
       collaboration_operations:
       - active_tenant/1
       - any_tenant?/0
@@ -640,6 +648,9 @@ contexts:
       - release_tenant_fingerprint_id/2
       - retention_defaults/1
       - retention_tenant_ids/1
+      - erase_workspace_domain_user_challenges/1
+      - retained_workspace_domain_claim_count/1
+      - workspace_domain_release_fingerprint_fragment/2
       owner_internal_operations:
       - authorize_audit_tenant/1
       - authorize_manage_invitations/1
@@ -665,6 +676,11 @@ contexts:
       - export/2
       collaboration_operations: []
       owner_internal_operations: []
+    CommsCore.Administration.WorkspaceDomainErasure:
+      public_operations: []
+      collaboration_operations:
+      - erase_user_challenges/1
+      owner_internal_operations: []
   trust_governance:
     CommsCore.Governance:
       public_operations:
@@ -687,7 +703,8 @@ contexts:
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
-      collaboration_operations: []
+      collaboration_operations:
+      - lock_workspace_domain_fence/1
       owner_internal_operations:
       - authorize_governance/1
       - create_deletion_request/2

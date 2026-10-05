@@ -57,7 +57,7 @@ defmodule CommsCore.Administration do
     to: CommsCore.Administration.WorkspaceDomains,
     as: :revoke
 
-  @spec discover_workspace_domain(term()) :: CommsCore.Administration.DiscoveryView.t()
+  @spec discover_workspace_domain(binary() | nil) :: CommsCore.Administration.DiscoveryView.t()
   defdelegate discover_workspace_domain(domain),
     to: CommsCore.Administration.WorkspaceDomains,
     as: :discover
@@ -67,7 +67,7 @@ defmodule CommsCore.Administration do
         ) ::
           {:ok, CommsCore.Administration.DomainUserErasureReceipt.t()} | {:error, atom()}
   defdelegate erase_workspace_domain_user_challenges(command),
-    to: CommsCore.Administration.WorkspaceDomains,
+    to: CommsCore.Administration.WorkspaceDomainErasure,
     as: :erase_user_challenges
 
   @spec retained_workspace_domain_claim_count(module()) :: non_neg_integer()
@@ -75,7 +75,9 @@ defmodule CommsCore.Administration do
     to: CommsCore.Administration.WorkspaceDomains,
     as: :retained_claim_count
 
-  @spec workspace_domain_release_fingerprint_fragment(module(), binary()) :: map()
+  @spec workspace_domain_release_fingerprint_fragment(module(), binary()) :: %{
+          workspace_domain_claims: [binary()]
+        }
   defdelegate workspace_domain_release_fingerprint_fragment(repo, tenant_id),
     to: CommsCore.Administration.WorkspaceDomains,
     as: :release_fingerprint_fragment
@@ -100,6 +102,14 @@ defmodule CommsCore.Administration do
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
           CommsCore.Administration.AdmissionPolicy.t()
+          | CommsCore.Administration.DiscoveryView.t()
+          | CommsCore.Administration.DomainClaimView.t()
+          | CommsCore.Administration.DomainGovernanceFenceQuery.t()
+          | CommsCore.Administration.DomainGovernanceFenceReceipt.t()
+          | CommsCore.Administration.DomainIdentityAuthorization.t()
+          | CommsCore.Administration.DomainTXTQuery.t()
+          | CommsCore.Administration.DomainUserErasureCommand.t()
+          | CommsCore.Administration.DomainUserErasureReceipt.t()
           | CommsCore.Administration.AuthorizationActor.t()
           | CommsCore.Administration.CallLifecycleCommand.t()
           | CommsCore.Administration.CallLifecycleReceipt.t()

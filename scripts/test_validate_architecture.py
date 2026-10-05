@@ -1951,6 +1951,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "workspace-domain-governance-fence",
+                "workspace-domain-retained-identity",
             },
         )
         expected_call_collaborations = {
@@ -2036,6 +2038,46 @@ class ValidateArchitectureTest(unittest.TestCase):
                         "static_cycle_policy": "dependency_inversion",
                     },
                 )
+                self.assertIsInstance(declaration["condition"], str)
+                self.assertTrue(declaration["condition"].strip())
+
+        expected_domain_collaborations = {
+            "workspace-domain-retained-identity": (
+                "identity_access", "CommsCore.Administration.WorkspaceDomainIdentityPort",
+                "CommsCore.Administration.IdentityGrant", "CommsCore.Accounts",
+                "authorize_workspace_domain", "workspace_domain_identity_adapter",
+            ),
+            "workspace-domain-governance-fence": (
+                "trust_governance", "CommsCore.Administration.WorkspaceDomainGovernancePort",
+                "CommsCore.Administration.DomainGovernanceFenceReceipt", "CommsCore.Governance",
+                "lock_workspace_domain_fence", "workspace_domain_governance_adapter",
+            ),
+        }
+        for collaboration_id, expected in expected_domain_collaborations.items():
+            with self.subTest(collaboration=collaboration_id):
+                provider, port, result, implementation, operation, binding_key = expected
+                declaration = collaborations[collaboration_id]
+                self.assertEqual(set(declaration), {
+                    "id", "consumer", "provider", "port", "result_contract",
+                    "implementation", "callers", "operations", "binding",
+                    "transaction", "graph_semantics", "condition",
+                })
+                self.assertEqual(declaration["consumer"], "tenant_administration")
+                self.assertEqual(declaration["provider"], provider)
+                self.assertEqual(declaration["port"], port)
+                self.assertEqual(declaration["result_contract"], result)
+                self.assertEqual(declaration["implementation"], implementation)
+                self.assertEqual(declaration["callers"], ["CommsCore.Administration.WorkspaceDomains"])
+                self.assertEqual(declaration["operations"], [{"name": operation, "arity": 1}])
+                self.assertEqual(declaration["binding"], {
+                    "application": "comms_core", "key": binding_key, "module": implementation,
+                })
+                self.assertEqual(declaration["transaction"], "required")
+                self.assertEqual(declaration["graph_semantics"], {
+                    "control_flow": f"tenant_administration_to_{provider}",
+                    "compile_dependency": f"{provider}_to_tenant_administration",
+                    "static_cycle_policy": "dependency_inversion",
+                })
                 self.assertIsInstance(declaration["condition"], str)
                 self.assertTrue(declaration["condition"].strip())
 
@@ -4983,6 +5025,82 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ),
                 [item.render() for item in violations],
             )
+
+    def test_scoped_query_does_not_reserve_a_separately_published_owner_command_facade(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            manifest["contexts"]["alpha"]["kind"] = "business"
+            manifest["contexts"]["beta"]["kind"] = "business"
+            manifest["contexts"]["beta"]["public_facades"].append("CommsCore.Beta.Commands")
+            manifest["tables"] = {}
+            manifest["read_model_exceptions"] = [{
+                "id": "alpha-beta-query", "module": "CommsCore.Alpha.Reader",
+                "mode": "read_only", "owners": ["beta"],
+                "condition": "Only Reader may call the exact root Beta query.",
+                "access": {"public_contracts": [], "public_queries": ["CommsCore.Beta.lookup/1"],
+                           "source_tables": []},
+            }]
+            sources = {
+                "beta.ex": "defmodule CommsCore.Beta do\n  @spec lookup(binary()) :: binary()\n  def lookup(id), do: id\nend\n",
+                "beta/commands.ex": "defmodule CommsCore.Beta.Commands do\n  @spec erase(binary()) :: binary()\n  def erase(id), do: id\nend\n",
+                "alpha/reader.ex": "defmodule CommsCore.Alpha.Reader do\n  def read(id), do: CommsCore.Beta.lookup(id)\nend\n",
+                "alpha/workflow.ex": "defmodule CommsCore.Alpha.Workflow do\n  def erase(id), do: CommsCore.Beta.Commands.erase(id)\nend\n",
+            }
+            for relative, source in sources.items():
+                path = root / "apps/comms_core/lib/comms_core" / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            violations = analyze_context_boundaries(root, manifest)
+            self.assertEqual(violations, [], [item.render() for item in violations])
+            # Publishing that command facade grants the reader no command access.
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            for command in ("CommsCore.Beta.Commands.erase(id)",
+                            "apply(CommsCore.Beta.Commands, :erase, [id])"):
+                reader.write_text("defmodule CommsCore.Alpha.Reader do\n  def read(id), do: " + command + "\nend\n")
+                violations = analyze_context_boundaries(root, manifest)
+                self.assertTrue(any(item.rule == "read_model_scope_violation" for item in violations),
+                                [item.render() for item in violations])
+
+    def test_owner_command_facade_does_not_grant_root_query_schema_table_or_reader_writes(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            manifest["contexts"]["alpha"]["kind"] = "business"
+            manifest["contexts"]["beta"]["kind"] = "business"
+            manifest["contexts"]["beta"]["public_facades"].append("CommsCore.Beta.Commands")
+            manifest["read_model_exceptions"] = [{
+                "id": "alpha-beta-query", "module": "CommsCore.Alpha.Reader",
+                "mode": "read_only", "owners": ["beta"],
+                "condition": "The exact read-only root query remains reserved.",
+                "access": {"public_contracts": [], "public_queries": ["CommsCore.Beta.lookup/1"],
+                           "source_tables": []},
+            }]
+            (root / "apps/comms_core/lib/comms_core/beta.ex").write_text(
+                "defmodule CommsCore.Beta do\n  @spec lookup(binary()) :: binary()\n  def lookup(id), do: id\n  def secret(id), do: id\nend\n")
+            commands = root / "apps/comms_core/lib/comms_core/beta/commands.ex"
+            commands.write_text("defmodule CommsCore.Beta.Commands do\n  def erase(id), do: id\nend\n")
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.parent.mkdir(parents=True, exist_ok=True)
+            reader.write_text("defmodule CommsCore.Alpha.Reader do\n  def read(id), do: CommsCore.Beta.lookup(id)\nend\n")
+            bypass = root / "apps/comms_core/lib/comms_core/alpha/workflow.ex"
+            for unsafe, rule in (
+                    ("def read(id), do: CommsCore.Beta.lookup(id)", "read_model_scope_violation"),
+                    ("def read(id), do: apply(CommsCore.Beta, :lookup, [id])", "read_model_scope_violation"),
+                    ("alias CommsCore.Beta.Record\n  def read, do: CommsCore.Repo.all(Record)", "foreign_schema_import"),
+                    ('def write, do: Ecto.Adapters.SQL.query!(CommsCore.Repo, "DELETE FROM beta_records", [])', "direct_foreign_write")):
+                with self.subTest(unsafe=unsafe):
+                    bypass.write_text("defmodule CommsCore.Alpha.Workflow do\n  " + unsafe + "\nend\n")
+                    violations = analyze_context_boundaries(root, manifest)
+                    self.assertTrue(any(item.rule == rule for item in violations), [item.render() for item in violations])
+            bypass.unlink()
+            for unsafe, rule in (
+                    ("def read(id), do: CommsCore.Beta.secret(id)", "read_model_scope_violation"),
+                    ("def read(id), do: apply(CommsCore.Beta, :secret, [id])", "read_model_scope_violation"),
+                    ("alias CommsCore.Beta.Record\n  def write, do: CommsCore.Repo.delete_all(Record)", "read_model_write")):
+                with self.subTest(unsafe=unsafe):
+                    reader.write_text("defmodule CommsCore.Alpha.Reader do\n  " + unsafe + "\nend\n")
+                    violations = analyze_context_boundaries(root, manifest)
+                    self.assertTrue(any(item.rule == rule for item in violations), [item.render() for item in violations])
 
     def test_rejects_source_table_access_for_a_business_context_exception(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
