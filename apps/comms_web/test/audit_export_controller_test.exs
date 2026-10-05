@@ -41,6 +41,7 @@ defmodule CommsWeb.AuditExportControllerTest do
 
     conn =
       authenticated_conn(token)
+      |> put_req_header("accept", "text/csv")
       |> post("/api/v1/admin/audit-events/export", %{action: "=CMD()", limit: 10})
 
     assert response(conn, 200) =~ "\"'=CMD()\""

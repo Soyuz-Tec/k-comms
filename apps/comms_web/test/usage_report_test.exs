@@ -37,7 +37,11 @@ defmodule CommsWeb.UsageReportTest do
     refute Jason.encode!(report) =~ account.user.email
     refute Jason.encode!(report) =~ account.user.id
 
-    download = conn(token) |> get("/api/v1/admin/usage/export", %{from: from, through: through})
+    download =
+      conn(token)
+      |> put_req_header("accept", "text/csv")
+      |> get("/api/v1/admin/usage/export", %{from: from, through: through})
+
     assert download.status == 200
     assert get_resp_header(download, "x-usage-from") == [from]
     assert get_resp_header(download, "x-usage-through") == [through]
@@ -50,6 +54,30 @@ defmodule CommsWeb.UsageReportTest do
     assert download.resp_body =~ "\"identity\",\"available\",\"current\",\"active_humans\",\"1\""
     assert download.resp_body =~ "\"#{from}\",\"#{through}\",\"UTC\""
     refute download.resp_body =~ account.user.email
+  end
+
+  test "CSV negotiation preserves authentication, fresh proof and JSON endpoint restrictions" do
+    account = Fixtures.account_fixture()
+    csv_conn = fn -> conn(token(account)) |> put_req_header("accept", "text/csv") end
+
+    denied =
+      build_conn() |> put_req_header("accept", "text/csv") |> get("/api/v1/admin/usage/export")
+
+    assert json_response(denied, 401)["error"]["code"] == "unauthenticated"
+    assert get_resp_header(denied, "cache-control") == ["no-store"]
+
+    assert (csv_conn.()
+            |> get("/api/v1/admin/usage/export")
+            |> json_response(428))["error"]["code"] == "step_up_required"
+
+    Fixtures.step_up(account)
+    Repo.update_all(from(u in User, where: u.id == ^account.user.id), set: [role: :member])
+
+    assert (csv_conn.()
+            |> get("/api/v1/admin/usage/export")
+            |> json_response(403))["error"]["code"] == "forbidden"
+
+    assert_raise Phoenix.NotAcceptableError, fn -> csv_conn.() |> get("/api/v1/admin/usage") end
   end
 
   test "both endpoints deny non-admin, stale step-up, and limited elevated identities" do
