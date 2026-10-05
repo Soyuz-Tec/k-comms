@@ -1,7 +1,7 @@
 defmodule CommsWeb.DocumentChannelTest do
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
-  alias CommsCore.{Accounts, Repo, SharedDocuments}
+  alias CommsCore.{Accounts, Conversations, Repo, SharedDocuments}
   alias CommsWeb.DocumentChannel
   alias CommsTestSupport.Fixtures
   @endpoint CommsWeb.Endpoint
@@ -77,5 +77,145 @@ defmodule CommsWeb.DocumentChannelTest do
                %{"generation" => 1, "anchor_id" => nil, "head_id" => nil},
                socket
              )
+  end
+
+  for event <- ["document.operation_applied.v1", "document.presence.v1"] do
+    test "a subscribed member receives no #{event} after public membership removal", context do
+      event = unquote(event)
+      {member, membership} = join_member(context)
+      topic = "document:" <> context.document.id
+
+      assert {:ok, %{}, joined} =
+               subscribe_and_join(
+                 socket(CommsWeb.UserSocket, "withdrawn-#{event}", member),
+                 DocumentChannel,
+                 topic,
+                 %{}
+               )
+
+      Process.unlink(joined.channel_pid)
+      monitor = Process.monitor(joined.channel_pid)
+      payload = authorized_payload(event, context)
+      :ok = CommsWeb.Endpoint.broadcast(topic, event, payload)
+      assert_push(^event, ^payload)
+      remove_member(context, member, membership)
+      :ok = CommsWeb.Endpoint.broadcast(topic, event, payload)
+      assert_receive {:DOWN, ^monitor, :process, _, :unauthorized}
+      refute_push(^event, _, 50)
+
+      assert {:error, %{reason: "forbidden"}} =
+               subscribe_and_join(
+                 socket(CommsWeb.UserSocket, "withdrawn-rejoin", member),
+                 DocumentChannel,
+                 topic,
+                 %{}
+               )
+    end
+  end
+
+  test "an established member cannot send document selections after public membership removal",
+       context do
+    {member, membership} = join_member(context)
+    topic = "document:" <> context.document.id
+
+    assert {:ok, %{}, joined} =
+             subscribe_and_join(
+               socket(CommsWeb.UserSocket, "withdrawn-input", member),
+               DocumentChannel,
+               topic,
+               %{}
+             )
+
+    assert {:ok, %{}, _peer} =
+             subscribe_and_join(
+               socket(CommsWeb.UserSocket, "remaining-peer", context.subject),
+               DocumentChannel,
+               topic,
+               %{}
+             )
+
+    Process.unlink(joined.channel_pid)
+    monitor = Process.monitor(joined.channel_pid)
+    selection = %{"generation" => 1, "anchor_id" => nil, "head_id" => nil}
+    push(joined, "document.presence.v1", selection)
+    assert_push("document.presence.v1", %{user_id: user_id})
+    assert user_id == member.user_id
+    remove_member(context, member, membership)
+    push(joined, "document.presence.v1", selection)
+    assert_receive {:DOWN, ^monitor, :process, _, :unauthorized}
+    refute_push("document.presence.v1", _, 50)
+  end
+
+  defp join_member(context) do
+    %{user: user} = Fixtures.user_fixture(context.account)
+    suffix = user.email |> String.split(["member-", "@example.test"]) |> Enum.at(1)
+
+    {:ok, authentication} =
+      Accounts.authenticate_view(
+        context.account.tenant.slug,
+        user.email,
+        "correct-horse-battery-#{suffix}",
+        %{
+          name: "Subscribed document member",
+          platform: "test"
+        }
+      )
+
+    {:ok, membership} =
+      Conversations.add_member_view(
+        context.account.conversation.id,
+        user.id,
+        :member,
+        context.subject
+      )
+
+    subject = %{
+      tenant_id: context.account.tenant.id,
+      user_id: user.id,
+      session_id: authentication.session_id,
+      device_id: authentication.device.id,
+      role: :member
+    }
+
+    {subject, membership}
+  end
+
+  defp remove_member(context, member, membership) do
+    assert {:ok, %{left_at: %DateTime{}}} =
+             Conversations.remove_member_view(
+               context.account.conversation.id,
+               member.user_id,
+               %{version: membership.version},
+               context.subject
+             )
+  end
+
+  defp authorized_payload("document.presence.v1", context) do
+    %{
+      user_id: context.account.user.id,
+      device_id: context.account.device.id,
+      generation: context.document.generation,
+      anchor_id: nil,
+      head_id: nil
+    }
+  end
+
+  defp authorized_payload("document.operation_applied.v1", context) do
+    assert {:ok, operation, :created} =
+             SharedDocuments.apply_operation(
+               context.document.id,
+               %{
+                 client_operation_id: Ecto.UUID.generate(),
+                 generation: context.document.generation,
+                 base_version: context.document.version,
+                 kind: "edit",
+                 changes: [
+                   %{"after_id" => nil, "delete_ids" => [], "insert" => "Committed operation"}
+                 ]
+               },
+               context.subject
+             )
+
+    Map.from_struct(operation)
   end
 end
