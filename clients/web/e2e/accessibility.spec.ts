@@ -340,6 +340,11 @@ async function installAuthenticatedMocks(
 ) {
   const drafts = new Map<string, { body: string; version: number }>();
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
+  await page.route("**/api/v1/me/workspace", (route) => route.fulfill({ json: { data: {
+    version: 0, contacts: [], groups: [],
+    onboarding: { dismissed_at: options.populated ? "2026-10-05T00:00:00Z" : null, profile_reviewed_at: null, active_devices: 1, has_teammates: false },
+    limits: { contacts: 500, groups: 20, members_per_group: 50 }, observed_at: "2026-10-05T00:00:00Z"
+  } } }));
   await page.route("**/api/v1/me", (route) => route.fulfill({
     json: {
       tenant: session.tenant,

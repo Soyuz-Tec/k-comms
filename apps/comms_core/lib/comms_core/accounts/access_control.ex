@@ -126,7 +126,8 @@ defmodule CommsCore.Accounts.AccessControl do
 
   @spec resolve_access(map()) :: {:ok, IdentityGrant.t()} | {:error, :forbidden}
   def resolve_access(subject) when is_map(subject) do
-    with {:ok, %AccessGrant{} = grant} <- access_grant(subject) do
+    with {:ok, %AccessGrant{account_type: :human, access_scope: :workspace} = grant} <-
+           access_grant(subject) do
       {:ok,
        %IdentityGrant{
          tenant_id: grant.tenant_id,
@@ -134,6 +135,8 @@ defmodule CommsCore.Accounts.AccessControl do
          role: grant.role,
          step_up_recent?: grant.step_up_recent?
        }}
+    else
+      _ -> {:error, :forbidden}
     end
   end
 

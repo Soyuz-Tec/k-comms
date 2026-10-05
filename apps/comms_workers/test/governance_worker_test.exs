@@ -1,10 +1,10 @@
 defmodule CommsWorkers.GovernanceWorkerTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.Accounts.User
+  alias CommsCore.Accounts.{MemberWorkspace, User}
   alias CommsCore.Governance.DeletionRequest
   alias CommsCore.Messaging.Message
-  alias CommsCore.{Administration, Governance, Messaging, Repo}
+  alias CommsCore.{Accounts, Administration, Governance, Messaging, Repo}
   alias CommsTestSupport.Fixtures
 
   test "reconciler pages a mixed overlapping tenant union and persists its continuation" do
@@ -231,6 +231,152 @@ defmodule CommsWorkers.GovernanceWorkerTest do
     assert completed.evidence["executor"] == "CommsWorkers.DeletionWorker"
   end
 
+  test "governed user deletion removes private setup and persisted contact references" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    target = Fixtures.user_fixture(account).user
+    retained = Fixtures.user_fixture(account).user
+    observer = Fixtures.user_fixture(account).user
+    target_subject = authenticated_fixture_subject(account, target)
+    observer_subject = authenticated_fixture_subject(account, observer)
+    foreign = Fixtures.account_fixture()
+    group_id = Ecto.UUID.generate()
+
+    assert {:ok, saved} =
+             Accounts.replace_member_workspace(
+               %{
+                 version: 0,
+                 contact_ids: [target.id, retained.id],
+                 groups: [
+                   %{
+                     id: group_id,
+                     name: "Private colleagues",
+                     member_ids: [target.id, retained.id]
+                   }
+                 ]
+               },
+               subject
+             )
+
+    assert {:ok, own} =
+             Accounts.replace_member_workspace(
+               %{
+                 version: 0,
+                 contact_ids: [account.user.id],
+                 groups: [
+                   %{
+                     id: Ecto.UUID.generate(),
+                     name: "Personal team",
+                     member_ids: [account.user.id]
+                   }
+                 ]
+               },
+               target_subject
+             )
+
+    assert {:ok, dismissed} =
+             Accounts.update_member_onboarding(
+               %{version: own.version, action: "dismiss"},
+               target_subject
+             )
+
+    assert {:ok, _} =
+             Accounts.update_profile_view(
+               %{display_name: "Reviewed personal profile"},
+               target_subject
+             )
+
+    assert %DateTime{} = dismissed.onboarding.dismissed_at
+
+    target_state = Repo.get_by!(MemberWorkspace, tenant_id: account.tenant.id, user_id: target.id)
+    assert %DateTime{} = target_state.profile_reviewed_at
+    assert %DateTime{} = target_state.onboarding_dismissed_at
+
+    assert {:ok, _} =
+             Accounts.replace_member_workspace(
+               %{version: 0, contact_ids: [retained.id], groups: []},
+               observer_subject
+             )
+
+    assert {:ok, _} =
+             Accounts.update_member_onboarding(
+               %{version: 0, action: "dismiss"},
+               Fixtures.subject(foreign)
+             )
+
+    observer_state =
+      Repo.get_by!(MemberWorkspace, tenant_id: account.tenant.id, user_id: observer.id)
+
+    foreign_state =
+      Repo.get_by!(MemberWorkspace, tenant_id: foreign.tenant.id, user_id: foreign.user.id)
+
+    assert {:ok, %{request: request}} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "user",
+                 subject_user_id: target.id,
+                 reason: "Erase synchronized private organization"
+               },
+               subject
+             )
+
+    assert {:ok, approved} =
+             Governance.transition_deletion_request(
+               request.id,
+               %{
+                 version: request.lock_version,
+                 status: "approved",
+                 transition_reason: "Verify private data erasure scope"
+               },
+               subject
+             )
+
+    assert :ok =
+             CommsWorkers.DeletionWorker.perform(%Oban.Job{
+               args: %{"deletion_request_id" => approved.id}
+             })
+
+    assert Repo.get!(User, target.id).status == :deleted
+    assert Repo.get!(DeletionRequest, approved.id).status == :completed
+    refute Repo.get_by(MemberWorkspace, tenant_id: account.tenant.id, user_id: target.id)
+
+    persisted =
+      Repo.get_by!(MemberWorkspace, tenant_id: account.tenant.id, user_id: account.user.id)
+
+    # A public projection already hides inactive identities. Verify actual rows
+    # so that retained erased IDs cannot be concealed by that filtering.
+    assert persisted.contact_ids == [retained.id]
+
+    assert persisted.contact_groups == %{
+             "items" => [
+               %{"id" => group_id, "name" => "Private colleagues", "member_ids" => [retained.id]}
+             ]
+           }
+
+    assert persisted.lock_version == saved.version + 1
+    assert {:ok, projected} = Accounts.member_workspace_view(subject)
+    assert projected.version == persisted.lock_version
+    assert Enum.map(projected.contacts, & &1.id) == [retained.id]
+
+    assert projected.groups == [
+             %{id: group_id, name: "Private colleagues", member_ids: [retained.id]}
+           ]
+
+    assert {:error, :stale_version} =
+             Accounts.replace_member_workspace(
+               %{version: saved.version, contact_ids: [retained.id], groups: []},
+               subject
+             )
+
+    assert {:error, :forbidden} = Accounts.member_workspace_view(target_subject)
+
+    assert Repo.get_by!(MemberWorkspace, tenant_id: account.tenant.id, user_id: observer.id) ==
+             observer_state
+
+    assert Repo.get_by!(MemberWorkspace, tenant_id: foreign.tenant.id, user_id: foreign.user.id) ==
+             foreign_state
+  end
+
   test "retention worker turns expired messages into durable deletion jobs" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
@@ -281,5 +427,24 @@ defmodule CommsWorkers.GovernanceWorkerTest do
              })
 
     assert Repo.get!(Message, message.id).status == :deleted
+  end
+
+  defp authenticated_fixture_subject(owner, user) do
+    suffix = user.email |> String.split(["member-", "@"], trim: true) |> hd()
+
+    {:ok, login} =
+      Accounts.authenticate_view(
+        owner.tenant.slug,
+        user.email,
+        "correct-horse-battery-#{suffix}",
+        %{name: "Private workspace browser", platform: "test"}
+      )
+
+    Fixtures.subject(owner, %{
+      user_id: user.id,
+      role: user.role,
+      session_id: login.session_id,
+      device_id: login.device.id
+    })
   end
 end

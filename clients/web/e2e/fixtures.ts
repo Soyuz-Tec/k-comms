@@ -38,6 +38,11 @@ export function mockServiceStatus(
 
 export const test = base.extend({
   page: async ({ page }, use) => {
+    await page.route("**/api/v1/me/workspace", (route) => route.request().method() === "GET"
+      ? route.fulfill({ json: { data: { version: 0, contacts: [], groups: [],
+        onboarding: { dismissed_at: "2026-10-05T00:00:00Z", profile_reviewed_at: null, active_devices: 1, has_teammates: false },
+        limits: { contacts: 500, groups: 20, members_per_group: 50 }, observed_at: "2026-10-05T00:00:00Z" } } })
+      : route.fallback());
     await page.route("**/api/v1/telephony/config", (route) =>
       route.fulfill({ json: { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: false } } })
     );

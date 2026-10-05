@@ -44,7 +44,9 @@ defmodule CommsCore.Attachments do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Attachments.AttachmentDeletionObject.t()
+          CommsCore.Attachments.UsageQuery.t()
+          | CommsCore.Attachments.UsageProjection.t()
+          | CommsCore.Attachments.AttachmentDeletionObject.t()
           | CommsCore.Attachments.AttachmentView.t()
           | CommsCore.Attachments.FileView.t()
           | CommsCore.Attachments.RestoreCandidate.t()
@@ -131,4 +133,10 @@ defmodule CommsCore.Attachments do
   defdelegate downloadable?(attachment), to: Safety
 
   defdelegate attach_ready(ids, message_id, tenant_id, subject), to: MessageClaims
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.Attachments.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.Attachments.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject), to: CommsCore.Attachments.UsageReports, as: :project
+
 end

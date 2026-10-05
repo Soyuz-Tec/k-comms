@@ -13,6 +13,7 @@ import { useSession } from "../../app/session";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { ActionDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
+import { RoleChangeDialog } from "./RoleChangeDialog";
 import "./PeoplePanel.css";
 
 type PeopleSort = "name-asc" | "name-desc" | "role" | "status";
@@ -223,7 +224,18 @@ export function PeoplePanel({
 
   return <>
     {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss people error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}{notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss people notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
-    {pendingAction && <ActionDialog
+    {pendingAction?.kind === "user-change" && pendingAction.changes.role ? <RoleChangeDialog
+      key={`${pendingAction.user.id}-${pendingAction.changes.role}-${pendingAction.user.version}`}
+      api={api}
+      user={pendingAction.user}
+      identifier={participantIdentifier(pendingAction.user, duplicateUserNames)}
+      requestedRole={pendingAction.changes.role}
+      busy={busy === peopleActionBusyKey(pendingAction)}
+      error={actionError}
+      onCancel={() => { setPendingAction(null); setActionError(null); }}
+      onReviewAgain={() => setActionError(null)}
+      onConfirm={(reason) => void confirmPendingAction(reason)}
+    /> : pendingAction && <ActionDialog
       key={peopleActionBusyKey(pendingAction)}
       title={pendingAction.kind === "user-change" ? "Apply this access change?" : pendingAction.kind === "invitation-revocation" ? "Revoke this invitation?" : "Revoke this session?"}
       description={pendingAction.kind === "user-change" ? `${pendingAction.description}.` : pendingAction.kind === "invitation-revocation" ? `Revoke the pending invitation for ${pendingAction.invitation.email}.` : `Revoke session ${pendingAction.sessionId.slice(0, 8)} for ${participantIdentifier(pendingAction.user, duplicateUserNames)} (${pendingAction.user.email}).`}

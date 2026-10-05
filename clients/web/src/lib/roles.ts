@@ -1,4 +1,4 @@
-import type { PlatformRole, UserRole } from "../types";
+import type { PlatformRole, User, UserRole } from "../types";
 
 export const tenantRoles: UserRole[] = [
   "member",
@@ -54,6 +54,11 @@ export function canAudit(role: UserRole): boolean {
 
 export function canAccessAdmin(role: UserRole): boolean {
   return canAdministerTenant(role) || canManageSessions(role) || canModerate(role) || canGovern(role) || canAudit(role);
+}
+
+export function canAccessWorkspaceAdmin(user: User): boolean {
+  return (user.account_type ?? "human") === "human" &&
+    (user.access_scope ?? "workspace") === "workspace" && canAccessAdmin(user.role);
 }
 
 export function canOperate(role?: PlatformRole | null, expiresAt?: string | null): boolean {

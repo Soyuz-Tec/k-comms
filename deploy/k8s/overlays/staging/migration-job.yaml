@@ -69,6 +69,12 @@ spec:
                 secretKeyRef:
                   name: k-comms-secrets
                   key: SECRET_KEY_BASE
+            - name: GOV_HISTORY_CURSOR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: GOV_HISTORY_CURSOR_KEY
+                  optional: true
             - name: PASSWORD_RECOVERY_SIGNING_KEY
               valueFrom:
                 secretKeyRef:

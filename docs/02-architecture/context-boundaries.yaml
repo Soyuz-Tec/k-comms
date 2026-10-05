@@ -485,6 +485,10 @@ contexts:
     public_contracts:
       - CommsCore.Governance.DeletionExecution
       - CommsCore.Governance.DeletionRequestView
+      - CommsCore.Governance.DeletionRequestTimeline
+      - CommsCore.Governance.DeletionRequestHistoryExport
+      - CommsCore.Governance.HistoryActor
+      - CommsCore.Governance.HistoryEvent
       - CommsCore.Governance.LegalHoldView
       - CommsCore.Governance.RetentionPolicyView
       - CommsCore.Moderation.ActionView
@@ -499,7 +503,7 @@ contexts:
     current_contexts: [Audit]
     fold_in: []
     public_facades: [CommsCore.Audit]
-    public_contracts: [CommsCore.Audit.Actor, CommsCore.Audit.Event, CommsCore.Audit.Error]
+    public_contracts: [CommsCore.Audit.Actor, CommsCore.Audit.Event, CommsCore.Audit.Error, CommsCore.Audit.ResourceHistoryQuery, CommsCore.Audit.ResourceHistoryPage]
     internal_namespaces: [CommsCore.Audit]
     allowed_dependencies: []
     publishes: []
@@ -1213,6 +1217,7 @@ tables:
   retention_policies: {owner: trust_governance, canonical_schema: CommsCore.Governance.RetentionPolicy, role: source}
   legal_holds: {owner: trust_governance, canonical_schema: CommsCore.Governance.LegalHold, role: source}
   deletion_requests: {owner: trust_governance, canonical_schema: CommsCore.Governance.DeletionRequest, role: source}
+  audit_resource_history_snapshots: {owner: audit, canonical_schema: CommsCore.Audit.ResourceHistorySnapshot, role: source, access: owner_only, access_namespaces: [CommsCore.Audit]}
   audit_events: {owner: audit, canonical_schema: CommsCore.Audit.AuditEvent, role: source, access: owner_only, access_namespaces: [CommsCore.Audit]}
   public_rate_limit_buckets: {owner: platform_runtime, canonical_schema: CommsCore.PlatformRateLimits.Bucket, role: technical}
   oban_jobs: {owner: platform_persistence, canonical_schema: Oban.Job, role: technical, external_schema: true}

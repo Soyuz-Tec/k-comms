@@ -2,7 +2,7 @@ import { Link, useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
 import {
-  canAccessAdmin,
+  canAccessWorkspaceAdmin,
   canManageUsers,
   canModerate,
   canOperate
@@ -26,13 +26,13 @@ export function YouPage() {
   const callSession = useOptionalCallSession();
   const navigate = useNavigate();
   if (!session) return null;
-  const showAdmin = canAccessAdmin(session.user.role);
+  const showAdmin = canAccessWorkspaceAdmin(session.user);
   const showOperations = canOperate(
     session.user.platform_role,
     session.user.platform_role_expires_at
   );
-  const showPeople = canManageUsers(session.user.role);
-  const showSafety = canModerate(session.user.role);
+  const showPeople = showAdmin && canManageUsers(session.user.role);
+  const showSafety = showAdmin && canModerate(session.user.role);
 
   const signOut = () => {
     callSession?.teardownCall();

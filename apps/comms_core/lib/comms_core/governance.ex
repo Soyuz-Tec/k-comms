@@ -37,6 +37,8 @@ defmodule CommsCore.Governance do
   @type public_contract ::
           CommsCore.Governance.DeletionExecution.t()
           | CommsCore.Governance.DeletionRequestView.t()
+          | CommsCore.Governance.DeletionRequestTimeline.t()
+          | CommsCore.Governance.DeletionRequestHistoryExport.t()
           | CommsCore.Governance.LegalHoldView.t()
           | CommsCore.Governance.RetentionPolicyView.t()
 
@@ -78,6 +80,18 @@ defmodule CommsCore.Governance do
   @spec transition_deletion_request_view(binary(), public_map(), public_map()) ::
           public_response()
   @spec update_retention_policy_view(binary(), public_map(), public_map()) :: public_response()
+
+  @spec deletion_request_timeline(binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.Governance.DeletionRequestTimeline.t()} | {:error, atom()}
+  defdelegate deletion_request_timeline(id, params, subject),
+    to: CommsCore.Governance.DeletionRequestHistory,
+    as: :timeline
+
+  @spec export_deletion_request_history(binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.Governance.DeletionRequestHistoryExport.t()} | {:error, atom()}
+  defdelegate export_deletion_request_history(id, params, subject),
+    to: CommsCore.Governance.DeletionRequestHistory,
+    as: :export
 
   @doc false
   defdelegate authorize_governance(subject), to: Authorization, as: :authorize

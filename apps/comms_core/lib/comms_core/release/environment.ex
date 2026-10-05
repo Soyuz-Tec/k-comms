@@ -24,7 +24,9 @@ defmodule CommsCore.Release.Environment do
                                    "uc_voicemail_lifecycle_v1",
                                    "uc_advanced_telephony_v1",
                                    "scheduled_meeting_lifecycle_v1",
-                                   "rich_content_erasure_v1"
+                                   "rich_content_erasure_v1",
+                                   "member_workspace_v1",
+                                   "governance_history_v1"
                                  ])
   @communication_rollback_capabilities @guest_rollback_capabilities
                                        |> MapSet.union(@instant_room_rollback_capabilities)

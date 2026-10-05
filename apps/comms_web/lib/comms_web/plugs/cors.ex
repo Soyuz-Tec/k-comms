@@ -2,6 +2,7 @@ defmodule CommsWeb.Plugs.Cors do
   import Plug.Conn
 
   @allow_headers "authorization,content-type,idempotency-key,x-request-id"
+  @expose_headers "content-disposition,x-export-row-count,x-export-truncated,x-export-maximum-rows,x-history-snapshot,x-history-coverage,x-history-retained-only,x-history-observed-at,x-usage-from,x-usage-through,x-usage-time-zone,x-usage-observed-at,x-usage-unavailable-sources"
   @allow_methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
 
   def init(opts), do: opts
@@ -17,6 +18,7 @@ defmodule CommsWeb.Plugs.Cors do
         |> put_resp_header("access-control-allow-credentials", "true")
         |> put_resp_header("access-control-allow-headers", @allow_headers)
         |> put_resp_header("access-control-allow-methods", @allow_methods)
+        |> put_resp_header("access-control-expose-headers", @expose_headers)
         |> put_resp_header("access-control-max-age", "600")
         |> put_resp_header("vary", "origin")
       else

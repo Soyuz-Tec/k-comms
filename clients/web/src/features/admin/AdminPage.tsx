@@ -4,7 +4,7 @@ import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon, type AppIconName } from "../../components/AppIcon";
 import {
-  canAccessAdmin,
+  canAccessWorkspaceAdmin,
   canAdministerTenant,
   canAudit,
   canGovern,
@@ -20,20 +20,22 @@ import { PhoneAdminPanel } from "../telephony/PhoneAdminPanel";
 import { PeoplePanel } from "./PeoplePanel";
 import { SafetyPanel } from "./SafetyPanel";
 import { TenantSettingsPanel } from "./TenantSettingsPanel";
+import { UsageReportsPanel } from "./UsageReportsPanel";
 import "./AdminPage.css";
 
-type AdminSection = "phone" | "workspace" | "people" | "safety" | "governance" | "integrations" | "audit";
+type AdminSection = "phone" | "workspace" | "people" | "safety" | "governance" | "integrations" | "audit" | "usage";
 const sectionIcons: Record<AdminSection, AppIconName> = {
   phone: "phone", workspace: "settings", people: "users", safety: "flag",
-  governance: "lock", integrations: "sliders", audit: "activity"
+  governance: "lock", integrations: "sliders", audit: "activity", usage: "activity"
 };
 
 export function AdminPage() {
   const { api, session, setSession } = useSession();
   const { users, conversations, setUsers, setCapabilities, refreshAll } = useWorkspaceData();
   const role = session?.user.role || "member";
-  const sections = adminSections(role);
-  const authorized = Boolean(session && canAccessAdmin(session.user.role));
+  const workspaceHuman = (session?.user.account_type || "human") === "human" && (session?.user.access_scope || "workspace") === "workspace";
+  const sections = adminSections(role, workspaceHuman);
+  const authorized = Boolean(session && canAccessWorkspaceAdmin(session.user));
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("section");
   const defaultSection = sections[0]?.[0] || "workspace";
@@ -82,6 +84,7 @@ export function AdminPage() {
         {section === "governance" && <GovernancePanel api={api} users={users} conversations={conversations} />}
         {section === "integrations" && <IntegrationsPanel api={api} onServiceAccountLifecycleChanged={refreshAll} />}
         {section === "audit" && <AuditPanel api={api} users={users} />}
+        {section === "usage" && <UsageReportsPanel api={api} />}
       </div>
       </div>
     </main>
@@ -89,10 +92,10 @@ export function AdminPage() {
 }
 
 function isAdminSection(value: string | null): value is AdminSection {
-  return value === "phone" || value === "workspace" || value === "people" || value === "safety" || value === "governance" || value === "integrations" || value === "audit";
+  return value === "phone" || value === "workspace" || value === "people" || value === "safety" || value === "governance" || value === "integrations" || value === "audit" || value === "usage";
 }
 
-function adminSections(role: UserRole): Array<[AdminSection, string]> {
+function adminSections(role: UserRole, workspaceHuman: boolean): Array<[AdminSection, string]> {
   const sections: Array<[AdminSection, string]> = [];
   if (canAdministerTenant(role)) sections.push(["workspace", "Workspace"], ["phone", "Phone"]);
   if (canManageUsers(role) || canManageSessions(role)) sections.push(["people", "People"]);
@@ -100,5 +103,6 @@ function adminSections(role: UserRole): Array<[AdminSection, string]> {
   if (canGovern(role)) sections.push(["governance", "Governance"]);
   if (canAdministerTenant(role)) sections.push(["integrations", "Integrations"]);
   if (canAudit(role)) sections.push(["audit", "Audit"]);
+  if (canAdministerTenant(role) && workspaceHuman) sections.push(["usage", "Usage"]);
   return sections;
 }

@@ -75,7 +75,9 @@ defmodule CommsCore.Accounts do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Accounts.AccessContext.t()
+          CommsCore.Accounts.UsageQuery.t()
+          | CommsCore.Accounts.UsageProjection.t()
+          | CommsCore.Accounts.AccessContext.t()
           | CommsCore.Accounts.AccessGrant.t()
           | CommsCore.Accounts.AuthenticationResult.t()
           | CommsCore.Accounts.CallLifecycleCommand.t()
@@ -86,6 +88,7 @@ defmodule CommsCore.Accounts do
           | CommsCore.Accounts.InitialConversationCommand.t()
           | CommsCore.Accounts.InitialConversationReceipt.t()
           | CommsCore.Accounts.LockedDirectoryUser.t()
+          | CommsCore.Accounts.MemberWorkspaceView.t()
           | CommsCore.Accounts.NotificationCommand.t()
           | CommsCore.Accounts.NotificationRecipient.t()
           | CommsCore.Accounts.NotificationReceipt.t()
@@ -210,7 +213,29 @@ defmodule CommsCore.Accounts do
   def scim_delete(kind, id, version, subject),
     do: CommsCore.Accounts.Scim.delete(kind, id, version, subject, user_lifecycle_effects())
 
+  @spec member_workspace_view(public_map()) ::
+          {:ok, CommsCore.Accounts.MemberWorkspaceView.t()} | {:error, atom()}
+  defdelegate member_workspace_view(subject), to: CommsCore.Accounts.MemberWorkspaces, as: :get
+
+  @spec replace_member_workspace(public_map(), public_map()) ::
+          {:ok, CommsCore.Accounts.MemberWorkspaceView.t()} | {:error, atom()}
+  defdelegate replace_member_workspace(attrs, subject),
+    to: CommsCore.Accounts.MemberWorkspaces,
+    as: :replace
+
+  @spec update_member_onboarding(public_map(), public_map()) ::
+          {:ok, CommsCore.Accounts.MemberWorkspaceView.t()} | {:error, atom()}
+  defdelegate update_member_onboarding(attrs, subject),
+    to: CommsCore.Accounts.MemberWorkspaces,
+    as: :onboarding
+
   @doc false
+  @spec release_tenant_fingerprint_fragment(module(), binary()) :: %{
+          users: [binary()],
+          sessions: [binary()],
+          devices: [binary()],
+          member_workspaces: [binary()]
+        }
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
     ReleaseInventory.tenant_fingerprint_fragment(repo, tenant_id)
@@ -220,6 +245,11 @@ defmodule CommsCore.Accounts do
   @spec rollback_enterprise_identity_hazard_count() :: non_neg_integer()
   def rollback_enterprise_identity_hazard_count,
     do: ReleaseInventory.enterprise_identity_hazard_count(Repo)
+
+  @doc false
+  @spec rollback_member_workspace_hazard_count() :: non_neg_integer()
+  def rollback_member_workspace_hazard_count,
+    do: ReleaseInventory.member_workspace_hazard_count(Repo)
 
   @doc """
   Resolves an active human or guest session into persistence-free
@@ -751,6 +781,24 @@ defmodule CommsCore.Accounts do
     UserLifecycle.list_tenant_views(subject)
   end
 
+  @doc "Lists bounded fixed tenant role eligibility and the conditions still required."
+  @spec list_fixed_role_permissions(public_map()) ::
+          {:ok, [CommsCore.Accounts.FixedRolePermissionView.t()]} | {:error, :forbidden}
+  def list_fixed_role_permissions(subject), do: CommsCore.Accounts.RolePreviews.catalog(subject)
+
+  @doc "Returns an advisory, version-bound role impact snapshot without changing the target."
+  @spec preview_user_role_change(Ecto.UUID.t(), public_map(), public_map()) ::
+          {:ok, CommsCore.Accounts.UserRoleChangePreviewView.t()}
+          | {:error,
+             :forbidden
+             | :step_up_required
+             | :not_found
+             | :invalid_role
+             | :version_required
+             | :stale_version}
+  def preview_user_role_change(id, attrs, subject),
+    do: CommsCore.Accounts.RolePreviews.preview(id, attrs, subject)
+
   def list_admin_user_views(subject) do
     UserLifecycle.list_admin_views(subject)
   end
@@ -1139,4 +1187,16 @@ defmodule CommsCore.Accounts do
 
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.Accounts.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.Accounts.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject), to: CommsCore.Accounts.UsageReports, as: :project
+
+  @doc false
+  @spec with_usage_report_disclosure(map(), (-> {:ok, binary()} | {:error, atom()})) ::
+          {:ok, binary()} | {:error, atom()}
+  defdelegate with_usage_report_disclosure(subject, encoder),
+    to: CommsCore.Accounts.UsageReports,
+    as: :disclose
 end

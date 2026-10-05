@@ -1,4 +1,6 @@
 import type { MessageMetadata, ServiceAccountScope } from "../types";
+import type { DeletionHistoryExportReceipt } from "../types/deletionHistory";
+import type { UsageExportReceipt } from "../types/usage";
 
 export interface ApiRequestOptions extends RequestInit {
   retryAuthentication?: boolean;
@@ -77,6 +79,11 @@ export interface AuditExportFile {
   truncated: boolean;
 }
 
+export interface ApiExportFile extends AuditExportFile {
+  history?: DeletionHistoryExportReceipt;
+  usage?: UsageExportReceipt;
+}
+
 export type ApiRequest = <T = void>(
   path: string,
   options?: ApiRequestOptions
@@ -85,4 +92,4 @@ export type ApiRequest = <T = void>(
 export type ApiDownload = (
   path: string,
   options?: ApiRequestOptions
-) => Promise<AuditExportFile>;
+) => Promise<ApiExportFile>;

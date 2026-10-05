@@ -70,6 +70,11 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "whiteboard_assets",
         "whiteboard_operations.source_actor_user_ids",
     ),
+    "member_workspace_v1": ("member_workspaces",),
+    "governance_history_v1": (
+        "audit_resource_history_snapshots",
+        "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -175,6 +180,7 @@ CORE_SECRET_ENV = {
     "DATABASE_URL": False,
     "SECRET_KEY_BASE": False,
     "PASSWORD_RECOVERY_SIGNING_KEY": False,
+    "GOV_HISTORY_CURSOR_KEY": True,
     "S3_ACCESS_KEY_ID": False,
     "S3_SECRET_ACCESS_KEY": False,
     "WEBHOOK_SECRET_ENCRYPTION_KEY": True,

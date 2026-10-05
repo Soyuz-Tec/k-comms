@@ -1,0 +1,9 @@
+.role-change-dialog { max-width: min(44rem, calc(100vw - 2rem)); }
+.role-change-preview { display: grid; gap: .75rem; margin-block: 1rem; }
+.role-change-capabilities { padding: .85rem; border: 1px solid var(--border-default); border-radius: .65rem; }
+.role-change-capabilities h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.role-change-capabilities ul { display: grid; gap: .65rem; margin: 0; padding-left: 1.25rem; }
+.role-change-capabilities small { display: block; margin-top: .25rem; }
+.role-change-capabilities p, .role-change-advisory { margin: 0; }
+.role-change-advisory { font-size: .9rem; }
+.role-change-dialog .form-error .button { display: block; margin-top: .75rem; }

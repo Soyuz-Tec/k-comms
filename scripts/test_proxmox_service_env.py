@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Secret isolation, fail-closed parsing, atomic publication and runtime checks."""
 import importlib.util
+import base64
 import os
 from pathlib import Path
 import re
@@ -57,6 +58,54 @@ class ServiceEnvironmentTest(unittest.TestCase):
         self.assertIn("NOTIFICATION_PROVIDER_TOKEN=" + literal + "\n",
                       (self.destination / "current/app.env").read_text())
         self.assertFalse((self.root / "never-execute").exists())
+
+    def test_history_cursor_key_reaches_only_application_replicas(self):
+        synthetic_key = "synthetic-history-cursor-key-dedicated-32-bytes"
+        self.source.write_text(self.source.read_text().replace(
+            "GOV_HISTORY_CURSOR_KEY=", "GOV_HISTORY_CURSOR_KEY=" + synthetic_key))
+        self.generate()
+        self.assertIn("GOV_HISTORY_CURSOR_KEY=" + synthetic_key + "\n",
+                      (self.destination / "current/app.env").read_text())
+        for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+            self.assertNotIn("GOV_HISTORY_CURSOR_KEY",
+                             (self.destination / "current" / f"{service}.env").read_text())
+        envs.check(self.values(), self.destination, self.owner)
+
+    def test_short_history_cursor_key_refuses_rotation_without_secret_output(self):
+        self.generate()
+        previous = os.readlink(self.destination / "current")
+        self.source.write_text(self.source.read_text().replace(
+            "GOV_HISTORY_CURSOR_KEY=", "GOV_HISTORY_CURSOR_KEY=private-short-key"))
+        with self.assertRaises(envs.EnvironmentError) as error:
+            self.generate()
+        self.assertIn("GOV_HISTORY_CURSOR_KEY", str(error.exception))
+        self.assertNotIn("private-short-key", str(error.exception))
+        self.assertEqual(os.readlink(self.destination / "current"), previous)
+
+    def test_history_cursor_rejects_recovery_secret_without_publishing_or_logging(self):
+        self.generate()
+        previous = os.readlink(self.destination / "current")
+        recovery_key = self.values()["PASSWORD_RECOVERY_SIGNING_KEY"]
+        self.source.write_text(self.source.read_text().replace(
+            "GOV_HISTORY_CURSOR_KEY=", "GOV_HISTORY_CURSOR_KEY=" + recovery_key))
+        with self.assertRaises(envs.EnvironmentError) as error:
+            self.generate()
+        self.assertIn("dedicated", str(error.exception))
+        self.assertNotIn(recovery_key, str(error.exception))
+        self.assertEqual(os.readlink(self.destination / "current"), previous)
+
+    def test_history_cursor_rejects_reencoded_rotated_encryption_key(self):
+        synthetic_key = "g" * 32
+        encoded = base64.b64encode(synthetic_key.encode()).decode()
+        source = self.source.read_text().replace(
+            "GOV_HISTORY_CURSOR_KEY=", "GOV_HISTORY_CURSOR_KEY=" + synthetic_key)
+        source = "\n".join(line for line in source.splitlines()
+                           if not line.startswith("WEBHOOK_SECRET_ENCRYPTION_KEYS="))
+        self.source.write_text(source + "\nWEBHOOK_SECRET_ENCRYPTION_KEYS=rotated:" + encoded + "\n")
+        with self.assertRaises(envs.EnvironmentError) as error:
+            self.generate()
+        self.assertNotIn(encoded, str(error.exception))
+        self.assertNotIn(synthetic_key, str(error.exception))
 
     def test_telephony_controls_reach_only_the_application(self):
         self.source.write_text(self.source.read_text().replace(

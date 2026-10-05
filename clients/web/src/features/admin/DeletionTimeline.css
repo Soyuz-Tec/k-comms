@@ -1,0 +1,13 @@
+.deletion-history { width: 100%; min-width: 0; }
+.deletion-history > section { display: grid; gap: 12px; min-width: 0; }
+.deletion-history h3, .deletion-history p { margin: 0; overflow-wrap: anywhere; }
+.deletion-history-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.deletion-history button { min-height: 44px; }
+.deletion-history-events { display: grid; gap: 12px; padding-inline-start: 24px; }
+.deletion-history-events li { padding: 12px; border: 1px solid var(--border-default); border-radius: 8px; min-width: 0; overflow-wrap: anywhere; }
+.deletion-history-events header { display: flex; flex-wrap: wrap; gap: 8px; }
+.deletion-history-coverage { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-default); border-radius: 8px; }
+.deletion-history-current, .deletion-history-facts { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; }
+.deletion-history-current dt, .deletion-history-facts dt { font-weight: 600; }
+.deletion-history-current dd, .deletion-history-facts dd { margin: 0; overflow-wrap: anywhere; }
+.deletion-history-facts > div { display: flex; gap: 6px; flex-wrap: wrap; }
