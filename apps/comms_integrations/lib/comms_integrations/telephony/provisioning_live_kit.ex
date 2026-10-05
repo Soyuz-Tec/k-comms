@@ -2,7 +2,7 @@ defmodule CommsIntegrations.Telephony.ProvisioningLiveKit do
   @moduledoc "Bounded LiveKit SIP management pinned to protocol 1.52.1; credentials stay server-side."
   import Kernel, except: [inspect: 1, inspect: 2]
   @behaviour CommsCore.Telephony.ProvisioningPort.Contract
-  alias CommsCore.Telephony
+  alias CommsCore.Telephony.ProvisioningAuthorityPort
   alias CommsCore.Telephony.ProvisioningRequest
   alias CommsIntegrations.Telephony.Config
   @timeout 3_000
@@ -273,7 +273,7 @@ defmodule CommsIntegrations.Telephony.ProvisioningLiveKit do
 
   defp rpc(method, body, request, mode, config, requester) do
     with :ok <- bound(request),
-         :ok <- Telephony.authorize_phone_provisioning_io(request, mode, __MODULE__) do
+         :ok <- ProvisioningAuthorityPort.authorize_io(request, mode, __MODULE__) do
       now = System.system_time(:second)
 
       claims = %{

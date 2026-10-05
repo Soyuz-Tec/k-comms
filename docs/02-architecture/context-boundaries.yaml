@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
+  sha256: 5816db0a640d4e69aac1beb92992b5219dfcc3c2963eb76559b7c11e62deaacf
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -44,6 +44,28 @@ enforcement:
     removal_condition: Remove this exact ADR-0093 through ADR-0096 transition after the member organization and administrative
       evidence composition reviewed against protected parent 734c9e1daf48f2280789a13f977d220f250b9890 reaches the protected
       branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
+  - id: own-phone-provider-provisioning-default-off
+    previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
+    approved_changes:
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningAuthorityPort
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningPort
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningPort.Contract
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningRequest
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->5816db0a640d4e69aac1beb92992b5219dfcc3c2963eb76559b7c11e62deaacf
+    - table:telephony_provisioning_commands:add:{"canonical_schema":"CommsCore.Telephony.ProvisioningCommand","owner":"telephony","role":"source"}
+    - technical_interfaces:telephony-provider-provisioning-authority:add:{"callers":["CommsCore.Telephony.Provisioning","CommsIntegrations.Telephony.ProvisioningLiveKit"],"condition":"ADR-0107
+      admits only the configured adapter module and exact typed leased command. Telephony rechecks current owner, persisted
+      step-up, eligible assignee, DID binding and CAS before every read and durably consumes the one effect before provider
+      Create. No request may bypass the owner facade or repeat a consumed effect.","contracts":["CommsCore.Telephony.ProvisioningAuthorityPort","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"direct","id":"telephony-provider-provisioning-authority","interface":"CommsCore.Telephony.ProvisioningAuthorityPort","operations":[{"arity":1,"name":"authorized_adapter?"},{"arity":3,"name":"authorize_io"}],"owner":"telephony","transaction":"independent"}
+    - technical_interfaces:telephony-provider-provisioning:add:{"behaviour":"CommsCore.Telephony.ProvisioningPort.Contract","binding":{"application":"comms_core","key":"telephony_provisioning_adapter","module":"CommsIntegrations.Telephony.ProvisioningLiveKit"},"callers":["CommsCore.Telephony.Provisioning","CommsWeb.PhoneProvisioningController"],"condition":"ADR-0107
+      permits only bounded secret-free inspection and a one-shot dispatch-rule create for operator-bound existing tenant trunks
+      and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible assignment and CAS before each read/effect;
+      effects are consumed before dispatch and uncertain results reconcile read-only.","contracts":["CommsCore.Telephony.ProvisioningPort","CommsCore.Telephony.ProvisioningPort.Contract","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"configured","id":"telephony-provider-provisioning","implementation":"CommsIntegrations.Telephony.ProvisioningLiveKit","interface":"CommsCore.Telephony.ProvisioningPort","operations":[{"arity":1,"name":"status"},{"arity":1,"name":"inspect"},{"arity":1,"name":"apply"}],"owner":"telephony","transaction":"independent"}
+    - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Provisioning"
+    adr: docs/02-architecture/adr/0107-own-phone-provider-inspection-and-effect-leases.md
+    removal_condition: Remove this exact ADR-0107 transition after the Phone provisioning composition from immutable Member parent
+      ba228342d830365c8ccf380d8d893bf3c1cd3605 reaches the protected branch; it grants no later facade, ownership, runtime binding,
+      persistence exception or enforcement changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -470,6 +492,7 @@ contexts:
       - CommsCore.Telephony.UsageProjection
       - CommsCore.Telephony.UsageQuery
       - CommsCore.Telephony.ProvisioningRequest
+      - CommsCore.Telephony.ProvisioningAuthorityPort
       - CommsCore.Telephony.ProvisioningPort
       - CommsCore.Telephony.ProvisioningPort.Contract
       - CommsCore.Telephony.CallView
@@ -969,7 +992,7 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsCore.Accounts, CommsCore.AudioCalls.Artifacts, CommsCore.AudioCalls.Meetings, CommsCore.Telephony.Lifecycle, CommsCore.Telephony.Mailboxes, CommsCore.Telephony.Routing, CommsWeb.FallbackController]
+    callers: [CommsCore.Accounts, CommsCore.AudioCalls.Artifacts, CommsCore.AudioCalls.Meetings, CommsCore.Telephony.Lifecycle, CommsCore.Telephony.Mailboxes, CommsCore.Telephony.Provisioning, CommsCore.Telephony.Routing, CommsWeb.FallbackController]
     operations:
       - {name: from, arity: 1}
     dispatch: direct
@@ -1107,6 +1130,18 @@ technical_interfaces:
     condition: ADR-0089 and ADR-0092 permit only the exact typed artifact transcription operations through this Calls-owned
       dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
       provider capability does not establish live provider or production qualification.
+
+  - id: telephony-provider-provisioning-authority
+    owner: telephony
+    interface: CommsCore.Telephony.ProvisioningAuthorityPort
+    callers: [CommsCore.Telephony.Provisioning, CommsIntegrations.Telephony.ProvisioningLiveKit]
+    operations:
+      - {name: "authorized_adapter?", arity: 1}
+      - {name: authorize_io, arity: 3}
+    dispatch: direct
+    contracts: [CommsCore.Telephony.ProvisioningAuthorityPort, CommsCore.Telephony.ProvisioningRequest]
+    transaction: independent
+    condition: ADR-0107 admits only the configured adapter module and exact typed leased command. Telephony rechecks current owner, persisted step-up, eligible assignee, DID binding and CAS before every read and durably consumes the one effect before provider Create. No request may bypass the owner facade or repeat a consumed effect.
 
   - id: telephony-provider-provisioning
     owner: telephony

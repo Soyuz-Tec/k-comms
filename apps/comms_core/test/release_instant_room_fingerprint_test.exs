@@ -24,7 +24,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :phone_provisioning_commands
   ]
 
   defmodule ReadOnlyRepo do
@@ -50,7 +51,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "audio_calls" => "call-internal-id",
             "audio_call_participants" => "participant-internal-id",
             "member_workspaces" => "private-workspace-internal-id",
-            "audit_resource_history_snapshots" => "history-snapshot-internal-id"
+            "audit_resource_history_snapshots" => "history-snapshot-internal-id",
+            "telephony_provisioning_commands" => "phone-receipt-internal-id"
           },
           table
         )
@@ -107,6 +109,7 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
 
     assert output =~ "ephemeral_join_receipts=1"
     assert output =~ "call_participants=1"
+    assert output =~ "phone_provisioning_commands=1"
     assert output =~ ~r/ fingerprint_sha256=[0-9a-f]{64}\z/
 
     for forbidden <- [
@@ -114,7 +117,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
           "tenant-internal-id",
           "user-internal-id",
           "message-internal-id",
-          "call-internal-id"
+          "call-internal-id",
+          "phone-receipt-internal-id"
         ] do
       refute output =~ forbidden
     end

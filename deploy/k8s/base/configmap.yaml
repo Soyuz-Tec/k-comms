@@ -5,6 +5,9 @@ metadata:
   labels:
     app.kubernetes.io/component: configuration
 data:
+  # ADR-0107 provider effects require separate qualification; keep OFF.
+  TELEPHONY_PROVISIONING_ENABLED: "false"
+  TELEPHONY_PROVISIONING_BINDINGS: "{}"
   PORT: "4000"
   PHX_HOST: k-comms.example.invalid
   PUBLIC_APP_URL: https://k-comms.example.invalid
