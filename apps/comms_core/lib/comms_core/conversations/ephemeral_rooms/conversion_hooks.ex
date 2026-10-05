@@ -13,6 +13,10 @@ defmodule CommsCore.Conversations.EphemeralRooms.ConversionHooks do
 
   alias CommsCore.Conversations.EphemeralRooms.{Authority, Events, Scheduler}
 
+  # GuestAccess.Conversion retains the actor and every pending Guest parent
+  # under the shared admission prefix before it locks Conversation or GuestLink.
+  # These hooks consume that already-fenced scope; acquiring new User parents
+  # here would invert the resource order during an idle owner upgrade.
   def lock_conversion_room(%GuestLink{purpose: :ephemeral_room} = link) do
     Repo.one(
       from(room in EphemeralRoom,

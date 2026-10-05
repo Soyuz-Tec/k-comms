@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/meeting-artifact.v1.json",
+  "title": "meeting-artifact.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MeetingArtifact"
+    }
+  ],
+  "$defs": {
+    "MeetingArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "conversation_id",
+        "call_id",
+        "meeting_id",
+        "source_artifact_id",
+        "transcript_language",
+        "kind",
+        "status",
+        "created_at",
+        "started_at",
+        "ended_at",
+        "expires_at",
+        "failure_code",
+        "consent_required_count",
+        "consent_accepted_count",
+        "my_consent",
+        "can_manage",
+        "byte_size",
+        "content_type"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "call_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "meeting_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "source_artifact_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "transcript_language": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "recording",
+            "transcript"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending_consent",
+            "starting",
+            "recording",
+            "stopping",
+            "processing",
+            "available",
+            "failed",
+            "deleting",
+            "deleted"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "failure_code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "consent_required_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "consent_accepted_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "my_consent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "can_manage": {
+          "type": "boolean"
+        },
+        "byte_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 10737418240
+        },
+        "content_type": {
+          "type": "string",
+          "enum": [
+            "video/mp4",
+            "application/json"
+          ]
+        }
+      }
+    }
+  }
+}

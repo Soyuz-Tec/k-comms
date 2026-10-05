@@ -402,6 +402,10 @@ export function resetChatPageHarness() {
       data: [],
       page: { limit: 25, has_more: false, next_cursor: null }
     }),
+    unifiedSearch: vi.fn().mockResolvedValue({
+      data: [], facets: {},
+      page: { has_more: false, next_cursor: null, source_limits: { messages: false, files: false, whiteboards: false, meetings: false, artifacts: false }, ranking_scope: "authorized_source_candidates", meeting_window_days: 732 }
+    }),
     createModerationCase: vi.fn().mockResolvedValue({ id: "case-1" }),
     messageThread: vi.fn().mockResolvedValue({
       data: { root: message(1), replies: [], reply_count: 0 },

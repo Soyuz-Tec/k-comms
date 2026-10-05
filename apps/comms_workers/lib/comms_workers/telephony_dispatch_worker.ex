@@ -40,7 +40,11 @@ defmodule CommsWorkers.TelephonyDispatchWorker do
   end
 
   defp reconcile(%ProviderCommand{} = command) do
-    case Provider.get_participant(command.provider_room, command.provider_identity) do
+    result =
+      with :ok <- Provider.resume_route(command),
+           do: Provider.get_participant(command.provider_room, command.provider_identity)
+
+    case result do
       {:ok, %{state: :answered} = participant} ->
         complete({:ok, participant}, command.call_id)
 

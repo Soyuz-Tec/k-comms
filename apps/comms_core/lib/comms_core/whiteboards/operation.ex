@@ -15,6 +15,7 @@ defmodule CommsCore.Whiteboards.Operation do
     field(:sequence, :integer)
     field(:kind, :string)
     field(:payload, :map, default: %{})
+    field(:source_actor_user_ids, {:array, Ecto.UUID}, default: [])
     timestamps(updated_at: false)
   end
 
@@ -29,7 +30,8 @@ defmodule CommsCore.Whiteboards.Operation do
       :client_operation_id,
       :sequence,
       :kind,
-      :payload
+      :payload,
+      :source_actor_user_ids
     ])
     |> validate_required([
       :whiteboard_id,

@@ -32,6 +32,10 @@ defmodule CommsCore.Whiteboards do
           CommsCore.Whiteboards.ActivityView.t()
           | CommsCore.Whiteboards.OperationView.t()
           | CommsCore.Whiteboards.SearchResult.t()
+          | CommsCore.Whiteboards.BoardView.t()
+          | CommsCore.Whiteboards.VersionView.t()
+          | CommsCore.Whiteboards.AssetView.t()
+          | CommsCore.Whiteboards.BoardAssetReceipt.t()
 
   @type public_value :: public_scalar() | public_map() | public_contract()
   @type public_input ::
@@ -76,6 +80,32 @@ defmodule CommsCore.Whiteboards do
 
   defdelegate search(query, subject, opts \\ []), to: Queries
   defdelegate activity(conversation_id, subject, opts \\ []), to: Queries
+
+  @spec gallery(public_map(), public_map()) :: public_response()
+  defdelegate gallery(subject, params), to: CommsCore.Whiteboards.Library
+  @spec rename(binary(), public_map(), public_map()) :: public_response()
+  defdelegate rename(conversation_id, attrs, subject), to: CommsCore.Whiteboards.Library
+  @spec versions(binary(), public_map()) :: public_response()
+  defdelegate versions(conversation_id, subject), to: CommsCore.Whiteboards.Library
+  @spec checkpoint(binary(), public_map(), public_map()) :: public_response()
+  defdelegate checkpoint(conversation_id, attrs, subject), to: CommsCore.Whiteboards.Library
+  @spec restore(binary(), binary(), public_map(), public_map()) :: public_response()
+  defdelegate restore(conversation_id, version_id, attrs, subject),
+    to: CommsCore.Whiteboards.Library
+
+  @spec export(binary(), public_map()) :: public_response()
+  defdelegate export(conversation_id, subject), to: CommsCore.Whiteboards.Library
+  @spec add_asset(binary(), binary(), public_map()) :: public_response()
+  defdelegate add_asset(conversation_id, attachment_id, subject),
+    to: CommsCore.Whiteboards.Library
+
+  @spec asset_download(binary(), binary(), public_map()) :: public_response()
+  defdelegate asset_download(conversation_id, asset_id, subject),
+    to: CommsCore.Whiteboards.Library
+
+  @doc false
+  @spec rollback_rich_content_hazard_count() :: non_neg_integer()
+  defdelegate rollback_rich_content_hazard_count(), to: CommsCore.Whiteboards.Library
 
   @doc "Contributes whiteboard erasure to an existing governance transaction."
   defdelegate erase_for_governance(tenant_id, target_type, target_id, timestamp),

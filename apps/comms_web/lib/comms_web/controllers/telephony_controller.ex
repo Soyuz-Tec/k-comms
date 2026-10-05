@@ -9,7 +9,16 @@ defmodule CommsWeb.TelephonyController do
 
   plug(
     CommsWeb.Plugs.RequireSecureTransport
-    when action in [:create, :answer, :join, :provision]
+    when action in [
+           :create,
+           :answer,
+           :join,
+           :provision,
+           :control,
+           :complete_control,
+           :save_route,
+           :reconcile_control
+         ]
   )
 
   def config(conn, _params) do
@@ -84,6 +93,50 @@ defmodule CommsWeb.TelephonyController do
       json(conn, %{data: TelephonyPresenter.call(call)})
     end
   end
+
+  def routes(conn, _params) do
+    with {:ok, result} <- Telephony.list_routes(conn.assigns.current_subject),
+         do: json(conn, %{data: result.routes, limit: result.limit})
+  end
+
+  def save_route(conn, params) do
+    with {:ok, route} <- Telephony.save_route(params, conn.assigns.current_subject),
+         do: json(conn, %{data: route})
+  end
+
+  def capabilities(conn, _params) do
+    with {:ok, capabilities} <- Telephony.control_capabilities(conn.assigns.current_subject),
+         do: json(conn, %{data: capabilities})
+  end
+
+  def controls(conn, %{"id" => id}) do
+    with {:ok, result} <- Telephony.list_controls(id, conn.assigns.current_subject),
+         do: json(conn, %{data: Enum.map(result.commands, &control_view/1), limit: result.limit})
+  end
+
+  def control(conn, %{"id" => id} = params) do
+    with {:ok, receipt} <- Telephony.request_control(id, params, conn.assigns.current_subject),
+         do: json(conn, %{data: control_view(receipt)})
+  end
+
+  def complete_control(conn, %{"id" => id, "command_id" => command_id} = params) do
+    with {:ok, receipt} <-
+           Telephony.complete_browser_control(
+             id,
+             command_id,
+             params,
+             conn.assigns.current_subject
+           ),
+         do: json(conn, %{data: control_view(receipt)})
+  end
+
+  def reconcile_control(conn, %{"id" => id, "command_id" => command_id}) do
+    with {:ok, receipt} <-
+           Telephony.reconcile_control(id, command_id, conn.assigns.current_subject),
+         do: json(conn, %{data: control_view(receipt)})
+  end
+
+  defp control_view(receipt), do: Map.from_struct(receipt)
 
   defp with_credential(conn, call, credential) do
     json(conn, %{data: TelephonyPresenter.call(call), credential: credential})

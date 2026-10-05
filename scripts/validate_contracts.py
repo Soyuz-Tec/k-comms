@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import yaml
 from jsonschema.validators import validator_for
@@ -76,6 +77,7 @@ WHITEBOARD_ELEMENT_TYPES = {
     "freedraw",
     "text",
     "frame",
+    "image",
 }
 
 REQUIRED_MUTATION_BODIES = {
@@ -269,18 +271,61 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 
 def validate_refs(value: Any, source: Path) -> None:
-    if isinstance(value, dict):
-        ref = value.get("$ref")
-        if isinstance(ref, str) and not ref.startswith("#/"):
-            target_text = ref.split("#", 1)[0]
-            target = (source.parent / target_text).resolve()
-            if not target.is_file():
-                raise ValueError(f"unresolved reference {ref!r} in {source}")
-        for child in value.values():
-            validate_refs(child, source)
-    elif isinstance(value, list):
-        for child in value:
-            validate_refs(child, source)
+    """Check local JSON Pointers and retain external file-existence checks."""
+
+    def validate_local_pointer(ref: str) -> None:
+        try:
+            pointer = unquote(ref[1:], errors="strict")
+            if not pointer:
+                return
+            if not pointer.startswith("/"):
+                raise ValueError("local reference must be a JSON Pointer")
+            target = value
+            for encoded_segment in pointer[1:].split("/"):
+                for index, character in enumerate(encoded_segment):
+                    if character == "~" and (
+                        index + 1 == len(encoded_segment)
+                        or encoded_segment[index + 1] not in "01"
+                    ):
+                        raise ValueError("invalid JSON Pointer escape")
+                segment = encoded_segment.replace("~1", "/").replace("~0", "~")
+                if isinstance(target, dict):
+                    target = target[segment]
+                elif isinstance(target, list):
+                    if (
+                        not segment.isascii()
+                        or not segment.isdecimal()
+                        or (len(segment) > 1 and segment.startswith("0"))
+                    ):
+                        raise ValueError("invalid JSON Pointer array index")
+                    target = target[int(segment)]
+                else:
+                    raise ValueError("JSON Pointer traverses a scalar")
+        except (KeyError, IndexError, ValueError) as error:
+            raise ValueError(f"unresolved reference {ref!r} in {source}") from error
+
+    # Walk the document itself, never dereference targets recursively. Recursive
+    # schemas therefore terminate; identity tracking also handles YAML aliases.
+    pending = [value]
+    visited: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if not isinstance(node, (dict, list)) or id(node) in visited:
+            continue
+        visited.add(id(node))
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str):
+                if ref.startswith("#"):
+                    validate_local_pointer(ref)
+                else:
+                    target_text = ref.split("#", 1)[0]
+                    target = (source.parent / target_text).resolve()
+                    if not target.is_file():
+                        raise ValueError(f"unresolved reference {ref!r} in {source}")
+            pending.extend(node.values())
+        else:
+            pending.extend(node)
 
 
 def validate_mutation_contracts(openapi: dict[str, Any]) -> None:
@@ -348,7 +393,7 @@ def validate_telephony_contract(openapi: dict[str, Any]) -> None:
     expected_call_fields = {
         "id", "direction", "status", "from_number", "to_number", "extension",
         "started_at", "answered_at", "ended_at", "connected_seconds",
-        "can_answer", "can_join", "can_end", "active_on_this_device", "end_reason",
+        "can_answer", "can_join", "can_end", "active_on_this_device", "end_reason", "control_state",
     }
     if (
         call.get("additionalProperties") is not False
@@ -357,6 +402,8 @@ def validate_telephony_contract(openapi: dict[str, Any]) -> None:
     ):
         raise ValueError("TelephonyCall must expose only the frozen individual call projection")
     properties = call["properties"]
+    if set(properties.get("control_state", {}).get("enum", [])) != {"connected", "held", "consulting", "transferred", "voicemail"}:
+        raise ValueError("TelephonyCall must describe the bounded control state")
     if set(properties.get("status", {}).get("enum", [])) != {
         "ringing", "answered", "declined", "busy", "no_answer", "cancelled", "failed", "ended"
     }:
@@ -1905,6 +1952,25 @@ def validate_call_realtime_contract(asyncapi: dict[str, Any]) -> None:
             )
 
 
+def validate_whiteboard_image_reference(element: dict[str, Any]) -> None:
+    """Image elements name an approved durable asset, never arbitrary image bytes or URLs."""
+
+    expected = {
+        "if": {"properties": {"type": {"const": "image"}}, "required": ["type"]},
+        "then": {
+            "required": ["fileId"],
+            "properties": {
+                "fileId": {"type": "string", "format": "uuid"},
+                "dataURL": {"type": "null"},
+                "src": {"type": "null"},
+                "url": {"type": "null"},
+            },
+        },
+    }
+    if expected not in element.get("allOf", []):
+        raise ValueError("Whiteboard images require a durable asset UUID and reject inline or remote image data")
+
+
 def validate_whiteboard_contract(openapi: dict[str, Any]) -> None:
     """Keep durable whiteboard limits and scoped member/guest APIs explicit."""
 
@@ -2014,6 +2080,8 @@ def validate_whiteboard_contract(openapi: dict[str, Any]) -> None:
     ):
         raise ValueError("OpenAPI whiteboard elements must preserve the safe SDK subset")
 
+    validate_whiteboard_image_reference(element)
+
     elements = (
         schemas.get("WhiteboardScenePayload", {})
         .get("properties", {})
@@ -2073,6 +2141,10 @@ def validate_whiteboard_realtime_contract(asyncapi: dict[str, Any]) -> None:
             raise ValueError(f"AsyncAPI {operation_name} has an incomplete whiteboard message set")
 
     schemas = asyncapi.get("components", {}).get("schemas", {})
+    image_element = schemas.get("WhiteboardElementPayload", {})
+    if set(image_element.get("properties", {}).get("type", {}).get("enum", [])) != WHITEBOARD_ELEMENT_TYPES:
+        raise ValueError("AsyncAPI whiteboard elements must preserve the safe SDK subset")
+    validate_whiteboard_image_reference(image_element)
     pointer = schemas.get("WhiteboardPointer", {})
     if set(pointer.get("required", [])) != {"x", "y", "tool"} or pointer.get(
         "properties", {}
@@ -2111,6 +2183,55 @@ def validate_whiteboard_realtime_contract(asyncapi: dict[str, Any]) -> None:
         raise ValueError("AsyncAPI whiteboard operation must match the emitted projection")
 
 
+def validate_enterprise_identity_contract(openapi: dict[str, Any]) -> None:
+    """Freeze new credential boundaries and the factor challenge/session distinction."""
+
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    login = paths.get("/api/v1/sessions", {}).get("post", {}).get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema", {})
+    expected = {"#/components/schemas/TokenResponse", "#/components/schemas/MfaChallenge"}
+    if {item.get("$ref") for item in login.get("oneOf", [])} != expected:
+        raise ValueError("Password sign in must distinguish a session from an MFA challenge")
+    challenge = schemas.get("MfaChallenge", {})
+    if challenge.get("additionalProperties") is not False or set(challenge.get("required", [])) != {"mfa_required", "challenge_token", "expires_in"} or set(challenge.get("properties", {})) != {"mfa_required", "challenge_token", "expires_in"} or challenge.get("properties", {}).get("expires_in") != {"const": 300}:
+        raise ValueError("MFA challenges must be bounded, one-use, and contain no session credentials")
+    token = challenge["properties"].get("challenge_token", {})
+    if token.get("minLength") != 32 or token.get("maxLength") != 256 or challenge["properties"].get("mfa_required") != {"const": True}:
+        raise ValueError("MFA challenges require a bounded unpredictable protocol credential")
+    public_paths = ["/api/v1/auth/mfa", "/api/v1/auth/oidc/start", "/api/v1/auth/oidc/callback"]
+    for path in public_paths:
+        if paths.get(path, {}).get("post", {}).get("security") != []:
+            raise ValueError(f"Enterprise authentication operation must explicitly use protocol credentials: {path}")
+    protected_paths = ["/api/v1/me/security", "/api/v1/me/mfa/enroll", "/api/v1/me/mfa/confirm", "/api/v1/me/mfa/disable", "/api/v1/me/mfa/recovery-codes", "/api/v1/me/oidc/link/start", "/api/v1/me/oidc/link/callback", "/api/v1/me/oidc/step-up/start", "/api/v1/me/availability"]
+    for path in protected_paths:
+        if not paths.get(path):
+            raise ValueError(f"Identity security operation is missing: {path}")
+        for method, operation in paths.get(path, {}).items():
+            if method in {"get", "post", "put"} and operation.get("security") != [{"bearerAuth": []}]:
+                raise ValueError(f"Identity security requires the current human session: {path}")
+    for path, item in paths.items():
+        if not path.startswith("/scim/v2/"):
+            continue
+        for method, operation in item.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            if operation.get("security") != [{"serviceAccountAuth": []}] or operation.get("x-required-scope") != ("scim:read" if method == "get" else "scim:write"):
+                raise ValueError("SCIM requires dedicated tenant-scoped service credentials")
+            for response in operation.get("responses", {}).values():
+                if "content" in response and set(response["content"]) != {"application/scim+json"}:
+                    raise ValueError("SCIM resource and error responses require application/scim+json")
+            if method in {"put", "patch", "delete"} and not any(parameter.get("name") == "If-Match" and parameter.get("required") is True for parameter in operation.get("parameters", [])):
+                raise ValueError("SCIM lifecycle mutations require the observed resource version")
+    denied = {"roles", "role", "entitlements", "platform_role", "password", "groups", "account_type"}
+    for name in ["ScimUserCreate", "ScimUserUpdate", "ScimGroupCreate", "ScimGroupUpdate"]:
+        schema = schemas.get(name, {})
+        if schema.get("additionalProperties") is not False or denied & set(schema.get("properties", {})):
+            raise ValueError("SCIM resource requests cannot grant application authority")
+    codes = schemas.get("RecoveryCodes", {}).get("properties", {}).get("recovery_codes", {})
+    if codes.get("minItems") != 10 or codes.get("maxItems") != 10:
+        raise ValueError("MFA recovery code receipt must contain exactly ten one-use codes")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2134,6 +2255,7 @@ def main() -> None:
     validate_instant_room_contract(openapi)
     validate_guest_contract(openapi)
     validate_whiteboard_contract(openapi)
+    validate_enterprise_identity_contract(openapi)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

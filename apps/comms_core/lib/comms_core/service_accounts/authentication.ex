@@ -44,20 +44,152 @@ defmodule CommsCore.ServiceAccounts.Authentication do
     end
   end
 
-  def authorize(subject, required_scope)
-      when is_map(subject) and is_binary(required_scope) do
+  def authorize(subject, required_scope),
+    do: authorize(subject, required_scope, System.monotonic_time(:millisecond) + 30_000)
+
+  # SCIM validates the request before resolving its managed identity lock set.
+  # This read never retains an earlier service-User lock, even when an owner
+  # caller supplied a surrounding transaction; authorize/4 is mandatory for
+  # the actual write and retains the complete canonical set through commit.
+  def preflight(subject, required_scope) when is_map(subject) and is_binary(required_scope) do
     with true <- value(subject, :auth_type) == :service,
          true <- required_scope in ServiceAccount.scopes(),
          {:ok, identity_key} <- service_identity_key(subject),
          %ServiceAccount{} = account <- current_service_account(identity_key),
-         true <- required_scope in account.scopes do
+         true <- required_scope in account.scopes,
+         true <- DateTime.compare(account.expires_at, now()) == :gt do
       :ok
     else
       _ -> {:error, :forbidden}
     end
   end
 
-  def authorize(_, _), do: {:error, :forbidden}
+  def preflight(_, _), do: {:error, :forbidden}
+
+  def authorize(subject, required_scope, deadline)
+      when is_map(subject) and is_binary(required_scope) and is_integer(deadline),
+      do: authorize(subject, required_scope, deadline, [])
+
+  def authorize(_, _, _), do: {:error, :forbidden}
+
+  def authorize(subject, required_scope, deadline, managed_user_ids)
+      when is_map(subject) and is_binary(required_scope) and is_integer(deadline) and
+             is_list(managed_user_ids) and length(managed_user_ids) <= 1 do
+    with true <- value(subject, :auth_type) == :service,
+         true <- required_scope in ServiceAccount.scopes(),
+         {:ok, identity_key} <- service_identity_key(subject),
+         :ok <- lock_transaction_identity(identity_key, deadline, managed_user_ids),
+         :ok <- refresh_query_budget(deadline),
+         %ServiceAccount{} = account <- current_service_account(identity_key),
+         true <- required_scope in account.scopes,
+         true <- DateTime.compare(account.expires_at, now()) == :gt,
+         :ok <- refresh_query_budget(deadline) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize(_, _, _, _), do: {:error, :forbidden}
+
+  # A transactional writer retains credential authority through its effect.
+  # Match rotation/revocation's account -> users -> service device order;
+  # taking a user before the account would invert disable_account!/3's locks.
+  # SCIM retains its exact managed target in the same canonical User ordering
+  # used by governance. Mutation targets retain NO KEY UPDATE from their first
+  # acquisition; the service actor otherwise retains its existing SHARE mode.
+  # The final projection below reads the current time and credential generation
+  # after any waits, rather than trusting the authenticated request snapshot.
+  defp lock_transaction_identity(identity_key, deadline, managed_user_ids) do
+    if Repo.in_transaction?() do
+      with :ok <- refresh_query_budget(deadline),
+           {:ok, _policy} <- Administration.lock_call_policy(identity_key.tenant_id),
+           :ok <- refresh_query_budget(deadline),
+           %ServiceAccount{} <-
+             Repo.one(
+               from(account in ServiceAccount,
+                 where:
+                   account.id == ^identity_key.service_account_id and
+                     account.tenant_id == ^identity_key.tenant_id and
+                     account.user_id == ^identity_key.user_id and
+                     account.device_id == ^identity_key.device_id and
+                     account.credential_generation == ^identity_key.credential_generation,
+                 lock: "FOR SHARE"
+               )
+             ),
+           :ok <- lock_identity_users(identity_key, managed_user_ids, deadline),
+           :ok <- refresh_query_budget(deadline),
+           %Device{} <-
+             Repo.one(
+               from(device in Device,
+                 where:
+                   device.id == ^identity_key.device_id and
+                     device.user_id == ^identity_key.user_id and
+                     device.tenant_id == ^identity_key.tenant_id,
+                 lock: "FOR SHARE"
+               )
+             ) do
+        :ok
+      else
+        _ -> {:error, :forbidden}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp lock_identity_users(identity_key, managed_user_ids, deadline)
+       when is_list(managed_user_ids) and length(managed_user_ids) <= 1 do
+    user_ids = Enum.sort(Enum.uniq([identity_key.user_id | managed_user_ids]))
+
+    if Enum.all?(user_ids, &match?({:ok, _}, Ecto.UUID.cast(&1))) do
+      Enum.reduce_while(user_ids, :ok, fn user_id, :ok ->
+        query =
+          from(user in User,
+            where: user.id == ^user_id and user.tenant_id == ^identity_key.tenant_id,
+            order_by: [asc: user.id],
+            select: user.id
+          )
+
+        query =
+          if user_id in managed_user_ids,
+            do: from(user in query, lock: "FOR NO KEY UPDATE"),
+            else: from(user in query, lock: "FOR SHARE")
+
+        with :ok <- refresh_query_budget(deadline),
+             ^user_id <- Repo.one(query),
+             :ok <- refresh_query_budget(deadline) do
+          {:cont, :ok}
+        else
+          _ -> {:halt, {:error, :forbidden}}
+        end
+      end)
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp lock_identity_users(_, _, _), do: {:error, :forbidden}
+
+  defp refresh_query_budget(deadline) do
+    if Repo.in_transaction?() do
+      remaining = deadline - System.monotonic_time(:millisecond) - 1_000
+
+      if remaining > 0 do
+        Ecto.Adapters.SQL.query!(
+          Repo,
+          "SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $1, true)",
+          [Integer.to_string(remaining)]
+        )
+
+        :ok
+      else
+        {:error, :forbidden}
+      end
+    else
+      :ok
+    end
+  end
 
   defp current_service_account(identity_key) do
     timestamp = now()

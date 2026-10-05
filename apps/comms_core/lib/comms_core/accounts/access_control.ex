@@ -6,6 +6,7 @@ defmodule CommsCore.Accounts.AccessControl do
   alias CommsCore.Accounts.{
     AccessGrant,
     Device,
+    MfaFactor,
     PlatformRoleGrant,
     Session,
     User
@@ -32,6 +33,8 @@ defmodule CommsCore.Accounts.AccessControl do
             on: u.id == s.user_id,
             join: d in Device,
             on: d.id == s.device_id,
+            left_join: f in MfaFactor,
+            on: f.user_id == u.id and f.tenant_id == u.tenant_id,
             left_join: g in PlatformRoleGrant,
             on:
               g.user_id == u.id and g.tenant_id == u.tenant_id and
@@ -46,7 +49,8 @@ defmodule CommsCore.Accounts.AccessControl do
                       u.guest_expires_at > ^timestamp)) and d.id == ^device_id and
                 d.tenant_id == ^tenant_id and d.user_id == ^user_id and
                 is_nil(d.revoked_at) and is_nil(s.revoked_at) and
-                s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp,
+                s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
+                (is_nil(f.enabled_at) or not is_nil(s.mfa_verified_at)),
             select: %{
               tenant_id: s.tenant_id,
               user_id: s.user_id,

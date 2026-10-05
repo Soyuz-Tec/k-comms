@@ -212,6 +212,8 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .transport-warning strong { color: var(--warning-text); }
 
 .auth-form { display: grid; gap: 1rem; }
+.auth-login-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.auth-login-actions .button { min-width: 0; white-space: normal; }
 .auth-form-help { display: flex; justify-content: flex-end; margin-top: -.45rem; font-size: var(--text-xs); }
 .auth-form-help a,
 .recovery-back-link {

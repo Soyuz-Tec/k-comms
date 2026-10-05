@@ -98,8 +98,15 @@ defmodule CommsCore.OwnerAuthorizationTest do
 
     assert {:ok, {:error, :forbidden}} =
              Repo.transaction(fn ->
-               Messaging.delete_message(message.id, subject, fn _candidate -> :ok end)
+               Messaging.delete_message(message.id, subject, fn _candidate ->
+                 flunk("revoked authority must not reach the policy contribution")
+               end)
              end)
+
+    unchanged = Repo.get!(Messaging.Message, message.id)
+    assert unchanged.status == :active
+    assert unchanged.body == "authorized before revocation"
+    assert CommsCore.Audit.count(%{tenant_id: account.tenant.id, action: "message.deleted"}) == 0
 
     assert {:error, :forbidden} = Administration.authorize_administer_tenant(subject)
 

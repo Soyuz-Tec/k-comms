@@ -3,7 +3,7 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
 
   import Ecto.Query
 
-  alias CommsCore.{AdmissionQuotas, Audit, Repo}
+  alias CommsCore.{Accounts, AdmissionQuotas, Audit, Repo}
 
   alias CommsCore.Conversations.{
     Conversation,
@@ -28,6 +28,7 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
          %GuestAdmission{} = snapshot <-
            admission_snapshot(admission_id, conversation_id, guest_subject) do
       case Repo.transaction(fn ->
+             lock_parents!(snapshot)
              _policy = admission_policy!(snapshot.tenant_id)
              _conversation = lock_expiry_conversation!(snapshot)
              link = lock_expiry_link!(snapshot)
@@ -66,6 +67,7 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
                )
              end
 
+             lock_parents!(snapshot)
              :ok
            end) do
         {:ok, :ok} -> :ok
@@ -83,46 +85,51 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
     with {:ok, admission_id} <- Ecto.UUID.cast(admission_id),
          %GuestAdmission{} = snapshot <- Repo.get(GuestAdmission, admission_id) do
       Repo.transaction(fn ->
+        lock_parents!(snapshot)
         _policy = admission_policy!(snapshot.tenant_id)
         _conversation = lock_expiry_conversation!(snapshot)
         _link = lock_expiry_link!(snapshot)
         admission = lock_expiry_admission!(snapshot)
 
-        cond do
-          admission.revoked_at || admission.converted_at ->
-            :already_terminal
+        result =
+          cond do
+            admission.revoked_at || admission.converted_at ->
+              :already_terminal
 
-          true ->
-            membership = Revocation.lock_admission_membership!(admission)
-            timestamp = now()
+            true ->
+              membership = Revocation.lock_admission_membership!(admission)
+              timestamp = now()
 
-            if DateTime.compare(admission.expires_at, timestamp) == :gt do
-              {:not_due, max(DateTime.diff(admission.expires_at, timestamp, :second), 1)}
-            else
-              Revocation.revoke_locked_admission!(
-                admission,
-                membership,
-                timestamp,
-                "guest_admission_expired",
-                call_access_revoker
-              )
+              if DateTime.compare(admission.expires_at, timestamp) == :gt do
+                {:not_due, max(DateTime.diff(admission.expires_at, timestamp, :second), 1)}
+              else
+                Revocation.revoke_locked_admission!(
+                  admission,
+                  membership,
+                  timestamp,
+                  "guest_admission_expired",
+                  call_access_revoker
+                )
 
-              audit!(
-                admission.tenant_id,
-                nil,
-                "conversation.guest.expired",
-                "conversation_guest_admission",
-                admission.id,
-                %{
-                  conversation_id: admission.conversation_id,
-                  guest_link_id: admission.guest_link_id
-                },
-                "guest-admission-expiry:#{admission.id}"
-              )
+                audit!(
+                  admission.tenant_id,
+                  nil,
+                  "conversation.guest.expired",
+                  "conversation_guest_admission",
+                  admission.id,
+                  %{
+                    conversation_id: admission.conversation_id,
+                    guest_link_id: admission.guest_link_id
+                  },
+                  "guest-admission-expiry:#{admission.id}"
+                )
 
-              :expired
-            end
-        end
+                :expired
+              end
+          end
+
+        lock_parents!(snapshot)
+        result
       end)
       |> transaction_result()
     else
@@ -174,7 +181,9 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
         where:
           admission.id == ^snapshot.id and admission.tenant_id == ^snapshot.tenant_id and
             admission.conversation_id == ^snapshot.conversation_id and
-            admission.guest_link_id == ^snapshot.guest_link_id,
+            admission.guest_link_id == ^snapshot.guest_link_id and
+            admission.guest_user_id == ^snapshot.guest_user_id and
+            admission.session_id == ^snapshot.session_id,
         lock: "FOR UPDATE"
       )
     ) || Repo.rollback(:guest_admission_not_found)
@@ -191,6 +200,18 @@ defmodule CommsCore.Conversations.GuestAccess.AdmissionLifecycle do
            request_id: request_id
          }) do
       {:ok, _event} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_parents!(snapshot) do
+    case Accounts.lock_guest_identity_parents(%Accounts.GuestIdentityParentsLockQuery{
+           tenant_id: snapshot.tenant_id,
+           user_ids: [snapshot.guest_user_id],
+           deadline: System.monotonic_time(:millisecond) + 15_000,
+           require_active_tenant: false
+         }) do
+      {:ok, receipt} -> receipt
       {:error, reason} -> Repo.rollback(reason)
     end
   end

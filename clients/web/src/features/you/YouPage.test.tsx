@@ -58,6 +58,11 @@ describe("YouPage", () => {
     expect(screen.getByRole("tab", { name: "Security" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "Notifications" })).toBeVisible();
     expect(sections).toContainElement(screen.getByRole("tab", { name: "Profile" }));
+    const workspace = screen.getByRole("navigation", { name: "Workspace" });
+    expect(workspace).toContainElement(screen.getByRole("link", { name: "Meetings" }));
+    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
+    expect(workspace).toContainElement(screen.getByRole("link", { name: "Saved items" }));
+    expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
   });
 
   it("provides direct role-gated people, safety and operations entries", () => {

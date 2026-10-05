@@ -1,13 +1,16 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { Call, Conversation } from "../../types";
+import type { MeetingArtifact, MeetingArtifactPage } from "../../types/meeting-artifacts";
 import { CallPanel } from "./CallPanel";
 import {
   resetProtectedSurfacesForTest,
   setProtectedSurface
 } from "../experience/companion-collision";
+import { setExperienceModeSnapshot } from "../experience/experience-mode-store";
+import { OVERLAY_IDLE_MS } from "../experience/overlay-visibility";
 
 const livekit = vi.hoisted(() => ({
   events: {
@@ -149,6 +152,24 @@ function apiWith(active: Call | null) {
   } as unknown as ApiClient;
 }
 
+function apiWithCapture(active: Call, status: "pending_consent" | "recording" | "stopping") {
+  const artifact: MeetingArtifact = {
+    id: "recording-1", conversation_id: conversation.id, call_id: active.id,
+    kind: "recording", status, created_at: "2026-10-04T12:00:00Z",
+    expires_at: "2026-11-04T12:00:00Z", consent_required_count: 2,
+    consent_accepted_count: status === "pending_consent" ? 0 : 2,
+    my_consent: status !== "pending_consent", can_manage: false, content_type: "video/mp4"
+  };
+  const page: MeetingArtifactPage = {
+    data: [artifact], capabilities: {
+      recording: true, recording_reason: "qualified", participant_consent_required: true,
+      persistent_transcript: false, persistent_transcript_reason: "qualified_provider_required",
+      captions: "provider_events_only", automatic_capture: false
+    }
+  };
+  return Object.assign(apiWith(active), { meetingArtifacts: vi.fn().mockResolvedValue(page), consentRecording: vi.fn() });
+}
+
 function remoteParticipant(
   id: string,
   name: string,
@@ -193,6 +214,11 @@ function useMobileCallLayout() {
 }
 
 describe("CallPanel calls", () => {
+  afterEach(() => {
+    act(() => setExperienceModeSnapshot("workspace"));
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     // Collision signals are module state; one test must not leak into the next.
     resetProtectedSurfacesForTest();
@@ -542,6 +568,62 @@ describe("CallPanel calls", () => {
 
     // The restore target stays visible: minimize must never be a one-way door.
     expect(within(dock).getByRole("button", { name: "Show call" })).toBeVisible();
+  });
+
+  it.each([
+    ["pending_consent", "Review recording consent", "Recording consent requested"],
+    ["recording", "Review active recording", "Recording active"],
+    ["stopping", "Review active recording", "Recording stopping"]
+  ] as const)("keeps the %s recording cue reachable outside minimized and collapsed artifact details", async (status, accessibleName, label) => {
+    const api = apiWithCapture(activeAudioCall, status);
+    const user = userEvent.setup();
+    render(<CallPanel api={api} conversation={conversation} audioEnabled videoEnabled currentUserDisplayName="Ada" />);
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Join the audio call" })).getByRole("button", { name: "Join muted" }));
+
+    const dock = await screen.findByRole("region", { name: "Design group" });
+    const cue = await within(dock).findByRole("button", { name: accessibleName });
+    expect(dock).toHaveClass("minimized");
+    expect(cue).toHaveTextContent(label);
+    expect(cue.closest("[inert], [aria-hidden='true']")).toBeNull();
+    expect(cue.closest(".call-critical-status")).not.toBeNull();
+    expect(api.meetingArtifacts).toHaveBeenCalledWith(conversation.id, activeAudioCall.id);
+    expect(api.consentRecording).not.toHaveBeenCalled();
+
+    await user.click(cue);
+    expect(dock).not.toHaveClass("minimized");
+    const details = dock.querySelector(".call-artifacts-details");
+    expect(details).toHaveAttribute("open");
+    await user.click(within(dock).getByText("Recording and captions", { selector: "summary" }));
+    await waitFor(() => expect(details).not.toHaveAttribute("open"));
+    expect(within(dock).getByRole("button", { name: accessibleName })).toHaveTextContent(label);
+    await user.click(within(dock).getByRole("button", { name: "Minimize" }));
+    expect(dock).toHaveClass("minimized");
+    expect(within(dock).getByRole("button", { name: accessibleName }).closest("[inert], [aria-hidden='true']")).toBeNull();
+    expect(within(dock).getByRole("button", { name: accessibleName }).closest(".call-critical-status")).not.toBeNull();
+    expect(livekit.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("keeps recording disclosure outside the immersive controls when those controls become idle", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setExperienceModeSnapshot("immersive");
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<CallPanel api={apiWithCapture(activeVideoCall, "recording")} conversation={conversation} audioEnabled videoEnabled currentUserDisplayName="Ada" />);
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Join the video call" })).getByRole("button", { name: "Join video call" }));
+    const dock = await screen.findByRole("dialog", { name: "Design group" });
+    await within(dock).findByRole("button", { name: "Review active recording" });
+    act(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+    fireEvent.blur(dock, { relatedTarget: document.body });
+    fireEvent.pointerLeave(dock);
+    await act(async () => { await vi.advanceTimersByTimeAsync(OVERLAY_IDLE_MS + 1); });
+
+    expect(dock).toHaveAttribute("data-controls", "collapsed");
+    const cue = within(dock).getByRole("button", { name: "Review active recording" });
+    expect(cue).toHaveTextContent("Recording active");
+    expect(cue.closest("[inert], [aria-hidden='true']")).toBeNull();
+    expect(cue.closest(".audio-call-dock-heading")).toBeNull();
+    expect(cue.closest(".call-critical-status")).not.toBeNull();
   });
 
   it("offers keyboard and preset placement on the minimized companion", async () => {

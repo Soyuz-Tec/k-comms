@@ -251,19 +251,20 @@ before a target bundle is applied. The procedure records the current image,
 derives the exact target digest and the identical edge/worker
 `k-comms.soyuz-tec.io/rollback-capabilities` annotation, deletes both HPAs,
 scales edge and worker to zero, verifies no writer pods remain, and runs
-`CommsCore.Release.assert_guest_rollback_compatible!()` from the current image.
+`CommsCore.Release.assert_communication_rollback_compatible!()` from the current image.
 Pass the rendered operation beside the current production bundle to
 `scripts/validate_production_bundle.py` before applying it.
 
 Missing, partial, unknown, or mismatched target annotations are fail-closed
-legacy classification. If PostgreSQL contains any persisted guest identity or
-active guest-admission expiry Job, the operation blocks that legacy target and
-the procedure restores the exact current bundle, Deployments, and HPAs. The
-only supported recovery is an approved target that declares both
-`guest_identity_v1` and `guest_admission_expiry_worker_v1`, normally a retained
-guest-compatible bridge, or a roll-forward release. Do not delete/convert guest
-rows, discard expiry Jobs, run down migrations, or restore an old database to
-force a rollback.
+legacy classification. The combined operation checks retained guest/instant-room
+identity and lifecycle work, enterprise authentication/SCIM, UC media,
+advanced telephone work, schedules and rich-content erasure state against the
+target capabilities. Unsupported retained hazards or unknown inventory block
+the target, and the procedure restores the exact current bundle, Deployments
+and HPAs. Use an approved compatible bridge or roll forward. Do not delete
+identity, media, schedules, erasure lineage or pending jobs, run down migrations,
+or restore an old database to force a rollback. Preserve the approved immutable
+target's actual capability declaration when rendering its workload templates.
 
 ## Promotion gate
 

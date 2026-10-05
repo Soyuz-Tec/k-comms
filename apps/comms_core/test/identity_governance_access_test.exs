@@ -172,7 +172,7 @@ defmodule CommsCore.Accounts.GovernanceAccessTest do
              String.contains?(query, ~s(FROM "users")) and
                String.contains?(query, ~s(ORDER BY)) and
                String.contains?(query, ~s("id")) and
-               String.contains?(query, "FOR UPDATE")
+               String.contains?(query, "FOR NO KEY UPDATE")
            end)
   end
 

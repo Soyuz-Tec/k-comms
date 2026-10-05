@@ -2,7 +2,7 @@ import { NavLink } from "react-router";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
 type MemberDestination = {
-  label: "Inbox" | "Calls" | "Whiteboard" | "Directory" | "Files" | "You";
+  label: "Inbox" | "Calls" | "Meetings" | "Saved items" | "Whiteboard" | "Directory" | "Files" | "You";
   path: string;
   icon: AppIconName;
   group: "Communicate" | "Collaborate" | "Personal";
@@ -35,6 +35,20 @@ export const memberDestinations: MemberDestination[] = [
     icon: "phone",
     group: "Communicate",
     mobilePrimary: true
+  },
+  {
+    label: "Meetings",
+    path: "/app/meetings",
+    icon: "clock",
+    group: "Communicate",
+    mobilePrimary: false
+  },
+  {
+    label: "Saved items",
+    path: "/app/saved",
+    icon: "bookmark",
+    group: "Personal",
+    mobilePrimary: false
   },
   {
     label: "Whiteboard",

@@ -101,4 +101,43 @@ defmodule CommsWeb.FallbackControllerTest do
              invalid_use_count
            ]) =~ "@"
   end
+
+  test "keeps expected telephone policy and provider failures out of internal server errors" do
+    failures = [
+      {422, :invalid_telephony_command},
+      {422, :invalid_telephony_route},
+      {422, :invalid_telephony_mailbox},
+      {422, :invalid_voicemail_limit},
+      {422, :invalid_voicemail_cursor},
+      {422, :invalid_voicemail_media},
+      {409, :telephony_control_conflict},
+      {409, :recipient_unavailable},
+      {409, :voicemail_capture_cancelled},
+      {422, :voicemail_storage_identity_invalid},
+      {409, :voicemail_provider_identity_invalid},
+      {409, :voicemail_legal_hold},
+      {409, :voicemail_not_deletable},
+      {409, :voicemail_already_deleted},
+      {409, :telephony_mailbox_full},
+      {429, :telephony_control_limit},
+      {503, :telephony_control_unsupported},
+      {503, :telephony_control_unavailable},
+      {409, :telephony_mailbox_unavailable},
+      {503, :telephony_voicemail_unavailable},
+      {503, :voicemail_storage_unavailable},
+      {503, :voicemail_provider_unavailable},
+      {503, :voicemail_protection_unavailable},
+      {503, :voicemail_source_deletion_pending}
+    ]
+
+    for {status, reason} <- failures do
+      response =
+        build_conn()
+        |> FallbackController.call({:error, reason})
+        |> json_response(status)
+
+      assert response["error"]["code"] == Atom.to_string(reason)
+      refute response["error"]["detail"] =~ ~r/recordings\/|https?:\/\/|kc_vm_|password/i
+    end
+  end
 end

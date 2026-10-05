@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.GovernanceErasureTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Device, Session, User}
+  alias CommsCore.Accounts.{Device, ScimResource, Session, User}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -78,5 +78,62 @@ defmodule CommsCore.Accounts.GovernanceErasureTest do
     assert Repo.get!(User, account.user.id).status == :active
     refute Repo.get!(Session, account.session.id).revoked_at
     refute Repo.get!(Device, account.device.id).revoked_at
+  end
+
+  test "enterprise erasure removes SCIM membership UUIDs while retaining unrelated directory state" do
+    account = Fixtures.account_fixture()
+    erased = Fixtures.user_fixture(account).user
+    retained = Fixtures.user_fixture(account).user
+    other = Fixtures.account_fixture()
+
+    erased_resource = directory_resource(account.tenant.id, erased.id, "erased")
+    retained_resource = directory_resource(account.tenant.id, retained.id, "retained")
+    other_resource = directory_resource(other.tenant.id, other.user.id, "foreign")
+
+    group =
+      Repo.insert!(%ScimResource{
+        tenant_id: account.tenant.id,
+        kind: "Group",
+        external_id: "team",
+        display_name: "Team",
+        members: [erased_resource.id, retained_resource.id]
+      })
+
+    foreign_group =
+      Repo.insert!(%ScimResource{
+        tenant_id: other.tenant.id,
+        kind: "Group",
+        external_id: "other-team",
+        display_name: "Other team",
+        members: [other_resource.id]
+      })
+
+    assert {:ok, {:ok, %{user_id: erased_user_id}}} =
+             Repo.transaction(fn ->
+               Accounts.erase_user_for_governance(%{
+                 tenant_id: account.tenant.id,
+                 user_id: erased.id,
+                 pending_deletion_user_ids: [],
+                 timestamp: DateTime.utc_now()
+               })
+             end)
+
+    assert erased_user_id == erased.id
+    assert Repo.get!(User, erased.id).status == :deleted
+    refute Repo.get(ScimResource, erased_resource.id)
+    assert Repo.get!(ScimResource, group.id).members == [retained_resource.id]
+    assert Repo.get!(ScimResource, retained_resource.id).user_id == retained.id
+    assert Repo.get!(ScimResource, foreign_group.id) == foreign_group
+    assert Repo.get!(ScimResource, other_resource.id) == other_resource
+  end
+
+  defp directory_resource(tenant_id, user_id, external_id) do
+    Repo.insert!(%ScimResource{
+      tenant_id: tenant_id,
+      user_id: user_id,
+      kind: "User",
+      external_id: external_id,
+      display_name: external_id
+    })
   end
 end

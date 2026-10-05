@@ -32,7 +32,7 @@ import {
   type InboxFilter
 } from "./ConversationSidebar";
 import { ChannelBrowser } from "./ChannelBrowser";
-import { SearchPanel } from "./SearchPanel";
+import { UnifiedSearchPanel } from "./UnifiedSearchPanel";
 import { ThreadDrawer } from "./ThreadDrawer";
 import { ConversationShareDialog } from "../guest/ConversationShareDialog";
 import {
@@ -279,6 +279,8 @@ export function ChatPage() {
     composer,
     composerChanged,
     draftPersistence,
+    draftSync,
+    composerTextChanged,
     failedSend,
     mentionedUserIds,
     replyTo,
@@ -289,6 +291,7 @@ export function ChatPage() {
     setMentionedUserIds,
     setReplyTo
   } = useChatComposer({
+    api,
     activeConversationId,
     attachmentsReady,
     clearPendingAttachments,
@@ -673,6 +676,9 @@ export function ChatPage() {
         capabilities={capabilities}
         composer={composer}
         draftPersistence={draftPersistence}
+        draftSync={draftSync}
+        onComposerTextChange={composerTextChanged}
+        onSave={(message) => api.saveMessage(message.id)}
         connectionStatus={connectionStatus}
         conversationIdentifier={conversationIdentifier}
         currentUserId={session.user.id}
@@ -752,7 +758,7 @@ export function ChatPage() {
         setReplyTo={setReplyTo}
       />
 
-      {showSearch && <SearchPanel key={searchConversationId || "workspace"} api={api} conversations={conversations} users={users} initialConversationId={searchConversationId} onClose={closeSearch} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
+      {showSearch && <UnifiedSearchPanel key={searchConversationId || "workspace"} api={api} conversations={conversations} initialConversationId={searchConversationId} onClose={closeSearch} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
       {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}

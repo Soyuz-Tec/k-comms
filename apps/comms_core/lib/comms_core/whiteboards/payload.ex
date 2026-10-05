@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Payload do
   @maximum_elements_per_update 200
   @maximum_encoded_bytes 512_000
   @maximum_element_bytes 64_000
-  @allowed_types ~w(rectangle diamond ellipse line arrow freedraw text frame)
+  @allowed_types ~w(rectangle diamond ellipse line arrow freedraw text frame image)
 
   @spec validate(String.t(), map()) :: {:ok, map()} | {:error, :invalid_whiteboard_operation}
   def validate("scene.update", payload) when is_map(payload) do
@@ -26,6 +26,28 @@ defmodule CommsCore.Whiteboards.Payload do
 
   def validate(_, _), do: {:error, :invalid_whiteboard_operation}
 
+  # A valid 2 MiB scene may contain fewer than 200 large elements. Restores
+  # must respect both operation bounds, not only the element count.
+  def chunk_elements(elements) do
+    overhead = byte_size(Jason.encode!(%{"elements" => []}))
+
+    {chunks, current, _count, _bytes} =
+      Enum.reduce(elements, {[], [], 0, overhead}, fn element, {chunks, current, count, bytes} ->
+        element_bytes = byte_size(Jason.encode!(element))
+        next_bytes = bytes + element_bytes + if(count > 0, do: 1, else: 0)
+
+        if count == @maximum_elements_per_update or next_bytes > @maximum_encoded_bytes do
+          {[Enum.reverse(current) | chunks], [element], 1, overhead + element_bytes}
+        else
+          {chunks, [element | current], count + 1, next_bytes}
+        end
+      end)
+
+    if current == [],
+      do: Enum.reverse(chunks),
+      else: Enum.reverse([Enum.reverse(current) | chunks])
+  end
+
   defp normalize_elements(elements) do
     Enum.reduce_while(elements, {:ok, []}, fn element, {:ok, acc} ->
       case normalize_element(element) do
@@ -46,8 +68,7 @@ defmodule CommsCore.Whiteboards.Payload do
          version_nonce when is_integer(version_nonce) <- value(element, "versionNonce"),
          nil <- value(element, "link"),
          nil <- value(element, "customData"),
-         {:ok, encoded} <- Jason.encode(element),
-         true <- byte_size(encoded) <= @maximum_element_bytes do
+         true <- valid_image_reference?(type, element) do
       normalized =
         element
         |> stringify_keys()
@@ -58,13 +79,24 @@ defmodule CommsCore.Whiteboards.Payload do
         |> Map.put("link", nil)
         |> Map.put("customData", nil)
 
-      {:ok, normalized}
+      case Jason.encode(normalized) do
+        {:ok, encoded} when byte_size(encoded) <= @maximum_element_bytes -> {:ok, normalized}
+        _ -> :error
+      end
     else
       _ -> :error
     end
   end
 
   defp normalize_element(_), do: :error
+
+  defp valid_image_reference?("image", element) do
+    match?({:ok, _}, Ecto.UUID.cast(value(element, "fileId"))) and
+      value(element, "dataURL") == nil and value(element, "src") == nil and
+      value(element, "url") == nil
+  end
+
+  defp valid_image_reference?(_, _), do: true
 
   defp stringify_keys(map) do
     Map.new(map, fn

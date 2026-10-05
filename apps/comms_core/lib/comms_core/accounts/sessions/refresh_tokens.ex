@@ -132,6 +132,9 @@ defmodule CommsCore.Accounts.Sessions.RefreshTokens do
          true <- secure_hash_equals(session.refresh_token_hash, secret),
          %User{status: :active, account_type: :human} = user <-
            Repo.get_by(User, id: session.user_id, tenant_id: session.tenant_id),
+         true <-
+           not CommsCore.Accounts.MfaFactorState.enabled?(user.id, user.tenant_id) or
+             not is_nil(session.mfa_verified_at),
          %Device{} = device <-
            Repo.get_by(Device,
              id: session.device_id,

@@ -24,7 +24,7 @@ describe("MessageItem", () => {
   it("replaces open editing and delete confirmation with tombstones when live content is removed", async () => {
     const user = userEvent.setup();
     const onDelete = vi.fn();
-    const props = { currentUserId: "user-1", seenCount: 0, focused: false, onReaction: vi.fn(), onAttachment: vi.fn(), onReply: vi.fn(), onEdit: vi.fn(), onDelete, onReport: vi.fn() };
+    const props = { currentUserId: "user-1", seenCount: 0, focused: false, onReaction: vi.fn(), onAttachment: vi.fn(), onReply: vi.fn(), onEdit: vi.fn(), onDelete, onReport: vi.fn(), onSave: vi.fn() };
     const view = render(<MessageItem {...props} message={message} />);
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.type(screen.getByRole("textbox", { name: "Edit message" }), " revised draft");
@@ -32,6 +32,7 @@ describe("MessageItem", () => {
     expect(screen.getByText("Message removed")).toBeVisible();
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save message" })).not.toBeInTheDocument();
     expect(screen.queryByText(/revised draft/)).not.toBeInTheDocument();
     view.rerender(<MessageItem {...props} message={message} />);
     await user.click(screen.getByRole("button", { name: "Delete" }));
@@ -40,6 +41,24 @@ describe("MessageItem", () => {
     expect(screen.getByText("Message removed")).toBeVisible();
     expect(screen.queryByRole("alertdialog", { name: "Delete this message?" })).not.toBeInTheDocument();
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("keeps saving an edit distinct from saving a message to the private list", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<MessageItem message={message} currentUserId="user-1" seenCount={0} focused={false} onReaction={vi.fn()} onAttachment={vi.fn()} onEdit={onEdit} onDelete={vi.fn()} onSave={onSave} />);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.clear(screen.getByRole("textbox", { name: "Edit message" }));
+    await user.type(screen.getByRole("textbox", { name: "Edit message" }), "Revised quarterly report");
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
+    await waitFor(() => expect(onEdit).toHaveBeenCalledExactlyOnceWith("Revised quarterly report"));
+    expect(onSave).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Save message" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Message saved" })).toBeDisabled();
+    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
   it("uses the current username as the visible self identifier", () => {

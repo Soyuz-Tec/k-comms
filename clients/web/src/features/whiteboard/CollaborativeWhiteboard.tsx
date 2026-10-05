@@ -12,6 +12,8 @@ import {
 import { KCommsDrawingCanvas } from "./KCommsDrawingCanvas";
 import { CanvasControls } from "./CanvasControls";
 import "./whiteboard.css";
+import "./board-library.css";
+import { BoardLibraryControls } from "./BoardLibraryControls";
 
 export function CollaborativeWhiteboard({
   conversationId,
@@ -21,7 +23,8 @@ export function CollaborativeWhiteboard({
   focusElementIds = [],
   onMessageReference,
   compact = false,
-  statusContainer
+  statusContainer,
+  libraryTriggerContainer
 }: {
   conversationId: string;
   conversationTitle: string;
@@ -31,6 +34,7 @@ export function CollaborativeWhiteboard({
   onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
   statusContainer?: HTMLElement | null;
+  libraryTriggerContainer?: HTMLElement | null;
 }) {
   const [editor, setEditor] = useState<ExcalidrawImperativeAPI | null>(null);
   const collaboration = useWhiteboardCollaboration(
@@ -207,6 +211,10 @@ export function CollaborativeWhiteboard({
         </div>
       )}
 
+      {!compact && <BoardLibraryControls editor={editor} conversationId={conversationId}
+        triggerContainer={libraryTriggerContainer}
+        synchronized={collaboration.saveStatus === "synced"} onRestore={collaboration.retryHistory}
+        onArmChanges={collaboration.armLocalChanges} />}
       <div
         className="whiteboard-canvas"
         data-testid="whiteboard-canvas"

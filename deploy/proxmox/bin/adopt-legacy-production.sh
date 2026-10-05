@@ -262,6 +262,7 @@ render_template \
   "${K_COMMS_QUADLET_DIR}/k-comms-app.container" \
   IMAGE_REF "$current_image" \
   REVISION "$current_revision" \
+  ROLLBACK_CAPABILITIES "$K_COMMS_LEGACY_CAPABILITIES" \
   BIND_ADDRESS 127.0.0.1
 systemctl daemon-reload
 acquire_deploy_lock

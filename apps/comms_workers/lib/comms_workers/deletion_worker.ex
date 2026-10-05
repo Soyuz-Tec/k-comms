@@ -30,6 +30,7 @@ defmodule CommsWorkers.DeletionWorker do
           {:ok, _result} -> :ok
           {:error, :already_delivered} -> :ok
           {:error, :legal_hold_active} -> {:snooze, 300}
+          {:error, :media_erasure_pending} -> {:snooze, 10}
           {:error, reason} -> record_failure(execution.request_id, reason)
         end
 

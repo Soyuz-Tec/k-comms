@@ -3,6 +3,16 @@
 .profile-account-details dt { color: var(--text-secondary); font-size: var(--text-sm); }
 .profile-account-details dd { margin: .3rem 0 0; overflow-wrap: anywhere; }
 .profile-account-details small { display: block; margin-top: .3rem; color: var(--text-muted); }
+.enterprise-settings { min-width: 0; }
+.enterprise-settings form { display: grid; min-width: 0; gap: .75rem; margin-top: 1rem; }
+.enterprise-settings .field { min-width: 0; }
+.enterprise-settings input:not([type="checkbox"]),
+.enterprise-settings select { min-width: 0; max-width: 100%; }
+.enterprise-settings label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: .5rem; min-width: 0; min-height: 44px; overflow-wrap: anywhere; }
+.enterprise-settings input[type="checkbox"] { flex: 0 0 auto; width: 24px; height: 24px; margin: 0; }
+.enterprise-settings fieldset { display: flex; flex-wrap: wrap; gap: .5rem; min-width: 0; }
+.enterprise-settings .button { min-height: 44px; max-width: 100%; white-space: normal; }
+.enterprise-settings pre { max-width: 100%; overflow-x: auto; }
 .audio-video-settings { display: grid; gap: .75rem; }
 .audio-video-settings .field { margin: 0; }
 .audio-video-settings select { width: 100%; min-height: 44px; }

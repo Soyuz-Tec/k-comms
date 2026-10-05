@@ -339,6 +339,7 @@ async function installWorkspace(
   const firstRun = options.firstRun === true;
   const emptyConversations = options.emptyConversations === true;
   const dismissOnboarding = !firstRun && options.showOnboarding !== true;
+  const drafts = new Map<string, { body: string; version: number }>();
   const state = {
     directConversationRequests: 0,
     joinRoomRequests: 0,
@@ -428,6 +429,20 @@ async function installWorkspace(
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
+    const draftConversation = /^\/api\/v1\/conversations\/([^/]+)\/draft$/.exec(path)?.[1];
+    if (draftConversation && [conversationId, directConversationId, publicRoomId].includes(draftConversation) && (method === "GET" || method === "PUT")) {
+      const input = method === "PUT" ? request.postDataJSON() as { thread_key: string; body: string; expected_version: number } : null;
+      const threadKey = input?.thread_key || new URL(request.url()).searchParams.get("thread_key") || "main";
+      const key = `${draftConversation}:${threadKey}`;
+      const current = drafts.get(key) || { body: "", version: 0 };
+      if (input) {
+        if (input.expected_version !== current.version) return json(route, { error: { code: "stale_draft", detail: "This draft changed on another device." } }, 409);
+        current.body = input.body; current.version += 1; drafts.set(key, current);
+      }
+      return json(route, { data: { conversation_id: draftConversation, thread_key: threadKey, ...current, expires_at: "2099-01-01T00:00:00Z" } });
+    }
+    if (method === "GET" && path === "/api/v1/me/security") return json(route, { data: { mfa_enabled: false, authentication_method: "password", recovery_codes_remaining: 0 } });
+    if (method === "GET" && path === "/api/v1/me/availability") return json(route, { data: { status: "available", presence_state: "available", presence_expires_at: null, dnd_until: null, dnd_schedule: {}, dnd_active: false, retry_at: null, timezone: "UTC" } });
     if (method === "GET" && path === "/api/v1/telephony/config") {
       return json(route, { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: false } });
     }

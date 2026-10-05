@@ -19,7 +19,10 @@ defmodule CommsWeb.MemberReadControllerTest do
              "data" => [
                %{
                  "id" => visible.id,
-                 "display_name" => "Ada Member"
+                 "display_name" => "Ada Member",
+                 "avatar_url" => nil,
+                 "timezone" => "Etc/UTC",
+                 "presence_state" => "available"
                }
              ],
              "page" => %{"next_cursor" => nil}

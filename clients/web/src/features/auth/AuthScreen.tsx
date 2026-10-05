@@ -10,6 +10,8 @@ import {
 } from "../../lib/workspacePreference";
 import { useSession } from "../../app/session";
 import { authenticationReturnState } from "../../app/authNavigation";
+import type { MfaChallenge } from "../../types/enterpriseIdentity";
+import { MfaSignInForm } from "./MfaSignInForm";
 
 type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
@@ -34,6 +36,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
   );
   const [loginWorkspaceSlug, setLoginWorkspaceSlug] = useState(initialWorkspaceSlug);
   const [loginEmail, setLoginEmail] = useState("");
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
   const [editingWorkspace, setEditingWorkspace] = useState(!initialWorkspaceSlug);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlug] = useState("");
@@ -110,12 +113,34 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
     setError(null);
     setNotice(null);
     try {
-      setSession(await api.login(input));
+      const result = await api.passwordSignIn(input);
+      if ("mfa_required" in result) {
+        setMfaChallenge(result);
+      } else {
+        setSession(result);
+      }
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function corporateSignIn() {
+    if (blockInsecureCredentialSubmission()) return;
+    if (!validWorkspaceSlug(loginWorkspaceSlug)) {
+      setEditingWorkspace(true);
+      setError("Enter your workspace address before corporate sign in.");
+      return;
+    }
+    setBusy(true); setError(null);
+    try {
+      const result = await api.startOidc(loginWorkspaceSlug, authenticationState.returnTo || "/app/");
+      const url = new URL(result.authorization_url);
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("Corporate sign in returned an invalid address.");
+      window.location.assign(url.href);
+    } catch (reason: unknown) { setError(errorText(reason)); }
+    finally { setBusy(false); }
   }
 
   async function submitBootstrap(event: FormEvent<HTMLFormElement>) {
@@ -297,7 +322,9 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
           {error && <div className="form-error" role="alert">{error}</div>}
           {notice && <div className="inline-notice" role="status">{notice}</div>}
 
-          {mode === "login" ? (
+          {mode === "login" && mfaChallenge ? (
+            <MfaSignInForm api={api} challenge={mfaChallenge} disabled={accountActionsUnavailable} onComplete={setSession} onRestart={() => { setMfaChallenge(null); setError(null); }} />
+          ) : mode === "login" ? (
             <>
               <form key="login" className="auth-form" onSubmit={(event) => void submitLogin(event)}>
                 {editingWorkspace || !loginWorkspaceSlug ? (
@@ -350,13 +377,16 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                 <div className="auth-form-help">
                   <Link to="/forgot-password" state={authenticationState}>Forgot password?</Link>
                 </div>
-                <button
-                  className="button primary full"
-                  type="submit"
-                  disabled={busy || accountActionsUnavailable}
-                >
-                  {busy ? "Signing in…" : "Sign in"}
-                </button>
+                <div className="auth-login-actions">
+                  <button
+                    className="button primary full"
+                    type="submit"
+                    disabled={busy || accountActionsUnavailable}
+                  >
+                    {busy ? "Signing in…" : "Sign in"}
+                  </button>
+                  <button type="button" className="button secondary full" disabled={busy || accountActionsUnavailable} onClick={() => void corporateSignIn()}>Corporate sign in</button>
+                </div>
               </form>
               <div
                 className="auth-entry-options"

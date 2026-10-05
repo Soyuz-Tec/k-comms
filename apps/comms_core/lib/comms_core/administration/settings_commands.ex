@@ -50,8 +50,11 @@ defmodule CommsCore.Administration.SettingsCommands do
       Repo.transaction(fn ->
         quota_ok!(AdmissionQuotas.lock_tenant(tenant_id))
 
+        # Settings change only the tenant's non-key name and its settings row.
+        # Exclude current-policy SHARE readers while permitting the Tenant
+        # foreign-key KEY SHARE acquired by call-revocation outbox writes.
         tenant =
-          Repo.one(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")) ||
+          Repo.one(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR NO KEY UPDATE")) ||
             Repo.rollback(:not_found)
 
         settings =

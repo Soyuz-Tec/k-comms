@@ -89,5 +89,12 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0083 | Bound whiteboard scenes and recover capacity with clear epochs | Accepted |
 | 0084 | Record maintenance intervals and monitor recovery evidence | Accepted |
 | 0085 | Add individual telephony through LiveKit SIP | Accepted |
+| 0086 | Make UC workflow context and retrieval explicit | Accepted |
+| 0087 | Add durable scheduled meetings to Calls | Accepted |
+| 0088 | Add durable advanced telephony through capability-bound SIP and PBX controls | Accepted |
+| 0089 | Consent-gated meeting artifacts on approved providers and storage | Accepted for implementation; provider enablement requires qualification |
+| 0090 | Enterprise authentication, provisioning and persistent availability | Accepted |
+| 0091 | Durable rich content and authorized unified retrieval | Accepted |
+| 0092 | Compose full UC through exact owner contracts | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

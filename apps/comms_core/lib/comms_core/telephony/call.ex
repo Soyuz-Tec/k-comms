@@ -46,6 +46,12 @@ defmodule CommsCore.Telephony.Call do
     field(:ended_at, :utc_datetime_usec)
     field(:expires_at, :utc_datetime_usec)
     field(:end_reason, :string)
+    field(:route_id, :binary_id)
+    field(:routing_status, :string, default: "individual")
+    field(:offered_user_ids, {:array, :binary_id}, default: [])
+    field(:route_expires_at, :utc_datetime_usec)
+    field(:control_state, :string, default: "connected")
+    field(:pbx_state, :map, default: %{})
     timestamps()
   end
 

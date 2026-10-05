@@ -78,6 +78,10 @@ recovery_compatible() {
     --env K_COMMS_ROLLBACK_WRITES_QUIESCED=true \
     --env PUBLIC_APP_URL=https://localhost \
     --env AUDIO_PROVIDER_MODE=disabled \
+    --env TELEPHONY_PROVIDER_MODE=disabled \
+    --env MEETING_ARTIFACTS_ENABLED=false \
+    --env LIVEKIT_EGRESS_ENABLED=false \
+    --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
     --env LIVEKIT_SERVER_URL= \
     --env LIVEKIT_API_URL= \
     "$image" eval 'CommsCore.Release.assert_communication_rollback_compatible!()'
@@ -162,6 +166,9 @@ revision_label="$(podman image inspect "$image" --format '{{index .Labels "org.o
   die "image source label does not match ${K_COMMS_SOURCE}"
 [[ "$revision_label" == "$revision" ]] ||
   die "image revision label does not match the requested commit"
+candidate_capabilities="$(image_rollback_capabilities "$image")"
+[[ "$candidate_capabilities" == "$K_COMMS_CAPABILITIES" ]] ||
+  die "candidate image does not declare the supported rollback capability contract"
 
 systemctl daemon-reload
 systemctl start \
@@ -239,6 +246,10 @@ run_one_shot \
   --env K_COMMS_MIGRATION_REQUIRE_QUIESCENCE=true \
   --env PUBLIC_APP_URL=https://localhost \
   --env AUDIO_PROVIDER_MODE=disabled \
+  --env TELEPHONY_PROVIDER_MODE=disabled \
+  --env MEETING_ARTIFACTS_ENABLED=false \
+  --env LIVEKIT_EGRESS_ENABLED=false \
+  --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
   --env LIVEKIT_SERVER_URL= \
   --env LIVEKIT_API_URL= \
   "$image" eval 'CommsCore.Release.migrate()'
@@ -259,6 +270,10 @@ if [[ "$bootstrap" == true ]]; then
     --env ALLOW_BOOTSTRAP=false \
     --env PUBLIC_APP_URL=https://localhost \
     --env AUDIO_PROVIDER_MODE=disabled \
+    --env TELEPHONY_PROVIDER_MODE=disabled \
+    --env MEETING_ARTIFACTS_ENABLED=false \
+    --env LIVEKIT_EGRESS_ENABLED=false \
+    --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
     --env LIVEKIT_SERVER_URL= \
     --env LIVEKIT_API_URL= \
     "$image" eval 'CommsCore.Release.bootstrap()'
@@ -269,6 +284,7 @@ render_template \
   "${K_COMMS_QUADLET_DIR}/k-comms-app.container" \
   IMAGE_REF "$image" \
   REVISION "$revision" \
+  ROLLBACK_CAPABILITIES "$candidate_capabilities" \
   BIND_ADDRESS "$bind_address"
 
 phase=activation

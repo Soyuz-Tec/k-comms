@@ -15,6 +15,8 @@ defmodule CommsCore.Notifications.Fanout do
 
   alias CommsCore.Outbox.Event
 
+  @meeting_event_types ~w(meeting.scheduled.v1 meeting.updated.v1 meeting.cancelled.v1 meeting.reminder.v1)
+
   def enqueue_for_event(%Event{event_type: "message.created.v1"} = event, notify_availability)
       when is_function(notify_availability, 1) do
     sender_user_id = payload_value(event.payload, "sender_user_id")
@@ -48,6 +50,17 @@ defmodule CommsCore.Notifications.Fanout do
       event.tenant_id
       |> Conversations.active_member_ids(conversation_id)
       |> Enum.filter(&MapSet.member?(mentioned_user_ids, &1))
+
+    enqueue_recipient_events(event, recipient_ids, notify_availability)
+  end
+
+  def enqueue_for_event(%Event{event_type: event_type} = event, notify_availability)
+      when event_type in @meeting_event_types and is_function(notify_availability, 1) do
+    recipient_ids =
+      Conversations.active_member_ids(
+        event.tenant_id,
+        payload_value(event.payload, "conversation_id")
+      )
 
     enqueue_recipient_events(event, recipient_ids, notify_availability)
   end
@@ -158,7 +171,11 @@ defmodule CommsCore.Notifications.Fanout do
         "title" => title,
         "body" => body,
         "conversation_id" => payload_value(event.payload, "conversation_id"),
-        "message_id" => event.aggregate_id,
+        "message_id" =>
+          if(event.event_type in @meeting_event_types, do: nil, else: event.aggregate_id),
+        "meeting_id" => payload_value(event.payload, "meeting_id"),
+        "occurrence_id" => payload_value(event.payload, "occurrence_id"),
+        "starts_at" => payload_value(event.payload, "starts_at"),
         "sender_user_id" => payload_value(event.payload, "sender_user_id"),
         "event_id" => event.id,
         "aggregate_id" => event.aggregate_id,
@@ -170,10 +187,26 @@ defmodule CommsCore.Notifications.Fanout do
   defp notification_copy("mention.created.v1"),
     do: {"New mention", "You were mentioned in K-Comms."}
 
+  defp notification_copy("meeting.scheduled.v1"),
+    do: {"Meeting scheduled", "A meeting was scheduled in your conversation."}
+
+  defp notification_copy("meeting.updated.v1"),
+    do: {"Meeting updated", "A meeting in your conversation has changed."}
+
+  defp notification_copy("meeting.cancelled.v1"),
+    do: {"Meeting cancelled", "A meeting in your conversation was cancelled."}
+
+  defp notification_copy("meeting.reminder.v1"),
+    do: {"Meeting reminder", "A meeting in your conversation starts soon."}
+
   defp notification_copy(_), do: {"New message", "You have a new message in K-Comms."}
 
   defp payload_value(payload, key),
-    do: Map.get(payload || %{}, key) || Map.get(payload || %{}, String.to_existing_atom(key))
+    do:
+      Map.get(payload || %{}, key) ||
+        Enum.find_value(payload || %{}, fn {name, value} ->
+          if to_string(name) == key, do: value
+        end)
 
   defp mentioned_user_ids(event) do
     case payload_value(event.payload, "mentioned_user_ids") do

@@ -16,7 +16,9 @@ defmodule CommsIntegrations.Telephony.LiveKitTest do
       livekit_api_secret: @secret,
       telephony_ring_timeout_seconds: 45,
       telephony_max_duration_seconds: 1_800,
-      allow_insecure_local_media: false
+      allow_insecure_local_media: false,
+      telephony_transfer_enabled: false,
+      telephony_transfer_destination_prefixes: []
     }
 
     previous =
@@ -84,6 +86,65 @@ defmodule CommsIntegrations.Telephony.LiveKitTest do
     assert claims["sip"] == %{"call" => true}
     refute Map.has_key?(claims, "video")
     refute Map.has_key?(claims, "sub")
+  end
+
+  test "native blind transfer uses actual REFER RPC and exact SIP identity with bounded acknowledgement" do
+    Application.put_env(:comms_integrations, :telephony_transfer_enabled, true)
+    Application.put_env(:comms_integrations, :telephony_transfer_destination_prefixes, ["+1555"])
+
+    control = %{
+      action: :blind_transfer,
+      provider_room: "kc_phone_room",
+      provider_identity: "sip_exact",
+      destination: "+15550001003"
+    }
+
+    requester = fn :post, url, headers, body, options ->
+      assert url == "https://media.example.test/twirp/livekit.SIP/TransferSIPParticipant"
+      decoded = Jason.decode!(body)
+      assert decoded["room_name"] == control.provider_room
+      assert decoded["participant_identity"] == control.provider_identity
+      assert decoded["transfer_to"] == "tel:+15550001003"
+      assert decoded["ringing_timeout"] == "45s"
+      assert options[:timeout_ms] == 10_000
+      assert options[:allowed_hosts] == ["media.example.test"]
+      {"authorization", "Bearer " <> token} = List.keyfind(headers, "authorization", 0)
+      [_header, payload, _signature] = String.split(token, ".")
+      claims = payload |> Base.url_decode64!(padding: false) |> Jason.decode!()
+      assert claims["sip"] == %{"call" => true}
+      refute Map.has_key?(claims, "video")
+      {:ok, %{status: 200, body: "{}"}}
+    end
+
+    assert {:ok, :submitted} = LiveKit.execute_control(control, requester)
+    forbidden = fn _, _, _, _, _ -> flunk("unqualified transfer reached transport") end
+
+    assert {:error, :telephony_destination_forbidden} =
+             LiveKit.execute_control(%{control | destination: "+442071234567"}, forbidden)
+
+    Application.put_env(:comms_integrations, :telephony_transfer_enabled, false)
+    assert {:error, :telephony_control_unsupported} = LiveKit.execute_control(control, forbidden)
+  end
+
+  test "uncertain native REFER acknowledgement is returned without retransmission or false unsupported claim" do
+    Application.put_env(:comms_integrations, :telephony_transfer_enabled, true)
+    Application.put_env(:comms_integrations, :telephony_transfer_destination_prefixes, ["+1555"])
+
+    control = %{
+      action: :blind_transfer,
+      provider_room: "kc_phone_room",
+      provider_identity: "sip_exact",
+      destination: "+15550001003"
+    }
+
+    requester = fn _, _, _, _, _ ->
+      send(self(), :refer_attempt)
+      {:ok, %{status: 503, body: "synthetic uncertain response"}}
+    end
+
+    assert {:error, :telephony_outcome_unknown} = LiveKit.execute_control(control, requester)
+    assert_received :refer_attempt
+    refute_received :refer_attempt
   end
 
   test "unsafe destinations never reach the transport" do
@@ -184,6 +245,67 @@ defmodule CommsIntegrations.Telephony.LiveKitTest do
     assert LiveKit.end_call("kc_phone_room", fn _, _, _, _, _ ->
              {:ok, %{status: 404, body: ""}}
            end) == {:error, :telephony_provider_unavailable}
+  end
+
+  test "cleanup bounds the entire transport lifecycle and rejects a late acknowledgement" do
+    parent = self()
+
+    requester = fn _, _, _, _, options ->
+      send(parent, {:cleanup_transport_started, self(), options[:timeout_ms]})
+
+      receive do
+        :complete -> {:ok, %{status: 200, body: "{}"}}
+      end
+    end
+
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, :telephony_provider_unavailable} =
+             LiveKit.end_call("kc_phone_room", requester, 25)
+
+    assert_receive {:cleanup_transport_started, pid, 25}
+    refute Process.alive?(pid)
+    assert System.monotonic_time(:millisecond) - started < 1_000
+  end
+
+  test "actual loopback cleanup transport cannot wait beyond its complete request deadline" do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+    {:ok, {{127, 0, 0, 1}, port}} = :inet.sockname(listener)
+    parent = self()
+
+    server =
+      spawn(fn ->
+        case :gen_tcp.accept(listener) do
+          {:ok, socket} ->
+            send(parent, :cleanup_socket_accepted)
+
+            receive do
+              :stop -> :gen_tcp.close(socket)
+            end
+
+          _ ->
+            :ok
+        end
+      end)
+
+    on_exit(fn ->
+      Process.exit(server, :kill)
+      :gen_tcp.close(listener)
+    end)
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_media, true)
+    Application.put_env(:comms_integrations, :livekit_api_url, "http://127.0.0.1:#{port}")
+    Application.put_env(:comms_integrations, :livekit_server_url, "ws://127.0.0.1:#{port}")
+    started = System.monotonic_time(:millisecond)
+
+    assert {:error, :telephony_provider_unavailable} =
+             LiveKit.end_call("kc_phone_room")
+
+    assert_receive :cleanup_socket_accepted
+    assert System.monotonic_time(:millisecond) - started < 7_000
+    send(server, :stop)
   end
 
   test "disabling new telephony calls retains reconciliation and cleanup for existing legs" do

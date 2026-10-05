@@ -1,10 +1,17 @@
 import type { ApiRequest } from "../contracts";
 import type { DataResponse } from "../../types";
-import type { PhoneCall, PhoneCallsPage, PhoneConfiguration, PhoneNumberInput, PhoneSession } from "../../features/telephony/types";
+import type { PhoneCapabilities, PhoneControlInput, PhoneControlReceipt, PhoneRoute, PhoneRouteInput, PhoneCall, PhoneCallsPage, PhoneConfiguration, PhoneNumberInput, PhoneSession } from "../../features/telephony/types";
 
 export function createTelephonyApi(request: ApiRequest) {
   const callPath = (id: string) => `/api/v1/telephony/calls/${encodeURIComponent(id)}`;
   return {
+    phoneRoutes: () => request<{ data: PhoneRoute[]; limit: number }>("/api/v1/admin/telephony/routes"),
+    savePhoneRoute: (input: PhoneRouteInput) => request<DataResponse<PhoneRoute>>("/api/v1/admin/telephony/routes", { method: "PUT", body: JSON.stringify(input) }).then(({ data }) => data),
+    phoneCapabilities: () => request<DataResponse<PhoneCapabilities>>("/api/v1/telephony/capabilities").then(({ data }) => data),
+    phoneControls: (id: string) => request<{ data: PhoneControlReceipt[]; limit: number }>(`${callPath(id)}/controls`),
+    requestPhoneControl: (id: string, input: PhoneControlInput) => request<DataResponse<PhoneControlReceipt>>(`${callPath(id)}/controls`, { method: "POST", body: JSON.stringify(input) }).then(({ data }) => data),
+    completePhoneControl: (id: string, commandId: string, status: "submitted" | "unknown") => request<DataResponse<PhoneControlReceipt>>(`${callPath(id)}/controls/${encodeURIComponent(commandId)}/complete`, { method: "POST", body: JSON.stringify({ status }) }).then(({ data }) => data),
+    reconcilePhoneControl: (id: string, commandId: string) => request<DataResponse<PhoneControlReceipt>>(`${callPath(id)}/controls/${encodeURIComponent(commandId)}/reconcile`, { method: "POST" }).then(({ data }) => data),
     phoneConfiguration: () => request<DataResponse<PhoneConfiguration>>("/api/v1/telephony/config").then(({ data }) => data),
     phoneAdminConfiguration: () => request<DataResponse<PhoneConfiguration>>("/api/v1/admin/telephony").then(({ data }) => data),
     phoneNumberAssignment: () => request<DataResponse<PhoneConfiguration>>("/api/v1/admin/telephony").then(({ data }) => data.number),

@@ -15,7 +15,13 @@ ROLLBACK_CAPABILITIES = (
     "instant_room_lifecycle_v1,"
     "instant_room_presence_lease_v1,"
     "instant_room_expiry_worker_v1,"
-    "conversation_only_human_v1"
+    "conversation_only_human_v1,"
+    "enterprise_identity_v1,"
+    "uc_artifact_lifecycle_v1,"
+    "uc_voicemail_lifecycle_v1,"
+    "uc_advanced_telephony_v1,"
+    "scheduled_meeting_lifecycle_v1,"
+    "rich_content_erasure_v1"
 )
 LIFECYCLE_VALUES = {
     "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS": "3600",
@@ -46,6 +52,36 @@ def load_yamls(path: Path) -> list[dict]:
 
 
 class InstantRoomDeploymentContractTest(unittest.TestCase):
+    def test_one_shot_maintenance_disables_media_without_mutating_application_defaults(self) -> None:
+        for relative in (
+            "overlays/staging/migration-job.yaml",
+            "overlays/staging/bootstrap/bootstrap-job.yaml",
+            "overlays/production/migration-job.yaml",
+            "operations/platform-role/platform-role-job.yaml",
+            "operations/guest-rollback-preflight/guest-rollback-preflight-job.yaml",
+            "operations/attachment-restore-remap/restore-remap-job.yaml",
+        ):
+            with self.subTest(relative=relative):
+                job = load_yaml(K8S / relative)
+                container = job["spec"]["template"]["spec"]["containers"][0]
+                env = {item["name"]: item.get("value") for item in container["env"]}
+                self.assertEqual(env["K_COMMS_RUNTIME_PURPOSE"], "one_shot")
+                for key in ("MEETING_ARTIFACTS_ENABLED", "LIVEKIT_EGRESS_ENABLED",
+                            "ARTIFACT_TRANSCRIPTION_ENABLED"):
+                    self.assertEqual(env[key], "false")
+                self.assertEqual(env["AUDIO_PROVIDER_MODE"], "disabled")
+                self.assertEqual(env["TELEPHONY_PROVIDER_MODE"], "disabled")
+
+        # Long-running application deployments inherit configured features;
+        # maintenance overrides belong only to the one-shot containers.
+        for relative in ("base/edge-deployment.yaml", "base/worker-deployment.yaml"):
+            deployment = load_yaml(K8S / relative)
+            container = deployment["spec"]["template"]["spec"]["containers"][0]
+            env = {item["name"]: item.get("value") for item in container["env"]}
+            for key in ("MEETING_ARTIFACTS_ENABLED", "LIVEKIT_EGRESS_ENABLED",
+                        "ARTIFACT_TRANSCRIPTION_ENABLED"):
+                self.assertNotIn(key, env)
+
     def test_edge_and_worker_publish_identical_rollback_capabilities(self) -> None:
         for name in ("edge-deployment.yaml", "worker-deployment.yaml"):
             deployment = load_yaml(K8S / "base" / name)

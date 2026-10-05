@@ -27,6 +27,28 @@ defmodule CommsWeb.TelephonyBodyReader do
     put_private(conn, :telephony_webhook_body, previous <> body)
   end
 
+  defp preserve(
+         %{method: "POST", request_path: "/api/v1/providers/livekit/egress/webhook"} = conn,
+         body
+       ) do
+    previous = conn.private[:call_artifact_webhook_body] || ""
+
+    if byte_size(previous) + byte_size(body) > @maximum_body_bytes do
+      raise Plug.Parsers.RequestTooLargeError
+    end
+
+    put_private(conn, :call_artifact_webhook_body, previous <> body)
+  end
+
+  defp preserve(%{method: "POST", request_path: "/api/v1/telephony/pbx/webhook"} = conn, body) do
+    previous = conn.private[:telephony_pbx_webhook_body] || ""
+
+    if byte_size(previous) + byte_size(body) > @maximum_body_bytes,
+      do: raise(Plug.Parsers.RequestTooLargeError)
+
+    put_private(conn, :telephony_pbx_webhook_body, previous <> body)
+  end
+
   defp preserve(conn, _body), do: conn
 
   defp bounded_options(
@@ -34,6 +56,30 @@ defmodule CommsWeb.TelephonyBodyReader do
          opts
        ) do
     remaining = @maximum_body_bytes - byte_size(conn.private[:telephony_webhook_body] || "")
+    probe_length = remaining + 1
+
+    opts
+    |> Keyword.update(:length, probe_length, &min(&1, probe_length))
+    |> Keyword.update(:read_length, probe_length, &min(&1, probe_length))
+  end
+
+  defp bounded_options(
+         %{method: "POST", request_path: "/api/v1/providers/livekit/egress/webhook"} = conn,
+         opts
+       ) do
+    remaining = @maximum_body_bytes - byte_size(conn.private[:call_artifact_webhook_body] || "")
+    probe_length = remaining + 1
+
+    opts
+    |> Keyword.update(:length, probe_length, &min(&1, probe_length))
+    |> Keyword.update(:read_length, probe_length, &min(&1, probe_length))
+  end
+
+  defp bounded_options(
+         %{method: "POST", request_path: "/api/v1/telephony/pbx/webhook"} = conn,
+         opts
+       ) do
+    remaining = @maximum_body_bytes - byte_size(conn.private[:telephony_pbx_webhook_body] || "")
     probe_length = remaining + 1
 
     opts

@@ -3,17 +3,20 @@
   "$id": "https://k-comms.invalid/schemas/send-message.v1.json",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "body"
-  ],
   "properties": {
     "body": {
-      "type": "string",
-      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 0,
       "maxLength": 65535
     },
     "reply_to_message_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "format": "uuid"
     },
     "attachment_ids": {
@@ -35,10 +38,21 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["url"],
+            "required": [
+              "url"
+            ],
             "properties": {
-              "url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
-              "label": {"type": "string", "minLength": 1, "maxLength": 160}
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "maxLength": 2048
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              }
             }
           }
         },
@@ -46,32 +60,96 @@
           "type": "object",
           "additionalProperties": false,
           "anyOf": [
-            {"required": ["element_ids"]},
-            {"required": ["region"]}
+            {
+              "required": [
+                "element_ids"
+              ]
+            },
+            {
+              "required": [
+                "region"
+              ]
+            }
           ],
           "properties": {
             "element_ids": {
               "type": "array",
               "maxItems": 20,
               "uniqueItems": true,
-              "items": {"type": "string", "minLength": 8, "maxLength": 128}
+              "items": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 128
+              }
             },
-            "board_sequence": {"type": "integer", "minimum": 0},
-            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+            "board_sequence": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
             "region": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["x", "y", "width", "height"],
+              "required": [
+                "x",
+                "y",
+                "width",
+                "height"
+              ],
               "properties": {
-                "x": {"type": "number", "minimum": -10000000, "maximum": 10000000},
-                "y": {"type": "number", "minimum": -10000000, "maximum": 10000000},
-                "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000000},
-                "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000000}
+                "x": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -10000000,
+                  "maximum": 10000000
+                },
+                "width": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000000
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000000
+                }
               }
             }
           }
         }
       }
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "body"
+      ],
+      "properties": {
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    {
+      "required": [
+        "attachment_ids"
+      ],
+      "properties": {
+        "attachment_ids": {
+          "minItems": 1
+        }
+      }
+    }
+  ]
 }

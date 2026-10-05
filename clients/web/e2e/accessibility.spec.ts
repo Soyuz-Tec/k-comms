@@ -149,7 +149,7 @@ test("workspace refresh error satisfies automated WCAG A and AA checks", async (
   await expectNoWcagFailures(page);
 });
 
-test("message search satisfies automated WCAG A and AA checks", async ({ page }) => {
+test("unified workspace search satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
   await expect(page.getByRole("region", { name: "General" })).toBeVisible();
@@ -162,7 +162,12 @@ test("message search satisfies automated WCAG A and AA checks", async ({ page })
   await page
     .getByRole("button", { name: "Search messages" })
     .click();
-  await expect(page.getByRole("heading", { name: "Search workspace content" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search workspace" })).toBeVisible();
+  const search = page.getByRole("dialog", { name: "Search workspace", exact: true });
+  await search.getByRole("searchbox").fill("message");
+  await search.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(search.getByRole("list", { name: "Ranked search results" })).toContainText(message.body);
+  await expect(search.getByText(/ranked within authorized source candidates/)).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -333,6 +338,7 @@ async function installAuthenticatedMocks(
     callRunning?: boolean;
   } = {}
 ) {
+  const drafts = new Map<string, { body: string; version: number }>();
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({
     json: {
@@ -355,6 +361,18 @@ async function installAuthenticatedMocks(
     })
   }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
+  await page.route("**/api/v1/conversations/conversation-1/draft**", route => {
+    const input = route.request().method() === "PUT" ? route.request().postDataJSON() as { thread_key: string; body: string; expected_version: number } : null;
+    const thread_key = input?.thread_key || new URL(route.request().url()).searchParams.get("thread_key") || "main";
+    const current = drafts.get(thread_key) || { body: "", version: 0 };
+    if (input) {
+      if (input.expected_version !== current.version) return route.fulfill({ status: 409, json: { error: { code: "stale_draft", detail: "This draft changed on another device." } } });
+      current.body = input.body; current.version += 1; drafts.set(thread_key, current);
+    }
+    return route.fulfill({ json: { data: { conversation_id: "conversation-1", thread_key, ...current, expires_at: "2099-01-01T00:00:00Z" } } });
+  });
+  await page.route("**/api/v1/me/security", route => route.fulfill({ json: { data: { mfa_enabled: false, authentication_method: "password", recovery_codes_remaining: 0 } } }));
+  await page.route("**/api/v1/me/availability", route => route.fulfill({ json: { data: { status: "available", presence_state: "available", presence_expires_at: null, dnd_until: null, dnd_schedule: {}, dnd_active: false, retry_at: null, timezone: "UTC" } } }));
   await page.route("**/api/v1/directory/users**", (route) => route.fulfill({
     json: {
       data: [{ id: "user-2", display_name: "Grace Hopper" }],
@@ -407,7 +425,11 @@ async function installAuthenticatedMocks(
   await page.route("**/api/v1/conversations/conversation-1/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(session.user.id) } }));
   await page.route("**/api/v1/conversations/conversation-1/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/conversation-1/read-cursor", (route) => route.fulfill({ status: 204 }));
-  await page.route("**/api/v1/search**", (route) => route.fulfill({ json: { data: options.populated ? [message] : [] } }));
+  await page.route("**/api/v1/search/unified**", (route) => route.fulfill({ json: {
+    data: options.populated ? [{ id: message.id, kind: "message", title: "General", excerpt: message.body, conversation_id: message.conversation_id, occurred_at: message.inserted_at, score: 100, path: `/app/?conversation=${message.conversation_id}&message=${message.id}` }] : [],
+    facets: options.populated ? { message: 1 } : {},
+    page: { has_more: false, next_cursor: null, source_limits: { messages: false, files: false, whiteboards: false, meetings: false, artifacts: false }, ranking_scope: "authorized_source_candidates", meeting_window_days: 732 }
+  } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({
     json: {
       data: [{ id: "notification-1", event_type: "message", title: "New activity", body: "A conversation has new activity.", conversation_id: "conversation-1", message_id: "message-1", inserted_at: "2026-07-14T10:00:00Z" }],

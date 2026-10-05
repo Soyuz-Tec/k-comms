@@ -30,6 +30,9 @@ export function activeVideoFixtureMarkup(
     callContrast?: "high";
     /** Placement controls exist only on the minimized companion. */
     minimized?: boolean;
+    /** Mirrors the persistent privacy cue, independent of routine controls. */
+    recordingStatus?: "pending_consent" | "recording" | "stopping";
+    controlsCollapsed?: boolean;
   } = {}
 ) {
   const mode = [
@@ -37,18 +40,22 @@ export function activeVideoFixtureMarkup(
     options.callControls ? ` data-call-controls="${options.callControls}"` : "",
     options.callContrast ? ` data-call-contrast="${options.callContrast}"` : ""
   ].join("");
+  const recordingCue = options.recordingStatus ? `<button class="status-pill call-recording-status" type="button" aria-live="polite" aria-label="${options.recordingStatus === "pending_consent" ? "Review recording consent" : "Review active recording"}">${{ pending_consent: "Recording consent requested", recording: "Recording active", stopping: "Recording stopping" }[options.recordingStatus]}</button>` : "";
+  const critical = Boolean(options.minimized || options.controlsCollapsed);
   return `<!doctype html>
     <html lang="en"${mode}>
       <head>
         <title>Call fixture</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
       </head>
       <body>
         <main class="app-shell">Workspace beneath the call</main>
-        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen${options.minimized ? " minimized" : ""}" data-call-control-labels="visible">
+        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen${options.minimized ? " minimized" : ""}" data-call-control-labels="visible"${options.recordingStatus ? ` data-recording-status="${options.recordingStatus}"` : ""}${options.controlsCollapsed ? ' data-controls="collapsed"' : ""}>
           <div class="audio-call-dock-heading">
             <div class="call-heading-summary">
               <h2 class="call-room-title">Instant room</h2>
               <div class="call-progress-meta">
+                ${critical ? "" : recordingCue}
                 <span class="call-progress-duration">04:18</span>
                 <span class="call-progress-separator">·</span>
                 <span class="call-participant-count">1 participant</span>
@@ -65,6 +72,7 @@ export function activeVideoFixtureMarkup(
               ${options.minimized ? "" : `<button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>`}
             </div>
           </div>
+          ${critical && recordingCue ? `<div class="call-critical-status">${recordingCue}<div class="call-critical-state" role="status" aria-label="Call status"><span>Microphone off</span><span>Camera off</span></div><div class="call-critical-actions" role="group" aria-label="Call controls"><button type="button" class="button ghost compact" aria-label="Unmute microphone">Mic</button><button type="button" class="button danger compact" aria-label="Leave call">Leave</button></div></div>` : ""}
           <div class="active-call-details"${options.minimized ? ' inert aria-hidden="true"' : ""}>
             <section class="call-stage">
               <div class="video-participant-grid participant-count-1">
@@ -180,6 +188,7 @@ export async function installWorkspace(
   options: { tenantName?: string; callRunning?: boolean } = {}
 ) {
   const state = { readCursorRequests: 0, unexpectedRequests: [] as string[] };
+  const drafts = new Map<string, { body: string; version: number }>();
   const session = {
     access_token: "access-token",
     refresh_token: "refresh-token",
@@ -295,6 +304,16 @@ export async function installWorkspace(
     if (method === "GET" && path === `/api/v1/conversations/${conversationId}/messages`) {
       return json(route, { data: [message], page: { has_more: false, next_after_sequence: null, reset_required: false } });
     }
+    if (path === `/api/v1/conversations/${conversationId}/draft` && (method === "GET" || method === "PUT")) {
+      const input = method === "PUT" ? request.postDataJSON() as { thread_key: string; body: string; expected_version: number } : null;
+      const key = input?.thread_key || new URL(request.url()).searchParams.get("thread_key") || "main";
+      const current = drafts.get(key) || { body: "", version: 0 };
+      if (input) {
+        if (input.expected_version !== current.version) return json(route, { error: { code: "stale_draft", detail: "This draft changed on another device." } }, 409);
+        current.body = input.body; current.version += 1; drafts.set(key, current);
+      }
+      return json(route, { data: { conversation_id: conversationId, thread_key: key, ...current, expires_at: "2099-01-01T00:00:00Z" } });
+    }
     if (method === "GET" && path === `/api/v1/conversations/${conversationId}/delivery-cursors`) {
       return json(route, { data: [] });
     }
@@ -320,6 +339,10 @@ export async function installWorkspace(
       });
     }
     if (method === "GET" && path === "/api/v1/me/devices") return json(route, { data: [session.device] });
+    if (method === "GET" && path === "/api/v1/me/security") return json(route, { data: { mfa_enabled: false, authentication_method: "password", recovery_codes_remaining: 0 } });
+    if (method === "GET" && path === "/api/v1/me/availability") return json(route, { data: { status: "available", presence_state: "available", presence_expires_at: null, dnd_until: null, dnd_schedule: {}, dnd_active: false, retry_at: null, timezone: "UTC" } });
+    if (method === "GET" && path === "/api/v1/saved-items") return json(route, { data: [], page: { truncated: false } });
+    if (method === "GET" && path === "/api/v1/meetings") return json(route, { data: [] });
     if (method === "GET" && path === "/api/v1/me/sessions") {
       return json(route, { data: [{ id: "session-1", user_id: userId, device_id: session.device.id, expires_at: "2099-01-01T00:00:00Z", last_used_at: "2026-07-15T12:00:00Z", revoked_at: null, inserted_at: "2026-07-15T12:00:00Z" }] });
     }

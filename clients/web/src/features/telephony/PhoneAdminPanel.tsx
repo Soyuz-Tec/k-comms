@@ -4,6 +4,8 @@ import { useSession } from "../../app/session";
 import { useStepUp, stepUpWasCancelled } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { errorText } from "../../lib/format";
+import { VoicemailAdminPanel } from "./VoicemailAdminPanel";
+import { PhoneRoutingPanel } from "./PhoneRoutingPanel";
 import { useTelephony } from "./TelephonyProvider";
 import type { PhoneConfiguration, PhoneNumberInput } from "./types";
 import { phoneNumberInputError, phoneReadiness } from "./types";
@@ -91,7 +93,7 @@ export function PhoneAdminPanel() {
         <li><fieldset disabled={busy}>
           <legend>3. Assignment</legend>
           <p className="phone-step-state">{assignedUser ? `${assignedUser.display_name} · extension ${number?.extension}` : number ? "Assigned member needs review" : "No member assigned"}</p>
-          <p>Incoming calls go to this member. This workspace supports one assigned line; past call history stays with its original member when the line is reassigned.</p>
+          <p>This member receives incoming calls unless an enabled queue or shared line policy selects another eligible member. Past call history stays with its answering member.</p>
           <label className="field">Assigned member<AssignedMemberSelect initialUserId={number?.user_id} members={eligibleUsers} /></label>
           <label className="field">Extension<input name="extension" inputMode="numeric" defaultValue={number?.extension ?? ""} pattern="[0-9]{2,8}" minLength={2} maxLength={8} required aria-describedby="phone-admin-extension-help" /></label>
           <p id="phone-admin-extension-help" className="phone-help">Use 2–8 digits. The extension labels this line; it does not enable internal extension dialing.</p>
@@ -105,5 +107,7 @@ export function PhoneAdminPanel() {
       <p id="phone-admin-reason-help" className="phone-help">Briefly explain the assignment or routing change for the audit record. Saving requires password verification.</p>
       <button className="button primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save phone line"}</button>
     </form>}
+    {configuration && <PhoneRoutingPanel />}
+    {configuration && <VoicemailAdminPanel />}
   </section>;
 }

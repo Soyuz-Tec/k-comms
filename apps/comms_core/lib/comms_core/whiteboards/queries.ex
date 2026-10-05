@@ -37,6 +37,10 @@ defmodule CommsCore.Whiteboards.Queries do
           WHERE operation.tenant_id = $1::text::uuid
             AND operation.conversation_id = ANY(($2::text[])::uuid[])
             AND operation.kind = 'scene.update'
+            AND operation.sequence > COALESCE((
+              SELECT max(cleared.sequence) FROM whiteboard_operations AS cleared
+              WHERE cleared.whiteboard_id = operation.whiteboard_id AND cleared.kind = 'board.clear'
+            ), 0)
         ), latest AS (
           SELECT DISTINCT ON (conversation_id, element->>'id')
                  conversation_id,

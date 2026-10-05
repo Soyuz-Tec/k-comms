@@ -20,6 +20,7 @@ import type {
   Conversation,
   User
 } from "../../types";
+import { MeetingArtifactsPanel } from "../meeting-artifacts/MeetingArtifactsPanel";
 import "./CallsPage.css";
 
 const pageSize = 25;
@@ -190,6 +191,7 @@ export function CallsPage() {
 
       <nav className="calls-destination-tabs" aria-label="Calling destinations">
         <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Meetings</Link>
+        <Link to="/app/meetings"><AppIcon name="clock" />Calendar</Link>
         <Link to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
       </nav>
 
@@ -401,6 +403,8 @@ function CallSessionRow({
   videoEnabled: boolean;
   availabilityChecking: boolean;
 }) {
+  const { api } = useSession();
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const title = conversation
     ? conversationParticipantIdentifier(conversation, duplicateDirectNames)
     : "Conversation";
@@ -441,6 +445,7 @@ function CallSessionRow({
         </p>
       </div>
       <div className="call-session-actions">
+        {typeof api.meetingArtifacts === "function" && <button type="button" aria-expanded={artifactsOpen} aria-label={`View recordings and transcripts for ${title}`} onClick={() => setArtifactsOpen(value => !value)}><AppIcon name="file" />Recordings and transcripts</button>}
         <Link
           to={conversationPath(call.conversation_id)}
           aria-label={`Open chat for ${title}`}
@@ -465,6 +470,7 @@ function CallSessionRow({
           <span className="call-ending-note">Conversation unavailable</span>
         )}
       </div>
+      {artifactsOpen && <div className="call-session-artifacts"><MeetingArtifactsPanel api={api} conversationId={call.conversation_id} callId={call.id} joined={false} /></div>}
     </li>
   );
 }

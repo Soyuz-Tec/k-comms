@@ -38,12 +38,29 @@ export interface PhoneCall {
   can_end: boolean;
   active_on_this_device: boolean;
   end_reason?: string | null;
+  control_state?: "connected" | "held" | "consulting" | "transferred" | "voicemail";
 }
 
 export interface PhoneSession {
   data: PhoneCall;
   credential: CallCredential;
 }
+
+export type PhoneControlAction = "dtmf" | "hold" | "resume" | "blind_transfer" | "consult_transfer" | "complete_transfer" | "cancel_transfer" | "voicemail";
+export type PhoneCapabilityName = PhoneControlAction | "queues" | "shared_lines";
+export interface PhoneCapability { supported: boolean; configured?: boolean; qualified?: boolean; reason: string | null; transport?: string; assurance?: string }
+export type PhoneCapabilities = Partial<Record<PhoneCapabilityName, PhoneCapability>>;
+export interface PhoneControlInput { action: PhoneControlAction; idempotency_key: string; digit?: string; destination?: string }
+export interface PhoneControlReceipt {
+  id: string; call_id: string; action: PhoneControlAction; status: "pending" | "dispatching" | "submitted" | "failed" | "unknown";
+  dispatch: boolean; created_at: string; expires_at: string; completed_at: string | null; failure_reason: string | null;
+}
+
+export interface PhoneRoute {
+  id: string; name: string; mode: "queue" | "shared_line"; policy: "round_robin" | "simultaneous";
+  member_ids: string[]; max_waiting: number; max_wait_seconds: number; enabled: boolean; version: number;
+}
+export type PhoneRouteInput = Omit<PhoneRoute, "id" | "version"> & { version?: number; reason: string };
 
 export interface PhoneCallsPage {
   data: PhoneCall[];

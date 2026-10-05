@@ -111,14 +111,28 @@ export {
   uploadToPresignedTarget
 } from "./api/uploads";
 
+import type { Meeting, MeetingInput, MeetingsQuery, UpdateMeetingInput } from "./types/meetings";
+import { createMeetingsApi, type MeetingsApi } from "./api/domains/meetings";
+
+import { createEnterpriseIdentityApi, type EnterpriseIdentityApi } from "./api/domains/enterpriseIdentity";
+import { createMeetingArtifactsApi, type MeetingArtifactsApi } from "./api/domains/meeting-artifacts";
+
+import { createRichContentApi, type RichContentApi } from "./api/domains/rich-content";
+import { createVoicemailApi, type VoicemailApi } from "./api/domains/voicemail";
+
 export class ApiClient {
   private readonly transport: MemberSessionTransport;
   private readonly accountsApi: AccountsApi;
+  private readonly richContentApi: RichContentApi;
+  private readonly voicemailApi: VoicemailApi;
+  private readonly enterpriseIdentityApi: EnterpriseIdentityApi;
+  private readonly meetingArtifactsApi: MeetingArtifactsApi;
   private readonly roomsApi: RoomsApi;
   private readonly administrationApi: AdministrationApi;
   private readonly notificationsApi: NotificationsApi;
   private readonly integrationsApi: IntegrationsApi;
   private readonly callsApi: CallsApi;
+  private readonly meetingsApi: MeetingsApi;
   private readonly telephonyApi: TelephonyApi;
   private readonly messagingApi: MessagingApi;
   private readonly filesApi: FilesApi;
@@ -137,8 +151,12 @@ export class ApiClient {
     );
 
     const request: ApiRequest = this.transport.request;
+    this.richContentApi = createRichContentApi(request);
+    this.voicemailApi = createVoicemailApi(request);
     const download = this.transport.download;
     this.accountsApi = createAccountsApi(request, { withReceivedAt });
+    this.enterpriseIdentityApi = createEnterpriseIdentityApi(request, withReceivedAt);
+    this.meetingArtifactsApi = createMeetingArtifactsApi(request);
     this.roomsApi = createRoomsApi(request, {
       normalizeInstantRoomPreview,
       normalizeInstantRoomResult,
@@ -149,12 +167,73 @@ export class ApiClient {
     this.notificationsApi = createNotificationsApi(request);
     this.integrationsApi = createIntegrationsApi(request);
     this.callsApi = createCallsApi(request);
+    this.meetingsApi = createMeetingsApi(request);
     this.telephonyApi = createTelephonyApi(request);
     this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
     this.filesApi = createFilesApi(request, { attachmentContentType });
     this.systemApi = createSystemApi(request);
     this.whiteboardsApi = createWhiteboardsApi(request);
   }
+
+  meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }
+  createMeeting(conversationId: string, input: MeetingInput): Promise<Meeting> { return this.meetingsApi.createMeeting(conversationId, input); }
+  updateMeeting(id: string, input: UpdateMeetingInput): Promise<Meeting> { return this.meetingsApi.updateMeeting(id, input); }
+  getMeeting(...args: Parameters<MeetingsApi["getMeeting"]>) { return this.meetingsApi.getMeeting(...args); }
+  cancelMeeting(id: string, expectedVersion: number): Promise<Meeting> { return this.meetingsApi.cancelMeeting(id, expectedVersion); }
+  meetingCalendar(id: string): Promise<string> { return this.meetingsApi.meetingCalendar(id); }
+  startMeeting(id: string, occurrenceId: string, mediaKind: CallMediaKind): Promise<CallSessionResponse> { return this.meetingsApi.startMeeting(id, occurrenceId, mediaKind); }
+
+  passwordSignIn(...args: Parameters<EnterpriseIdentityApi["passwordSignIn"]>) { return this.enterpriseIdentityApi.passwordSignIn(...args); }
+  completeMfaSignIn(...args: Parameters<EnterpriseIdentityApi["completeMfaSignIn"]>) { return this.enterpriseIdentityApi.completeMfaSignIn(...args); }
+  startOidc(...args: Parameters<EnterpriseIdentityApi["startOidc"]>) { return this.enterpriseIdentityApi.startOidc(...args); }
+  completeOidc(...args: Parameters<EnterpriseIdentityApi["completeOidc"]>) { return this.enterpriseIdentityApi.completeOidc(...args); }
+  linkOidc(...args: Parameters<EnterpriseIdentityApi["linkOidc"]>) { return this.enterpriseIdentityApi.linkOidc(...args); }
+  completeOidcLink(...args: Parameters<EnterpriseIdentityApi["completeOidcLink"]>) { return this.enterpriseIdentityApi.completeOidcLink(...args); }
+  identitySecurity(...args: Parameters<EnterpriseIdentityApi["identitySecurity"]>) { return this.enterpriseIdentityApi.identitySecurity(...args); }
+  enrollMfa(...args: Parameters<EnterpriseIdentityApi["enrollMfa"]>) { return this.enterpriseIdentityApi.enrollMfa(...args); }
+  confirmMfa(...args: Parameters<EnterpriseIdentityApi["confirmMfa"]>) { return this.enterpriseIdentityApi.confirmMfa(...args); }
+  disableMfa(...args: Parameters<EnterpriseIdentityApi["disableMfa"]>) { return this.enterpriseIdentityApi.disableMfa(...args); }
+  rotateMfaRecovery(...args: Parameters<EnterpriseIdentityApi["rotateMfaRecovery"]>) { return this.enterpriseIdentityApi.rotateMfaRecovery(...args); }
+  availability(...args: Parameters<EnterpriseIdentityApi["availability"]>) { return this.enterpriseIdentityApi.availability(...args); }
+  updateAvailability(...args: Parameters<EnterpriseIdentityApi["updateAvailability"]>) { return this.enterpriseIdentityApi.updateAvailability(...args); }
+  meetingArtifacts(...args: Parameters<MeetingArtifactsApi["meetingArtifacts"]>) { return this.meetingArtifactsApi.meetingArtifacts(...args); }
+  requestRecording(...args: Parameters<MeetingArtifactsApi["requestRecording"]>) { return this.meetingArtifactsApi.requestRecording(...args); }
+  requestTranscript(...args: Parameters<MeetingArtifactsApi["requestTranscript"]>) { return this.meetingArtifactsApi.requestTranscript(...args); }
+  consentRecording(...args: Parameters<MeetingArtifactsApi["consentRecording"]>) { return this.meetingArtifactsApi.consentRecording(...args); }
+  startRecording(...args: Parameters<MeetingArtifactsApi["startRecording"]>) { return this.meetingArtifactsApi.startRecording(...args); }
+  stopRecording(...args: Parameters<MeetingArtifactsApi["stopRecording"]>) { return this.meetingArtifactsApi.stopRecording(...args); }
+  artifactPlayback(...args: Parameters<MeetingArtifactsApi["artifactPlayback"]>) { return this.meetingArtifactsApi.artifactPlayback(...args); }
+  artifactTranscript(...args: Parameters<MeetingArtifactsApi["artifactTranscript"]>) { return this.meetingArtifactsApi.artifactTranscript(...args); }
+  deleteMeetingArtifact(...args: Parameters<MeetingArtifactsApi["deleteMeetingArtifact"]>) { return this.meetingArtifactsApi.deleteMeetingArtifact(...args); }
+  phoneCapabilities(...args: Parameters<TelephonyApi["phoneCapabilities"]>) { return this.telephonyApi.phoneCapabilities(...args); }
+  phoneControls(...args: Parameters<TelephonyApi["phoneControls"]>) { return this.telephonyApi.phoneControls(...args); }
+  requestPhoneControl(...args: Parameters<TelephonyApi["requestPhoneControl"]>) { return this.telephonyApi.requestPhoneControl(...args); }
+  completePhoneControl(...args: Parameters<TelephonyApi["completePhoneControl"]>) { return this.telephonyApi.completePhoneControl(...args); }
+  reconcilePhoneControl(...args: Parameters<TelephonyApi["reconcilePhoneControl"]>) { return this.telephonyApi.reconcilePhoneControl(...args); }
+  phoneRoutes(...args: Parameters<TelephonyApi["phoneRoutes"]>) { return this.telephonyApi.phoneRoutes(...args); }
+  savePhoneRoute(...args: Parameters<TelephonyApi["savePhoneRoute"]>) { return this.telephonyApi.savePhoneRoute(...args); }
+  voicemails(...args: Parameters<VoicemailApi["voicemails"]>) { return this.voicemailApi.voicemails(...args); }
+  voicemailPlayback(...args: Parameters<VoicemailApi["voicemailPlayback"]>) { return this.voicemailApi.voicemailPlayback(...args); }
+  markVoicemailRead(...args: Parameters<VoicemailApi["markVoicemailRead"]>) { return this.voicemailApi.markVoicemailRead(...args); }
+  deleteVoicemail(...args: Parameters<VoicemailApi["deleteVoicemail"]>) { return this.voicemailApi.deleteVoicemail(...args); }
+  voicemailMailbox(...args: Parameters<VoicemailApi["voicemailMailbox"]>) { return this.voicemailApi.voicemailMailbox(...args); }
+  saveVoicemailMailbox(...args: Parameters<VoicemailApi["saveVoicemailMailbox"]>) { return this.voicemailApi.saveVoicemailMailbox(...args); }
+
+  boardGallery(...args: Parameters<RichContentApi["boardGallery"]>) { return this.richContentApi.boardGallery(...args); }
+  renameBoard(...args: Parameters<RichContentApi["renameBoard"]>) { return this.richContentApi.renameBoard(...args); }
+  boardVersions(...args: Parameters<RichContentApi["boardVersions"]>) { return this.richContentApi.boardVersions(...args); }
+  checkpointBoard(...args: Parameters<RichContentApi["checkpointBoard"]>) { return this.richContentApi.checkpointBoard(...args); }
+  restoreBoard(...args: Parameters<RichContentApi["restoreBoard"]>) { return this.richContentApi.restoreBoard(...args); }
+  exportBoard(...args: Parameters<RichContentApi["exportBoard"]>) { return this.richContentApi.exportBoard(...args); }
+  addBoardAsset(...args: Parameters<RichContentApi["addBoardAsset"]>) { return this.richContentApi.addBoardAsset(...args); }
+  boardAsset(...args: Parameters<RichContentApi["boardAsset"]>) { return this.richContentApi.boardAsset(...args); }
+  savedItems(...args: Parameters<RichContentApi["savedItems"]>) { return this.richContentApi.savedItems(...args); }
+  saveMessage(...args: Parameters<RichContentApi["saveMessage"]>) { return this.richContentApi.saveMessage(...args); }
+  unsaveMessage(...args: Parameters<RichContentApi["unsaveMessage"]>) { return this.richContentApi.unsaveMessage(...args); }
+  messageDraft(...args: Parameters<RichContentApi["messageDraft"]>) { return this.richContentApi.messageDraft(...args); }
+  updateMessageDraft(...args: Parameters<RichContentApi["updateMessageDraft"]>) { return this.richContentApi.updateMessageDraft(...args); }
+  unifiedSearch(...args: Parameters<RichContentApi["unifiedSearch"]>) { return this.richContentApi.unifiedSearch(...args); }
+  stepUpOidc(...args: Parameters<EnterpriseIdentityApi["stepUpOidc"]>) { return this.enterpriseIdentityApi.stepUpOidc(...args); }
 
   setSession(session: Session | null): void {
     this.transport.setSession(session);
@@ -184,16 +263,16 @@ export class ApiClient {
     return this.accountsApi.me();
   }
 
-  updateProfile(input: { display_name: string }): Promise<User>{
+  updateProfile(input: Parameters<AccountsApi["updateProfile"]>[0]): Promise<User>{
     return this.accountsApi.updateProfile(input);
   }
 
-  changePassword(input: { current_password: string; new_password: string }): Promise<void>{
+  changePassword(input: Parameters<AccountsApi["changePassword"]>[0]): Promise<void>{
     return this.accountsApi.changePassword(input);
   }
 
-  stepUp(currentPassword: string): Promise<{ step_up_at: string }>{
-    return this.accountsApi.stepUp(currentPassword);
+  stepUp(currentPassword: string, mfaCode?: string): Promise<{ step_up_at: string }>{
+    return this.accountsApi.stepUp(currentPassword, mfaCode);
   }
 
   socketTicket(): Promise<{ ticket: string; expires_in: number }>{

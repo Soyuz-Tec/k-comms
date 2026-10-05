@@ -88,6 +88,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
     with true <- email == preauthorized_email,
          :ok <- Validation.password(password),
          {:ok, session, tenant} <- Sessions.lock_active_guest(guest_subject) do
+      guest_session = session
+
       changes = %{
         external_subject: "local:#{email}",
         display_name:
@@ -101,6 +103,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
              session.user
              |> User.guest_conversion_changeset(changes)
              |> valid_changeset() do
+        ensure_live!(guest_session)
+
         converted_user =
           session.user
           |> User.guest_conversion_changeset(changes)
@@ -158,6 +162,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
         })
         |> Persistence.audit_or_rollback()
 
+        ensure_live!(guest_session)
+
         {:ok,
          CommsCore.Accounts.Projector.authentication(%{
            tenant: tenant,
@@ -181,6 +187,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
     with :ok <- Validation.password(password),
          {:ok, session, tenant} <- Sessions.lock_active_guest(guest_subject),
          true <- session.user.access_scope == :conversation_only do
+      guest_session = session
+
       changes = %{
         external_subject: "local:#{email}",
         display_name:
@@ -194,6 +202,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
              session.user
              |> User.ephemeral_guest_conversion_changeset(changes)
              |> valid_changeset() do
+        ensure_live!(guest_session)
+
         converted_user =
           session.user
           |> User.ephemeral_guest_conversion_changeset(changes)
@@ -228,6 +238,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
         })
         |> Persistence.audit_or_rollback()
 
+        ensure_live!(guest_session)
+
         {:ok,
          CommsCore.Accounts.Projector.authentication(%{
            tenant: tenant,
@@ -247,6 +259,13 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
   defp valid_changeset(%Ecto.Changeset{valid?: true}), do: :ok
   defp valid_changeset(%Ecto.Changeset{} = changeset), do: {:error, changeset}
 
+  defp ensure_live!(session) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
+    unless CommsCore.Accounts.GuestIdentities.ActiveSession.live?(session),
+      do: Repo.rollback(:session_expired)
+  end
+
   defp normalize_account_result({:error, %Ecto.Changeset{}}, _effects),
     do: {:error, :invalid_guest_account}
 
@@ -259,6 +278,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
   defp normalize_account_result(result, _effects), do: result
 
   defp insert_or_rollback(changeset) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.insert(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)
@@ -266,6 +287,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
   end
 
   defp update_or_rollback(changeset) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.update(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)
@@ -273,6 +296,8 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
   end
 
   defp update_or_validation_error(changeset, effects) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.update(changeset) do
       {:ok, value} ->
         value

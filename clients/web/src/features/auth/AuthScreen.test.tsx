@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => {
       status,
       acceptInvitation,
       login,
+      passwordSignIn: login,
+      completeMfaSignIn: vi.fn(),
+      startOidc: vi.fn(),
       bootstrap
     },
     setSession: vi.fn(),
@@ -68,9 +71,12 @@ const session = {
 describe("AuthScreen", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     mocks.status.mockReset().mockResolvedValue({ capabilities: { bootstrap: false } });
     mocks.acceptInvitation.mockReset();
     mocks.login.mockReset();
+    mocks.api.completeMfaSignIn.mockReset();
+    mocks.api.startOidc.mockReset();
     mocks.bootstrap.mockReset();
     mocks.setSession.mockReset();
     mocks.transportPolicyReady = true;
@@ -106,6 +112,80 @@ describe("AuthScreen", () => {
       device: expect.objectContaining({ platform: "web" })
     });
     await waitFor(() => expect(mocks.setSession).toHaveBeenCalledWith(session));
+  });
+
+  it("keeps MFA proof in memory and establishes the session only after successful verification", async () => {
+    mocks.login.mockResolvedValue({ mfa_required: true, challenge_token: "memory-only-proof", expires_in: 300 });
+    mocks.api.completeMfaSignIn.mockResolvedValue(session);
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
+    await user.type(screen.getByLabelText("Email address"), "taylor@example.test");
+    await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
+    await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
+
+    const code = await screen.findByLabelText("Authenticator or recovery code");
+    expect(mocks.setSession).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("memory-only-proof");
+    expect(JSON.stringify(window.localStorage)).not.toContain("memory-only-proof");
+    expect(JSON.stringify(window.sessionStorage)).not.toContain("memory-only-proof");
+    await user.type(code, " 123456 ");
+    await user.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    await waitFor(() => expect(mocks.setSession).toHaveBeenCalledExactlyOnceWith(session));
+    expect(mocks.api.completeMfaSignIn).toHaveBeenCalledWith("memory-only-proof", "123456");
+    expect(code).toHaveValue("");
+  });
+
+  it("keeps an invalid MFA proof signed out and allows a fresh sign-in challenge", async () => {
+    mocks.login.mockResolvedValue({ mfa_required: true, challenge_token: "old-proof", expires_in: 300 });
+    mocks.api.completeMfaSignIn.mockRejectedValue(new Error("The authenticator code is invalid or already used."));
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
+    await user.type(screen.getByLabelText("Email address"), "taylor@example.test");
+    await user.type(screen.getByLabelText("Password"), "password");
+    await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
+    await user.type(await screen.findByLabelText("Authenticator or recovery code"), "111111");
+    await user.click(screen.getByRole("button", { name: "Verify and sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The authenticator code is invalid or already used.");
+    expect(mocks.setSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Start sign in again" }));
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.queryByLabelText("Authenticator or recovery code")).not.toBeInTheDocument();
+    expect(mocks.setSession).not.toHaveBeenCalled();
+  });
+
+  it("expires an MFA challenge without submitting or establishing a session", async () => {
+    mocks.login.mockResolvedValue({ mfa_required: true, challenge_token: "expired-proof", expires_in: 0 });
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
+    await user.type(screen.getByLabelText("Email address"), "taylor@example.test");
+    await user.type(screen.getByLabelText("Password"), "password");
+    await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This sign-in challenge expired.");
+    expect(screen.getByLabelText("Authenticator or recovery code")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Verify and sign in" }));
+    expect(mocks.api.completeMfaSignIn).not.toHaveBeenCalled();
+    expect(mocks.setSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["http://idp.example.test/authorize", "https://user:secret@idp.example.test/authorize", "javascript:alert(1)"])("rejects the unsafe corporate authorization address %s", async authorization_url => {
+    mocks.api.startOidc.mockResolvedValue({ authorization_url });
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
+    await user.click(screen.getByRole("button", { name: "Corporate sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Corporate sign in returned an invalid address.");
+    expect(mocks.api.startOidc).toHaveBeenCalledWith("acme", "/app/");
+    expect(mocks.setSession).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/app/");
   });
 
   it("blocks credential submission on an unencrypted non-loopback origin", async () => {

@@ -47,6 +47,7 @@ defmodule CommsCore.Messaging do
           | CommsCore.Messaging.RetentionScope.t()
           | CommsCore.Messaging.RetentionCandidate.t()
           | CommsCore.Messaging.ReactionView.t()
+          | CommsCore.Messaging.DraftView.t()
 
   @type public_value :: public_scalar() | public_map() | public_contract()
   @type public_input ::
@@ -90,6 +91,27 @@ defmodule CommsCore.Messaging do
   @spec search_page(public_input(), public_map(), keyword() | public_map()) ::
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
 
+  @spec saved_items(public_map(), public_map()) :: public_response()
+  defdelegate saved_items(subject, params), to: CommsCore.Messaging.PersonalContent
+  @spec save_message(binary(), public_map()) :: public_response()
+  defdelegate save_message(message_id, subject), to: CommsCore.Messaging.PersonalContent
+  @spec unsave_message(binary(), public_map()) :: public_response()
+  defdelegate unsave_message(message_id, subject), to: CommsCore.Messaging.PersonalContent
+  @spec get_draft(binary(), public_map(), public_map()) :: public_response()
+  defdelegate get_draft(conversation_id, params, subject), to: CommsCore.Messaging.PersonalContent
+  @spec put_draft(binary(), public_map(), public_map()) :: public_response()
+  defdelegate put_draft(conversation_id, attrs, subject), to: CommsCore.Messaging.PersonalContent
+  @spec prune_expired_drafts(module()) :: public_response()
+  defdelegate prune_expired_drafts(caller), to: CommsCore.Messaging.PersonalContent
+  @spec erase_personal_content(binary(), atom(), binary()) :: :ok | {:error, atom()}
+  defdelegate erase_personal_content(tenant_id, type, target_id),
+    to: CommsCore.Messaging.PersonalContent,
+    as: :erase
+
+  @doc false
+  @spec rollback_rich_content_hazard_count() :: non_neg_integer()
+  defdelegate rollback_rich_content_hazard_count(), to: CommsCore.Messaging.PersonalContent
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
@@ -105,6 +127,12 @@ defmodule CommsCore.Messaging do
   end
 
   defdelegate governance_impact(tenant_id, target_type, target_id), to: GovernanceQueries
+
+  @doc "Retains owner message rows before caller-owned governed erasure scans."
+  @spec lock_for_erasure(Ecto.UUID.t(), :user | :conversation | :message, Ecto.UUID.t()) ::
+          {:ok, CommsCore.Messaging.GovernanceImpact.t()}
+          | {:error, :invalid_erasure_scope | :transaction_required}
+  defdelegate lock_for_erasure(tenant_id, target_type, target_id), to: GovernanceQueries
 
   defdelegate retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count),
     to: GovernanceQueries

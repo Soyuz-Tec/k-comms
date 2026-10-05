@@ -24,6 +24,9 @@ import {
 } from "./AttachmentUploadList";
 import { ConversationWorkspaceHeader } from "./ConversationWorkspaceHeader";
 import { MentionPicker } from "./MentionPicker";
+import { CompositionToolbar } from "./CompositionToolbar";
+import { DraftSyncNotice } from "./DraftSyncNotice";
+import type { DraftSyncState } from "./useSynchronizedDraft";
 import { MessageItem } from "./MessageItem";
 import type { FailedChatSend } from "./useChatComposer";
 
@@ -41,6 +44,9 @@ export function ConversationPane({
   capabilities,
   composer,
   draftPersistence,
+  draftSync,
+  onComposerTextChange,
+  onSave,
   connectionStatus,
   conversationIdentifier,
   currentUserId,
@@ -105,6 +111,9 @@ export function ConversationPane({
   capabilities: UserCapabilities | null;
   composer: string;
   draftPersistence: DraftPersistence;
+  draftSync?: DraftSyncState;
+  onComposerTextChange?: (value: string) => void;
+  onSave?: (message: Message) => Promise<void>;
   connectionStatus: ConnectionStatus;
   conversationIdentifier: (conversation: Conversation) => string;
   currentUserId: string;
@@ -276,6 +285,7 @@ export function ConversationPane({
                         onEdit={(body) => onEdit(message, body)}
                         onDelete={() => onDelete(message)}
                         onReport={() => onReport(message)}
+                        onSave={onSave ? () => onSave(message) : undefined}
                       />
                     </Fragment>
                   );
@@ -385,6 +395,8 @@ export function ConversationPane({
                 </span>
               </div>
             )}
+            {draftSync && <DraftSyncNotice sync={draftSync} />}
+            {onComposerTextChange && <CompositionToolbar value={composer} textareaId="message-composer" disabled={sending} onChange={onComposerTextChange} />}
             <div className="composer-shell">
               <label className="sr-only" htmlFor="message-composer">
                 Message
@@ -442,7 +454,7 @@ export function ConversationPane({
                     sending ||
                     uploading ||
                     !attachmentsReady ||
-                    !composer.trim()
+                    (!composer.trim() && pendingAttachments.length === 0)
                   }
                 >
                   <AppIcon

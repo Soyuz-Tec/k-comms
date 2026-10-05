@@ -3,14 +3,150 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 0a7c777ee6aff0979ffb1a757cc931ff73006a53173abac9c841fd7339b87632
+  sha256: e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: compose-full-uc-owner-contracts
+      previous_manifest_sha256: a43a0461f770efbb68c5612b1534f45307b0ebf949efea061442fbca3a4a2465
+      approved_changes:
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactErasurePlan
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProtection
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProtectionPort
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProviderEvent
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProviderPort
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProviderPort.Contract
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProviderReceipt
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactProviderRequest
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactStorageObject
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactStoragePort
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactStoragePort.Contract
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactTranscript
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactTranscriptSegment
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactTranscriptionPort
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactTranscriptionRequest
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactView
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.MeetingErasurePlan
+      - context:calls:public_contracts:add:CommsCore.AudioCalls.MeetingView
+      - context:calls:publishes:add:meeting.cancelled.v1
+      - context:calls:publishes:add:meeting.reminder.v1
+      - context:calls:publishes:add:meeting.scheduled.v1
+      - context:calls:publishes:add:meeting.updated.v1
+      - context:collaboration:allowed_dependencies:add:identity_access
+      - context:collaboration:public_contracts:add:CommsCore.Whiteboards.AssetView
+      - context:collaboration:public_contracts:add:CommsCore.Whiteboards.BoardAssetPort
+      - context:collaboration:public_contracts:add:CommsCore.Whiteboards.BoardAssetReceipt
+      - context:collaboration:public_contracts:add:CommsCore.Whiteboards.BoardView
+      - context:collaboration:public_contracts:add:CommsCore.Whiteboards.VersionView
+      - context:conversation_content:allowed_dependencies:add:collaboration
+      - context:conversation_content:public_contracts:add:CommsCore.Messaging.DraftView
+      - context:conversation_content:public_facades:add:CommsCore.Messaging.BoardAssets
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryUsersLockQuery
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.GovernanceErasureCommand
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.GovernanceErasureReceipt
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.GuestIdentityParentsLockQuery
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.GuestIdentityParentsLockReceipt
+      - context:identity_access:public_contracts:add:CommsCore.Accounts.LockedDirectoryUser
+      - context:notification_delivery:consumes:add:meeting.cancelled.v1
+      - context:notification_delivery:consumes:add:meeting.reminder.v1
+      - context:notification_delivery:consumes:add:meeting.scheduled.v1
+      - context:notification_delivery:consumes:add:meeting.updated.v1
+      - context:telephony:public_contracts:add:CommsCore.Telephony.ControlRequest
+      - context:telephony:public_contracts:add:CommsCore.Telephony.ControlView
+      - context:telephony:public_contracts:add:CommsCore.Telephony.ProviderControlPort
+      - context:telephony:public_contracts:add:CommsCore.Telephony.ProviderControlPort.Contract
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailErasurePlan
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailObject
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailProtection
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailProtectionPort
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailProviderPort
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailProviderPort.Contract
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailRequest
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailStoragePort
+      - context:telephony:public_contracts:add:CommsCore.Telephony.VoicemailStoragePort.Contract
+      - context:telephony:publishes:add:telephony.control.updated
+      - context:trust_governance:allowed_dependencies:add:telephony
+      - context:trust_governance:public_facades:add:CommsCore.Governance.ArtifactProtection
+      - context:trust_governance:public_facades:add:CommsCore.Governance.VoicemailProtection
+      - public_facade_api:sha256:0a7c777ee6aff0979ffb1a757cc931ff73006a53173abac9c841fd7339b87632->e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e
+      - runtime_collaborations:call-artifact-governance-protection:add:{"binding":{"application":"comms_core","key":"artifact_protection_adapter","module":"CommsCore.Governance.ArtifactProtection"},"callers":["CommsCore.AudioCalls.Artifacts","CommsCore.AudioCalls.MeetingErasure"],"condition":"ADR-0087,
+        ADR-0089 and ADR-0092 bind meeting-history erasure and artifact deletion/retention to the exact Calls-owned
+        protection projection on the caller transaction; Governance alone reads its canonical legal-hold and retention
+        tables and acquires its tenant lock. No direct foreign Repo access or additional operation is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"call-artifact-governance-protection","implementation":"CommsCore.Governance.ArtifactProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.AudioCalls.ArtifactProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.ArtifactProtection","transaction":"required"}
+      - runtime_collaborations:identity-call-lifecycle:callers:add:"CommsCore.Accounts.GovernanceErasure"
+      - runtime_collaborations:telephony-voicemail-governance-protection:add:{"binding":{"application":"comms_core","key":"voicemail_protection_adapter","module":"CommsCore.Governance.VoicemailProtection"},"callers":["CommsCore.Telephony.Mailboxes"],"condition":"ADR-0088
+        and ADR-0092 bind voicemail erasure and retention to the exact Telephony-owned protection projection on the
+        existing caller transaction. Governance alone reads tenant and participant legal holds and retention policies
+        while acquiring the tenant lock; there is no foreign Repo access or broader operation.","consumer":"telephony","graph_semantics":{"compile_dependency":"trust_governance_to_telephony","control_flow":"telephony_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"telephony-voicemail-governance-protection","implementation":"CommsCore.Governance.VoicemailProtection","operations":[{"arity":2,"name":"protection"}],"port":"CommsCore.Telephony.VoicemailProtectionPort","provider":"trust_governance","result_contract":"CommsCore.Telephony.VoicemailProtection","transaction":"required"}
+      - runtime_collaborations:whiteboard-approved-content-assets:add:{"binding":{"application":"comms_core","key":"whiteboard_asset_adapter","module":"CommsCore.Messaging.BoardAssets"},"callers":["CommsCore.Whiteboards.AssetValidation","CommsCore.Whiteboards.Library"],"condition":"ADR-0091
+        and ADR-0092 permit only approved live raster source assets and version-pinned receipts through Collaboration-owned
+        claim/read contracts. The provider retains conversation-content persistence and checks live admission, active
+        source messages, clean scans, size bounds and object identity; claim requires the caller transaction while read
+        rechecks authorization independently.","consumer":"collaboration","graph_semantics":{"compile_dependency":"conversation_content_to_collaboration","control_flow":"collaboration_to_conversation_content","static_cycle_policy":"dependency_inversion"},"id":"whiteboard-approved-content-assets","implementation":"CommsCore.Messaging.BoardAssets","operations":[{"arity":3,"name":"claim"},{"arity":4,"name":"read"}],"port":"CommsCore.Whiteboards.BoardAssetPort","provider":"conversation_content","result_contract":"CommsCore.Whiteboards.BoardAssetReceipt","transaction":"independent"}
+      - table:call_artifact_consents:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Consent","owner":"calls","role":"source"}
+      - table:call_artifact_provider_events:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.ProviderEvent","owner":"calls","role":"source"}
+      - table:call_artifact_segments:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Segment","owner":"calls","role":"source"}
+      - table:call_artifacts:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Artifact","owner":"calls","role":"source"}
+      - table:federated_identities:add:{"canonical_schema":"CommsCore.Accounts.FederatedIdentity","owner":"identity_access","role":"source"}
+      - table:identity_auth_challenges:add:{"canonical_schema":"CommsCore.Accounts.AuthChallenge","owner":"identity_access","role":"source"}
+      - table:identity_mfa_factors:add:{"canonical_schema":"CommsCore.Accounts.MfaFactor","owner":"identity_access","role":"source"}
+      - table:meeting_occurrences:add:{"canonical_schema":"CommsCore.AudioCalls.MeetingOccurrence","owner":"calls","role":"source"}
+      - table:meetings:add:{"canonical_schema":"CommsCore.AudioCalls.Meeting","owner":"calls","role":"source"}
+      - table:message_drafts:add:{"canonical_schema":"CommsCore.Messaging.PersonalContent.Draft","owner":"conversation_content","role":"source"}
+      - table:message_saved_items:add:{"canonical_schema":"CommsCore.Messaging.PersonalContent.SavedItem","owner":"conversation_content","role":"source"}
+      - table:scim_directory_resources:add:{"canonical_schema":"CommsCore.Accounts.ScimResource","owner":"identity_access","role":"source"}
+      - table:telephony_control_commands:add:{"canonical_schema":"CommsCore.Telephony.ControlCommand","owner":"telephony","role":"source"}
+      - table:telephony_mailboxes:add:{"canonical_schema":"CommsCore.Telephony.Mailbox","owner":"telephony","role":"source"}
+      - table:telephony_routes:add:{"canonical_schema":"CommsCore.Telephony.Route","owner":"telephony","role":"source"}
+      - table:telephony_voicemail_reads:add:{"canonical_schema":"CommsCore.Telephony.VoicemailRead","owner":"telephony","role":"source"}
+      - table:telephony_voicemails:add:{"canonical_schema":"CommsCore.Telephony.Voicemail","owner":"telephony","role":"source"}
+      - table:whiteboard_assets:add:{"canonical_schema":"CommsCore.Whiteboards.Asset","owner":"collaboration","role":"source"}
+      - table:whiteboard_versions:add:{"canonical_schema":"CommsCore.Whiteboards.Version","owner":"collaboration","role":"source"}
+      - technical_interfaces:call-artifact-provider:add:{"behaviour":"CommsCore.AudioCalls.ArtifactProviderPort.Contract","binding":{"application":"comms_core","key":"artifact_provider_adapter","module":"CommsIntegrations.MeetingArtifacts.LiveKitEgress"},"callers":["CommsCore.AudioCalls.Artifacts"],"condition":"ADR-0089
+        and ADR-0092 permit only the exact typed artifact provider operations through this Calls-owned dispatcher and
+        behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured provider
+        capability does not establish live provider or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactProviderPort","CommsCore.AudioCalls.ArtifactProviderPort.Contract","CommsCore.AudioCalls.ArtifactProviderRequest","CommsCore.AudioCalls.ArtifactProviderReceipt","CommsCore.AudioCalls.ArtifactProviderEvent"],"dispatch":"configured","id":"call-artifact-provider","implementation":"CommsIntegrations.MeetingArtifacts.LiveKitEgress","interface":"CommsCore.AudioCalls.ArtifactProviderPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"start"},{"arity":1,"name":"stop"},{"arity":1,"name":"reconcile"},{"arity":2,"name":"verify_callback"}],"owner":"calls","transaction":"independent"}
+      - technical_interfaces:call-artifact-storage:add:{"behaviour":"CommsCore.AudioCalls.ArtifactStoragePort.Contract","binding":{"application":"comms_core","key":"artifact_storage_adapter","module":"CommsIntegrations.MeetingArtifacts.S3Storage"},"callers":["CommsCore.AudioCalls.Artifacts"],"condition":"ADR-0089
+        and ADR-0092 permit only the exact typed artifact storage operations through this Calls-owned dispatcher and
+        behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured provider
+        capability does not establish live provider or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactStoragePort","CommsCore.AudioCalls.ArtifactStoragePort.Contract","CommsCore.AudioCalls.ArtifactStorageObject"],"dispatch":"configured","id":"call-artifact-storage","implementation":"CommsIntegrations.MeetingArtifacts.S3Storage","interface":"CommsCore.AudioCalls.ArtifactStoragePort","operations":[{"arity":1,"name":"verify"},{"arity":1,"name":"download"},{"arity":1,"name":"delete"}],"owner":"calls","transaction":"independent"}
+      - technical_interfaces:call-artifact-transcription:add:{"behaviour":"CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract","binding":{"application":"comms_core","key":"artifact_transcription_adapter","module":"CommsIntegrations.MeetingArtifacts.WhisperTranscription"},"callers":["CommsCore.AudioCalls.Artifacts"],"condition":"ADR-0089
+        and ADR-0092 permit only the exact typed artifact transcription operations through this Calls-owned dispatcher
+        and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured provider
+        capability does not establish live provider or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactTranscriptionPort","CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract","CommsCore.AudioCalls.ArtifactTranscriptionRequest","CommsCore.AudioCalls.ArtifactTranscript","CommsCore.AudioCalls.ArtifactTranscriptSegment","CommsCore.AudioCalls.ArtifactStorageObject"],"dispatch":"configured","id":"call-artifact-transcription","implementation":"CommsIntegrations.MeetingArtifacts.WhisperTranscription","interface":"CommsCore.AudioCalls.ArtifactTranscriptionPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"transcribe"}],"owner":"calls","transaction":"independent"}
+      - technical_interfaces:telephony-provider-controls:add:{"behaviour":"CommsCore.Telephony.ProviderControlPort.Contract","binding":{"application":"comms_core","key":"telephony_control_adapter","module":"CommsIntegrations.Telephony.LiveKit"},"callers":["CommsCore.Telephony.Controls","CommsCore.Telephony.Lifecycle","CommsCore.Telephony.Mailboxes","CommsCore.Telephony.Routing"],"condition":"ADR-0088
+        and ADR-0092 permit only exact provider capability projection, qualified destination authorization, authenticated
+        event normalization, typed control execution, bound call status and terminal provider cleanup. Controls executes
+        user provider work after current identity, device, session and call ownership checks; Routing executes internal
+        queue-waiting work after current tenant, route, membership and call admission checks. Both retain owner locks
+        through the bounded effect. Lifecycle alone uses the typed ProviderCommand for exact external-call observation
+        and terminal cleanup, preserving transferred handoffs and pending caller-only voicemail through their bounded
+        lifecycle and requiring owned provider-resource absence before its cleanup receipt. Effect budgets are checked
+        after owner-lock acquisition. The default LiveKit adapter fails closed for unavailable controls; qualified ARI
+        capability is selected by runtime composition without exposing credentials or treating adapter acceptance as
+        carrier acknowledgement.","contracts":["CommsCore.Telephony.ProviderControlPort","CommsCore.Telephony.ProviderControlPort.Contract","CommsCore.Telephony.ControlRequest","CommsCore.Telephony.ProviderCommand"],"dispatch":"configured","id":"telephony-provider-controls","implementation":"CommsIntegrations.Telephony.LiveKit","interface":"CommsCore.Telephony.ProviderControlPort","operations":[{"arity":0,"name":"capabilities"},{"arity":1,"name":"authorize_destination"},{"arity":2,"name":"verify_event"},{"arity":1,"name":"execute_control"},{"arity":1,"name":"cleanup_call"},{"arity":1,"name":"bound_call_status"}],"owner":"telephony","transaction":"independent"}
+      - technical_interfaces:telephony-voicemail-provider:add:{"behaviour":"CommsCore.Telephony.VoicemailProviderPort.Contract","binding":{"application":"comms_core","key":"voicemail_provider_adapter","module":"CommsIntegrations.Telephony.VoicemailARI"},"callers":["CommsCore.Telephony.Mailboxes","CommsWorkers.TelephonyVoicemailWorker"],"condition":"ADR-0088
+        and ADR-0092 permit exact voicemail provider operations using tenant/call-bound requests and version-pinned
+        media receipts. The qualified configured provider and approved storage remain disabled by default; verified
+        recording notice, live member access, bounded media, retention and legal-hold decisions precede publication
+        or erasure.","contracts":["CommsCore.Telephony.VoicemailProviderPort","CommsCore.Telephony.VoicemailProviderPort.Contract","CommsCore.Telephony.VoicemailRequest"],"dispatch":"configured","id":"telephony-voicemail-provider","implementation":"CommsIntegrations.Telephony.VoicemailARI","interface":"CommsCore.Telephony.VoicemailProviderPort","operations":[{"arity":1,"name":"fetch"},{"arity":1,"name":"delete"},{"arity":0,"name":"ready?"}],"owner":"telephony","transaction":"independent"}
+      - technical_interfaces:telephony-voicemail-storage:add:{"behaviour":"CommsCore.Telephony.VoicemailStoragePort.Contract","binding":{"application":"comms_core","key":"voicemail_storage_adapter","module":"CommsIntegrations.Telephony.VoicemailS3"},"callers":["CommsCore.Telephony.Mailboxes"],"condition":"ADR-0088
+        and ADR-0092 permit exact voicemail storage operations using tenant/call-bound requests and version-pinned media
+        receipts. The qualified configured provider and approved storage remain disabled by default; verified recording
+        notice, live member access, bounded media, retention and legal-hold decisions precede publication or erasure.","contracts":["CommsCore.Telephony.VoicemailStoragePort","CommsCore.Telephony.VoicemailStoragePort.Contract","CommsCore.Telephony.VoicemailObject"],"dispatch":"configured","id":"telephony-voicemail-storage","implementation":"CommsIntegrations.Telephony.VoicemailS3","interface":"CommsCore.Telephony.VoicemailStoragePort","operations":[{"arity":2,"name":"ingest"},{"arity":1,"name":"download"},{"arity":1,"name":"delete"},{"arity":0,"name":"ready?"}],"owner":"telephony","transaction":"independent"}
+      - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.AudioCalls.Artifacts"
+      - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.AudioCalls.Meetings"
+      - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Mailboxes"
+      - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Routing"
+      adr: docs/02-architecture/adr/0092-compose-full-uc-owner-contracts.md
+      removal_condition: Remove this exact transition after the full-UC owner composition and operation snapshot from
+        protected base commit 23896227a80055eb2b393b8f7260fd3244942481 reach the protected branch; it may not authorize
+        any later manifest or operation-inventory delta.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -228,7 +364,7 @@ enforcement:
 contexts:
   identity_access:
     kind: business
-    responsibility: Human, guest, and service identity, credentials, sessions, devices, recovery, conversion, and platform grants.
+    responsibility: Human, guest, and service identity, credentials, enterprise federation, MFA, directory provisioning, profiles, availability, sessions, devices, recovery, conversion, and platform grants.
     current_contexts: [Accounts, PasswordRecovery, ServiceAccounts]
     fold_in: [PasswordRecovery, ServiceAccounts]
     public_facades: [CommsCore.Accounts, CommsCore.PasswordRecovery, CommsCore.ServiceAccounts]
@@ -242,8 +378,14 @@ contexts:
       - CommsCore.Accounts.ConversationBootstrapPort
       - CommsCore.Accounts.DeviceView
       - CommsCore.Accounts.DirectoryPersonView
+      - CommsCore.Accounts.DirectoryUsersLockQuery
+      - CommsCore.Accounts.GovernanceErasureCommand
+      - CommsCore.Accounts.GovernanceErasureReceipt
+      - CommsCore.Accounts.GuestIdentityParentsLockQuery
+      - CommsCore.Accounts.GuestIdentityParentsLockReceipt
       - CommsCore.Accounts.InitialConversationCommand
       - CommsCore.Accounts.InitialConversationReceipt
+      - CommsCore.Accounts.LockedDirectoryUser
       - CommsCore.Accounts.NotificationCommand
       - CommsCore.Accounts.NotificationPort
       - CommsCore.Accounts.NotificationRecipient
@@ -323,13 +465,14 @@ contexts:
     consumes: []
   conversation_content:
     kind: business
-    responsibility: Messages, threads, mentions, reactions, revisions, attachments, and attachment safety state.
+    responsibility: Messages, threads, mentions, reactions, revisions, saved items, synchronized drafts, attachments, and attachment safety state.
     current_contexts: [Messaging, Attachments]
     fold_in: [Attachments]
-    public_facades: [CommsCore.Messaging, CommsCore.Attachments]
+    public_facades: [CommsCore.Messaging, CommsCore.Attachments, CommsCore.Messaging.BoardAssets]
     public_contracts:
       - CommsCore.Messaging.ActivityView
       - CommsCore.Messaging.DeliveryCursorView
+      - CommsCore.Messaging.DraftView
       - CommsCore.Messaging.MessageView
       - CommsCore.Messaging.MessageDeletionCandidate
       - CommsCore.Messaging.GovernanceImpact
@@ -345,25 +488,30 @@ contexts:
       - CommsCore.Attachments.RestoredObjectIdentity
       - CommsCore.Attachments.ScanAttemptView
     internal_namespaces: [CommsCore.Messaging, CommsCore.Attachments]
-    allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
+    allowed_dependencies: [identity_access, conversations, tenant_administration, collaboration, audit, platform_eventing]
     publishes: [content.message_created.v1, content.attachment_ready.v1, content.attachment_rejected.v1]
     consumes: [governance.content_restriction_changed.v1]
   collaboration:
     kind: business
-    responsibility: Durable conversation whiteboards and ephemeral collaborator presence.
+    responsibility: Durable conversation whiteboards, approved assets, version libraries, export, and ephemeral collaborator presence.
     current_contexts: [Whiteboards]
     public_facades: [CommsCore.Whiteboards]
     public_contracts:
       - CommsCore.Whiteboards.ActivityView
       - CommsCore.Whiteboards.OperationView
       - CommsCore.Whiteboards.SearchResult
+      - CommsCore.Whiteboards.BoardView
+      - CommsCore.Whiteboards.VersionView
+      - CommsCore.Whiteboards.AssetView
+      - CommsCore.Whiteboards.BoardAssetPort
+      - CommsCore.Whiteboards.BoardAssetReceipt
     internal_namespaces: [CommsCore.Whiteboards]
-    allowed_dependencies: [conversations]
+    allowed_dependencies: [identity_access, conversations]
     publishes: [collaboration.whiteboard_operation_applied.v1]
     consumes: []
   calls:
     kind: business
-    responsibility: Audio and video call lifecycle, admission, participants, and expiry.
+    responsibility: Audio and video call lifecycle, scheduling, admission, participants, consented artifacts, transcripts, and expiry.
     current_contexts: [AudioCalls]
     fold_in: []
     public_facades: [CommsCore.AudioCalls, CommsCore.AudioCalls.LifecycleCoordinator]
@@ -377,13 +525,32 @@ contexts:
       - CommsCore.AudioCalls.EvictionProgress
       - CommsCore.AudioCalls.ModerationTarget
       - CommsCore.AudioCalls.ProviderCall
+      - CommsCore.AudioCalls.MeetingView
+      - CommsCore.AudioCalls.MeetingErasurePlan
+      - CommsCore.AudioCalls.ArtifactView
+      - CommsCore.AudioCalls.ArtifactErasurePlan
+      - CommsCore.AudioCalls.ArtifactProviderRequest
+      - CommsCore.AudioCalls.ArtifactProviderReceipt
+      - CommsCore.AudioCalls.ArtifactProviderEvent
+      - CommsCore.AudioCalls.ArtifactStorageObject
+      - CommsCore.AudioCalls.ArtifactProtection
+      - CommsCore.AudioCalls.ArtifactTranscriptionRequest
+      - CommsCore.AudioCalls.ArtifactTranscript
+      - CommsCore.AudioCalls.ArtifactTranscriptSegment
+      - CommsCore.AudioCalls.ArtifactProviderPort
+      - CommsCore.AudioCalls.ArtifactProviderPort.Contract
+      - CommsCore.AudioCalls.ArtifactStoragePort
+      - CommsCore.AudioCalls.ArtifactStoragePort.Contract
+      - CommsCore.AudioCalls.ArtifactTranscriptionPort
+      - CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract
+      - CommsCore.AudioCalls.ArtifactProtectionPort
     internal_namespaces: [CommsCore.AudioCalls]
     allowed_dependencies: [identity_access, conversations, tenant_administration, telephony, audit, platform_eventing]
-    publishes: [audio_call.started.v1, audio_call.ended.v1, call.started.v1, call.ended.v1]
+    publishes: [audio_call.started.v1, audio_call.ended.v1, call.started.v1, call.ended.v1, meeting.scheduled.v1, meeting.updated.v1, meeting.cancelled.v1, meeting.reminder.v1]
     consumes: []
   telephony:
     kind: business
-    responsibility: Tenant phone assignment, individual SIP/PSTN call lifecycle, device-exclusive admission, durable provider work, and call records.
+    responsibility: Tenant phone assignment, SIP/PSTN call lifecycle, device-exclusive admission, advanced controls, shared-line and queue routing, voicemail, durable provider work, and call records.
     current_contexts: [Telephony]
     fold_in: []
     public_facades: [CommsCore.Telephony]
@@ -394,9 +561,22 @@ contexts:
       - CommsCore.Telephony.ProviderWebhookPort
       - CommsCore.Telephony.ProviderWebhookPort.Contract
       - CommsCore.Telephony.VerifiedProviderEvent
+      - CommsCore.Telephony.ControlView
+      - CommsCore.Telephony.ControlRequest
+      - CommsCore.Telephony.ProviderControlPort
+      - CommsCore.Telephony.ProviderControlPort.Contract
+      - CommsCore.Telephony.VoicemailRequest
+      - CommsCore.Telephony.VoicemailObject
+      - CommsCore.Telephony.VoicemailProtection
+      - CommsCore.Telephony.VoicemailErasurePlan
+      - CommsCore.Telephony.VoicemailProviderPort
+      - CommsCore.Telephony.VoicemailProviderPort.Contract
+      - CommsCore.Telephony.VoicemailStoragePort
+      - CommsCore.Telephony.VoicemailStoragePort.Contract
+      - CommsCore.Telephony.VoicemailProtectionPort
     internal_namespaces: [CommsCore.Telephony]
     allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
-    publishes: [telephony.call.updated]
+    publishes: [telephony.call.updated, telephony.control.updated]
     consumes: []
   notification_delivery:
     kind: business
@@ -415,7 +595,7 @@ contexts:
     internal_namespaces: [CommsCore.Notifications]
     allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
     publishes: []
-    consumes: [message.created.v1, mention.created.v1]
+    consumes: [message.created.v1, mention.created.v1, meeting.scheduled.v1, meeting.updated.v1, meeting.cancelled.v1, meeting.reminder.v1]
   webhook_management:
     kind: business
     responsibility: Webhook endpoints, subscriptions, secrets, delivery policy, and delivery state.
@@ -437,7 +617,7 @@ contexts:
     responsibility: Moderation, retention, legal holds, deletion policy, and owner-coordinated erasure.
     current_contexts: [Governance, Moderation]
     fold_in: [Moderation]
-    public_facades: [CommsCore.Governance, CommsCore.Moderation]
+    public_facades: [CommsCore.Governance, CommsCore.Moderation, CommsCore.Governance.ArtifactProtection, CommsCore.Governance.VoicemailProtection]
     public_contracts:
       - CommsCore.Governance.DeletionExecution
       - CommsCore.Governance.DeletionRequestView
@@ -446,7 +626,7 @@ contexts:
       - CommsCore.Moderation.ActionView
       - CommsCore.Moderation.CaseView
     internal_namespaces: [CommsCore.Governance, CommsCore.Moderation]
-    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, collaboration, calls, webhook_management, audit, platform_eventing]
+    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, collaboration, calls, telephony, webhook_management, audit, platform_eventing]
     publishes: [governance.content_restriction_changed.v1, governance.erasure_requested.v1]
     consumes: []
   audit:
@@ -605,7 +785,7 @@ runtime_collaborations:
     port: CommsCore.Accounts.CallLifecyclePort
     result_contract: CommsCore.Accounts.CallLifecycleReceipt
     implementation: CommsCore.AudioCalls.LifecycleCoordinator
-    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    callers: [CommsCore.Accounts, CommsCore.Accounts.GovernanceErasure, CommsCore.Accounts.PasswordRecovery]
     operations:
       - {name: revoke_identity_access, arity: 1}
     binding:
@@ -617,7 +797,7 @@ runtime_collaborations:
       control_flow: identity_access_to_calls
       compile_dependency: calls_to_identity_access
       static_cycle_policy: dependency_inversion
-    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while the Calls lifecycle coordinator composes room admission revocation and Telephony terminal state and durable provider teardown on the caller transaction; ADR-0085 adds the exact Telephony contribution without growing callers, operation, command variants, or receipt.
+    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while the Calls lifecycle coordinator composes room admission revocation and Telephony terminal state and durable provider teardown on the caller transaction; ADR-0085 adds the exact Telephony contribution. ADR-0092 adds only GovernanceErasure as a caller for its typed identity drain before content selection, with the same operation, command variants, receipt, and transaction.
   - id: identity-initial-conversation-bootstrap
     consumer: identity_access
     provider: conversations
@@ -756,6 +936,83 @@ runtime_collaborations:
       static_cycle_policy: dependency_inversion
     condition: Conversations owns the exact membership/archive revocation command and receipt while Calls revokes matching admissions on the membership or archive transaction; caller, operation, command variants, receipt, and binding may not grow without architecture review.
 
+  - id: call-artifact-governance-protection
+    consumer: calls
+    provider: trust_governance
+    port: CommsCore.AudioCalls.ArtifactProtectionPort
+    result_contract: CommsCore.AudioCalls.ArtifactProtection
+    implementation: CommsCore.Governance.ArtifactProtection
+    callers:
+    - CommsCore.AudioCalls.Artifacts
+    - CommsCore.AudioCalls.MeetingErasure
+    operations:
+    - name: protection
+      arity: 3
+    binding:
+      application: comms_core
+      key: artifact_protection_adapter
+      module: CommsCore.Governance.ArtifactProtection
+    transaction: required
+    graph_semantics:
+      control_flow: calls_to_trust_governance
+      compile_dependency: trust_governance_to_calls
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0087, ADR-0089 and ADR-0092 bind meeting-history erasure and artifact deletion/retention to the exact Calls-owned protection projection
+      on the caller transaction; Governance alone reads its canonical legal-hold and retention tables and acquires
+      its tenant lock. No direct foreign Repo access or additional operation is authorized.
+
+  - id: whiteboard-approved-content-assets
+    consumer: collaboration
+    provider: conversation_content
+    port: CommsCore.Whiteboards.BoardAssetPort
+    result_contract: CommsCore.Whiteboards.BoardAssetReceipt
+    implementation: CommsCore.Messaging.BoardAssets
+    callers:
+    - CommsCore.Whiteboards.AssetValidation
+    - CommsCore.Whiteboards.Library
+    operations:
+    - name: claim
+      arity: 3
+    - name: read
+      arity: 4
+    binding:
+      application: comms_core
+      key: whiteboard_asset_adapter
+      module: CommsCore.Messaging.BoardAssets
+    transaction: independent
+    graph_semantics:
+      control_flow: collaboration_to_conversation_content
+      compile_dependency: conversation_content_to_collaboration
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0091 and ADR-0092 permit only approved live raster source assets and version-pinned receipts through
+      Collaboration-owned claim/read contracts. The provider retains conversation-content persistence and checks live
+      admission, active source messages, clean scans, size bounds and object identity; claim requires the caller transaction
+      while read rechecks authorization independently.
+
+  - id: telephony-voicemail-governance-protection
+    consumer: telephony
+    provider: trust_governance
+    port: CommsCore.Telephony.VoicemailProtectionPort
+    result_contract: CommsCore.Telephony.VoicemailProtection
+    implementation: CommsCore.Governance.VoicemailProtection
+    callers:
+    - CommsCore.Telephony.Mailboxes
+    operations:
+    - name: protection
+      arity: 2
+    binding:
+      application: comms_core
+      key: voicemail_protection_adapter
+      module: CommsCore.Governance.VoicemailProtection
+    transaction: required
+    graph_semantics:
+      control_flow: telephony_to_trust_governance
+      compile_dependency: trust_governance_to_telephony
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0088 and ADR-0092 bind voicemail erasure and retention to the exact Telephony-owned protection
+      projection on the existing caller transaction. Governance alone reads tenant and participant legal holds and
+      retention policies while acquiring the tenant lock; there is no foreign Repo access or broader operation.
+
 technical_interfaces:
   - id: telephony-provider-webhook-verification
     owner: telephony
@@ -791,7 +1048,7 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsCore.Accounts, CommsCore.Telephony.Lifecycle, CommsWeb.FallbackController]
+    callers: [CommsCore.Accounts, CommsCore.AudioCalls.Artifacts, CommsCore.AudioCalls.Meetings, CommsCore.Telephony.Lifecycle, CommsCore.Telephony.Mailboxes, CommsCore.Telephony.Routing, CommsWeb.FallbackController]
     operations:
       - {name: from, arity: 1}
     dispatch: direct
@@ -838,6 +1095,203 @@ technical_interfaces:
       module: CommsWeb.NotificationAvailabilityNotifier
     transaction: independent
     condition: NotificationDelivery emits only the content-free availability projection through the exact configured web adapter; an outbox retry may re-signal the same idempotent intent after a delivery error, and no persistence struct crosses the boundary.
+
+  - id: call-artifact-provider
+    owner: calls
+    interface: CommsCore.AudioCalls.ArtifactProviderPort
+    callers:
+    - CommsCore.AudioCalls.Artifacts
+    operations:
+    - name: configured?
+      arity: 0
+    - name: start
+      arity: 1
+    - name: stop
+      arity: 1
+    - name: reconcile
+      arity: 1
+    - name: verify_callback
+      arity: 2
+    dispatch: configured
+    contracts:
+    - CommsCore.AudioCalls.ArtifactProviderPort
+    - CommsCore.AudioCalls.ArtifactProviderPort.Contract
+    - CommsCore.AudioCalls.ArtifactProviderRequest
+    - CommsCore.AudioCalls.ArtifactProviderReceipt
+    - CommsCore.AudioCalls.ArtifactProviderEvent
+    behaviour: CommsCore.AudioCalls.ArtifactProviderPort.Contract
+    implementation: CommsIntegrations.MeetingArtifacts.LiveKitEgress
+    binding:
+      application: comms_core
+      key: artifact_provider_adapter
+      module: CommsIntegrations.MeetingArtifacts.LiveKitEgress
+    transaction: independent
+    condition: ADR-0089 and ADR-0092 permit only the exact typed artifact provider operations through this Calls-owned
+      dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
+      provider capability does not establish live provider or production qualification.
+
+  - id: call-artifact-storage
+    owner: calls
+    interface: CommsCore.AudioCalls.ArtifactStoragePort
+    callers:
+    - CommsCore.AudioCalls.Artifacts
+    operations:
+    - name: verify
+      arity: 1
+    - name: download
+      arity: 1
+    - name: delete
+      arity: 1
+    dispatch: configured
+    contracts:
+    - CommsCore.AudioCalls.ArtifactStoragePort
+    - CommsCore.AudioCalls.ArtifactStoragePort.Contract
+    - CommsCore.AudioCalls.ArtifactStorageObject
+    behaviour: CommsCore.AudioCalls.ArtifactStoragePort.Contract
+    implementation: CommsIntegrations.MeetingArtifacts.S3Storage
+    binding:
+      application: comms_core
+      key: artifact_storage_adapter
+      module: CommsIntegrations.MeetingArtifacts.S3Storage
+    transaction: independent
+    condition: ADR-0089 and ADR-0092 permit only the exact typed artifact storage operations through this Calls-owned
+      dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
+      provider capability does not establish live provider or production qualification.
+
+  - id: call-artifact-transcription
+    owner: calls
+    interface: CommsCore.AudioCalls.ArtifactTranscriptionPort
+    callers:
+    - CommsCore.AudioCalls.Artifacts
+    operations:
+    - name: configured?
+      arity: 0
+    - name: transcribe
+      arity: 1
+    dispatch: configured
+    contracts:
+    - CommsCore.AudioCalls.ArtifactTranscriptionPort
+    - CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract
+    - CommsCore.AudioCalls.ArtifactTranscriptionRequest
+    - CommsCore.AudioCalls.ArtifactTranscript
+    - CommsCore.AudioCalls.ArtifactTranscriptSegment
+    - CommsCore.AudioCalls.ArtifactStorageObject
+    behaviour: CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract
+    implementation: CommsIntegrations.MeetingArtifacts.WhisperTranscription
+    binding:
+      application: comms_core
+      key: artifact_transcription_adapter
+      module: CommsIntegrations.MeetingArtifacts.WhisperTranscription
+    transaction: independent
+    condition: ADR-0089 and ADR-0092 permit only the exact typed artifact transcription operations through this Calls-owned
+      dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
+      provider capability does not establish live provider or production qualification.
+
+  - id: telephony-provider-controls
+    owner: telephony
+    interface: CommsCore.Telephony.ProviderControlPort
+    callers:
+    - CommsCore.Telephony.Controls
+    - CommsCore.Telephony.Lifecycle
+    - CommsCore.Telephony.Mailboxes
+    - CommsCore.Telephony.Routing
+    operations:
+    - name: capabilities
+      arity: 0
+    - name: authorize_destination
+      arity: 1
+    - name: verify_event
+      arity: 2
+    - name: execute_control
+      arity: 1
+    - name: cleanup_call
+      arity: 1
+    - name: bound_call_status
+      arity: 1
+    dispatch: configured
+    contracts:
+    - CommsCore.Telephony.ProviderControlPort
+    - CommsCore.Telephony.ProviderControlPort.Contract
+    - CommsCore.Telephony.ControlRequest
+    - CommsCore.Telephony.ProviderCommand
+    behaviour: CommsCore.Telephony.ProviderControlPort.Contract
+    implementation: CommsIntegrations.Telephony.LiveKit
+    binding:
+      application: comms_core
+      key: telephony_control_adapter
+      module: CommsIntegrations.Telephony.LiveKit
+    transaction: independent
+    condition: ADR-0088 and ADR-0092 permit only exact provider capability projection, qualified destination authorization,
+      authenticated event normalization, typed control execution, bound call status and terminal provider cleanup.
+      Controls executes user provider work after current
+      identity, device, session and call ownership checks; Routing executes internal queue-waiting work after current
+      tenant, route, membership and call admission checks. Both retain owner locks through the bounded effect.
+      Lifecycle alone uses the typed ProviderCommand for exact external-call observation and terminal cleanup, preserving
+      transferred handoffs and pending caller-only voicemail through their bounded lifecycle and requiring owned provider-resource absence
+      before its cleanup receipt. Effect budgets are checked after owner-lock acquisition.
+      The default LiveKit adapter fails closed for unavailable controls; qualified ARI capability is selected by runtime
+      composition without exposing credentials or treating adapter acceptance as carrier acknowledgement.
+
+  - id: telephony-voicemail-provider
+    owner: telephony
+    interface: CommsCore.Telephony.VoicemailProviderPort
+    callers:
+    - CommsCore.Telephony.Mailboxes
+    - CommsWorkers.TelephonyVoicemailWorker
+    operations:
+    - name: fetch
+      arity: 1
+    - name: delete
+      arity: 1
+    - name: ready?
+      arity: 0
+    dispatch: configured
+    contracts:
+    - CommsCore.Telephony.VoicemailProviderPort
+    - CommsCore.Telephony.VoicemailProviderPort.Contract
+    - CommsCore.Telephony.VoicemailRequest
+    behaviour: CommsCore.Telephony.VoicemailProviderPort.Contract
+    implementation: CommsIntegrations.Telephony.VoicemailARI
+    binding:
+      application: comms_core
+      key: voicemail_provider_adapter
+      module: CommsIntegrations.Telephony.VoicemailARI
+    transaction: independent
+    condition: ADR-0088 and ADR-0092 permit exact voicemail provider operations using tenant/call-bound requests and
+      version-pinned media receipts. The qualified configured provider and approved storage remain disabled by default;
+      verified recording notice, live member access, bounded media, retention and legal-hold decisions precede publication
+      or erasure.
+
+  - id: telephony-voicemail-storage
+    owner: telephony
+    interface: CommsCore.Telephony.VoicemailStoragePort
+    callers:
+    - CommsCore.Telephony.Mailboxes
+    operations:
+    - name: ingest
+      arity: 2
+    - name: download
+      arity: 1
+    - name: delete
+      arity: 1
+    - name: ready?
+      arity: 0
+    dispatch: configured
+    contracts:
+    - CommsCore.Telephony.VoicemailStoragePort
+    - CommsCore.Telephony.VoicemailStoragePort.Contract
+    - CommsCore.Telephony.VoicemailObject
+    behaviour: CommsCore.Telephony.VoicemailStoragePort.Contract
+    implementation: CommsIntegrations.Telephony.VoicemailS3
+    binding:
+      application: comms_core
+      key: voicemail_storage_adapter
+      module: CommsIntegrations.Telephony.VoicemailS3
+    transaction: independent
+    condition: ADR-0088 and ADR-0092 permit exact voicemail storage operations using tenant/call-bound requests and
+      version-pinned media receipts. The qualified configured provider and approved storage remain disabled by default;
+      verified recording notice, live member access, bounded media, retention and legal-hold decisions precede publication
+      or erasure.
 
 retired_modules:
   - CommsCore.Authorization
@@ -901,6 +1355,27 @@ tables:
   oban_peers: {owner: platform_persistence, canonical_accessor: Oban.Peers.Database, role: technical, external_schema: true}
   outbox_events: {owner: platform_eventing, canonical_schema: CommsCore.Events.OutboxEvent, role: technical}
   schema_migrations: {owner: platform_persistence, canonical_schema: Ecto.Migration.SchemaMigration, role: technical, external_schema: true}
+
+  identity_mfa_factors: {owner: identity_access, canonical_schema: CommsCore.Accounts.MfaFactor, role: source}
+  identity_auth_challenges: {owner: identity_access, canonical_schema: CommsCore.Accounts.AuthChallenge, role: source}
+  federated_identities: {owner: identity_access, canonical_schema: CommsCore.Accounts.FederatedIdentity, role: source}
+  scim_directory_resources: {owner: identity_access, canonical_schema: CommsCore.Accounts.ScimResource, role: source}
+  meetings: {owner: calls, canonical_schema: CommsCore.AudioCalls.Meeting, role: source}
+  meeting_occurrences: {owner: calls, canonical_schema: CommsCore.AudioCalls.MeetingOccurrence, role: source}
+  call_artifacts: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Artifact, role: source}
+  call_artifact_consents: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Consent, role: source}
+  call_artifact_provider_events: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.ProviderEvent, role: source}
+  call_artifact_segments: {owner: calls, canonical_schema: CommsCore.AudioCalls.Artifacts.Segment, role: source}
+  telephony_control_commands: {owner: telephony, canonical_schema: CommsCore.Telephony.ControlCommand, role: source}
+  telephony_routes: {owner: telephony, canonical_schema: CommsCore.Telephony.Route, role: source}
+  telephony_mailboxes: {owner: telephony, canonical_schema: CommsCore.Telephony.Mailbox, role: source}
+  telephony_voicemails: {owner: telephony, canonical_schema: CommsCore.Telephony.Voicemail, role: source}
+  whiteboard_assets: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Asset, role: source}
+  whiteboard_versions: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Version, role: source}
+  message_saved_items: {owner: conversation_content, canonical_schema: CommsCore.Messaging.PersonalContent.SavedItem, role: source}
+  message_drafts: {owner: conversation_content, canonical_schema: CommsCore.Messaging.PersonalContent.Draft, role: source}
+
+  telephony_voicemail_reads: {owner: telephony, canonical_schema: CommsCore.Telephony.VoicemailRead, role: source}
 
 read_model_exceptions:
   - id: operations-cross-context-read-model

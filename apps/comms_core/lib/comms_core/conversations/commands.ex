@@ -4,6 +4,7 @@ defmodule CommsCore.Conversations.Commands do
   import Ecto.Query
 
   alias CommsCore.{Accounts, AdmissionQuotas, Audit, Outbox, Repo}
+  alias CommsCore.Accounts.DirectoryUsersLockQuery
 
   alias CommsCore.Conversations.{
     AccessPolicy,
@@ -39,59 +40,104 @@ defmodule CommsCore.Conversations.Commands do
     title = if kind == :direct, do: nil, else: value(attrs, :title)
 
     with :ok <- AccessPolicy.authorize_create(subject),
+         {:ok, expected_grant} <- Accounts.access_grant(subject),
          :ok <- validate_members(tenant_id, member_ids),
          :ok <- AccessPolicy.validate_public_channel(subject, kind, visibility),
          {:ok, direct_key} <- direct_key(kind, member_ids) do
-      timestamp = now()
+      deadline = System.monotonic_time(:millisecond) + 15_000
 
-      Repo.transaction(fn ->
-        policy = admission_policy!(tenant_id)
-        current_active_conversations = active_conversation_count(tenant_id)
+      Repo.transaction(
+        fn ->
+          ensure_creation_budget!(deadline)
+          policy = admission_policy!(tenant_id)
+          ensure_creation_budget!(deadline)
+          current_active_conversations = active_conversation_count(tenant_id)
 
-        quota_ok!(
-          AdmissionQuotas.check_conversation_creation(
-            policy,
-            current_active_conversations,
-            length(member_ids)
+          quota_ok!(
+            AdmissionQuotas.check_conversation_creation(
+              policy,
+              current_active_conversations,
+              length(member_ids)
+            )
           )
-        )
 
-        conversation =
-          %Conversation{}
-          |> Conversation.changeset(%{
-            tenant_id: tenant_id,
-            created_by_user_id: user_id,
+          # Human and service members retain their established eligibility. The
+          # exact sorted User set precedes Session authority, as in revocation
+          # and Governance, and stays retained through every membership effect.
+          case Accounts.lock_active_directory_users(%DirectoryUsersLockQuery{
+                 tenant_id: tenant_id,
+                 user_ids: member_ids,
+                 deadline: deadline
+               }) do
+            {:ok, users} when length(users) == length(member_ids) ->
+              :ok
+
+            {:error, :not_found} ->
+              case AccessPolicy.authorize_create(subject) do
+                :ok -> Repo.rollback(:invalid_members)
+                _ -> Repo.rollback(:forbidden)
+              end
+
+            _ ->
+              Repo.rollback(:forbidden)
+          end
+
+          lock_create_access!(subject, expected_grant, deadline)
+
+          case AccessPolicy.validate_public_channel(subject, kind, visibility) do
+            :ok -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+          lock_create_access!(subject, expected_grant, deadline)
+          timestamp = now()
+          ensure_creation_budget!(deadline)
+
+          conversation =
+            %Conversation{}
+            |> Conversation.changeset(%{
+              tenant_id: tenant_id,
+              created_by_user_id: user_id,
+              kind: kind,
+              title: title,
+              visibility: visibility,
+              direct_key: direct_key,
+              next_sequence: 1
+            })
+            |> insert_or_rollback()
+
+          Enum.each(member_ids, fn member_id ->
+            ensure_creation_budget!(deadline)
+            role = if member_id == user_id, do: :owner, else: :member
+
+            %Membership{}
+            |> Membership.changeset(%{
+              tenant_id: tenant_id,
+              conversation_id: conversation.id,
+              user_id: member_id,
+              role: role,
+              joined_at: timestamp,
+              last_read_sequence: 0
+            })
+            |> insert_or_rollback()
+          end)
+
+          lock_create_access!(subject, expected_grant, deadline)
+
+          insert_event(conversation, "conversation.created.v1", subject, %{
             kind: kind,
-            title: title,
-            visibility: visibility,
-            direct_key: direct_key,
-            next_sequence: 1
+            title: conversation.title,
+            member_ids: member_ids
           })
-          |> insert_or_rollback()
 
-        Enum.each(member_ids, fn member_id ->
-          role = if member_id == user_id, do: :owner, else: :member
+          # Enqueue/Audit may also wait. An expired initiating Session rolls
+          # back the complete creation rather than retaining partial effects.
+          lock_create_access!(subject, expected_grant, deadline)
 
-          %Membership{}
-          |> Membership.changeset(%{
-            tenant_id: tenant_id,
-            conversation_id: conversation.id,
-            user_id: member_id,
-            role: role,
-            joined_at: timestamp,
-            last_read_sequence: 0
-          })
-          |> insert_or_rollback()
-        end)
-
-        insert_event(conversation, "conversation.created.v1", subject, %{
-          kind: kind,
-          title: conversation.title,
-          member_ids: member_ids
-        })
-
-        conversation
-      end)
+          conversation
+        end,
+        timeout: 20_000
+      )
     end
   rescue
     error in Ecto.ConstraintError -> {:error, constraint_reason(error)}
@@ -372,6 +418,38 @@ defmodule CommsCore.Conversations.Commands do
     if MapSet.new(active_user_ids) == MapSet.new(member_ids),
       do: :ok,
       else: {:error, :invalid_members}
+  end
+
+  defp lock_create_access!(subject, expected_grant, deadline) do
+    ensure_creation_budget!(deadline)
+
+    case Accounts.lock_access_grant(subject) do
+      {:ok, grant}
+      when grant.tenant_id == expected_grant.tenant_id and
+             grant.user_id == expected_grant.user_id and
+             grant.device_id == expected_grant.device_id and
+             grant.session_id == expected_grant.session_id and
+             grant.account_type == :human and grant.access_scope == :workspace ->
+        ensure_creation_budget!(deadline)
+        grant
+
+      _ ->
+        Repo.rollback(:forbidden)
+    end
+  end
+
+  defp ensure_creation_budget!(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    if remaining <= 0, do: Repo.rollback(:forbidden)
+    timeout = Integer.to_string(remaining) <> "ms"
+
+    Repo.query!(
+      "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $1, true)",
+      [timeout]
+    )
+
+    if System.monotonic_time(:millisecond) >= deadline, do: Repo.rollback(:forbidden)
+    :ok
   end
 
   defp direct_key(:direct, member_ids) when length(member_ids) == 2 do

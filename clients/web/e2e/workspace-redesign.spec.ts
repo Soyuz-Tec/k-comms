@@ -228,28 +228,29 @@ for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const state = await installWorkspace(page);
     const searches: URL[] = [];
-    await page.route("**/api/v1/search?**", (route) => {
+    await page.route("**/api/v1/search/unified?**", (route) => {
       searches.push(new URL(route.request().url()));
-      return route.fulfill({ json: { data: [], page: { has_more: false, next_cursor: null } } });
+      return route.fulfill({ json: { data: [], facets: {}, page: { has_more: false, next_cursor: null, source_limits: { messages: false, files: false, whiteboards: false, meetings: false, artifacts: false }, ranking_scope: "authorized_source_candidates", meeting_window_days: 732 } } });
     });
     await page.goto("/app/");
     const sidebar = page.getByRole("complementary", { name: "Conversations", exact: true });
     await sidebar.getByRole("searchbox", { name: "Filter conversation titles" }).fill("General");
     expect(searches).toHaveLength(0);
     await sidebar.getByRole("button", { name: "Search workspace content", exact: true }).click();
-    let search = page.getByRole("dialog", { name: "Search workspace content", exact: true });
-    await expect(search.getByRole("combobox", { name: "Conversation", exact: true })).toHaveValue("all");
+    let search = page.getByRole("dialog", { name: "Search workspace", exact: true });
+    await expect(search.getByRole("combobox", { name: "Conversation", exact: true })).toHaveValue("");
+    await expect(search.getByRole("combobox", { name: "Content type", exact: true })).toHaveValue("all");
     await search.getByRole("searchbox").fill("roadmap");
     await search.getByRole("button", { name: "Search", exact: true }).click();
     await expect.poll(() => searches.length).toBe(1);
     expect(searches[0]?.searchParams.has("conversation_id")).toBe(false);
-    await search.getByRole("button", { name: "Close search" }).click();
+    await search.getByRole("button", { name: "Close workspace search" }).click();
     await page.goto(`/app/?conversation=${conversationId}`);
     if (width <= 760) {
       await page.getByRole("button", { name: "More conversation actions" }).click();
       await page.getByRole("dialog", { name: "Conversation", exact: true }).getByRole("button", { name: "Search messages", exact: true }).click();
     } else await page.locator(".conversation-pane").getByRole("button", { name: "Search messages", exact: true }).click();
-    search = page.getByRole("dialog", { name: "Search workspace content", exact: true });
+    search = page.getByRole("dialog", { name: "Search workspace", exact: true });
     await expect(search.getByRole("combobox", { name: "Conversation", exact: true })).toHaveValue(conversationId);
     await search.getByRole("searchbox").fill("roadmap");
     await search.getByRole("button", { name: "Search", exact: true }).click();

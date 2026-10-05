@@ -36,10 +36,10 @@ describe("ChatPage durable sequence recovery", () => {
   it("opens global content search from the Go To route and clears the hint on close", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter initialEntries={["/app/?search=content"]}><ChatPage /><LocationProbe /></MemoryRouter>);
-    const dialog = await screen.findByRole("dialog", { name: "Search workspace content" });
-    expect(within(dialog).getByLabelText("Conversation")).toHaveValue("all");
-    await user.click(within(dialog).getByRole("button", { name: "Close search" }));
-    expect(screen.queryByRole("dialog", { name: "Search workspace content" })).not.toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Search workspace" });
+    expect(within(dialog).getByLabelText("Conversation")).toHaveValue("");
+    await user.click(within(dialog).getByRole("button", { name: "Close workspace search" }));
+    expect(screen.queryByRole("dialog", { name: "Search workspace" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("location-search")).not.toHaveTextContent("search=content");
   });
 
@@ -48,11 +48,21 @@ describe("ChatPage durable sequence recovery", () => {
     window.localStorage.setItem("k-comms:onboarding:tenant-1:user-1", "dismissed");
     render(<MemoryRouter initialEntries={["/app/?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
     expect(screen.getByRole("searchbox", { name: "Filter conversation titles" })).toBeVisible();
+    await user.type(screen.getByRole("searchbox", { name: "Filter conversation titles" }), "General");
+    expect(harness.api.unifiedSearch).not.toHaveBeenCalled();
     await user.click(within(screen.getByLabelText("Conversations")).getByRole("button", { name: "Search workspace content" }));
-    expect(within(screen.getByRole("dialog", { name: "Search workspace content" })).getByLabelText("Conversation")).toHaveValue("all");
-    await user.click(screen.getByRole("button", { name: "Close search" }));
+    let search = screen.getByRole("dialog", { name: "Search workspace" });
+    expect(within(search).getByLabelText("Conversation")).toHaveValue("");
+    await user.type(within(search).getByRole("searchbox"), "roadmap");
+    await user.click(within(search).getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(harness.api.unifiedSearch).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ conversation_id: undefined, kind: "all" })));
+    await user.click(screen.getByRole("button", { name: "Close workspace search" }));
     await user.click(screen.getByRole("button", { name: "Search messages" }));
-    expect(within(screen.getByRole("dialog", { name: "Search workspace content" })).getByLabelText("Conversation")).toHaveValue("conversation-1");
+    search = screen.getByRole("dialog", { name: "Search workspace" });
+    expect(within(search).getByLabelText("Conversation")).toHaveValue("conversation-1");
+    await user.type(within(search).getByRole("searchbox"), "roadmap");
+    await user.click(within(search).getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(harness.api.unifiedSearch).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ conversation_id: "conversation-1" })));
   });
 
   it("focuses the attachment control from Files without opening a file picker", async () => {

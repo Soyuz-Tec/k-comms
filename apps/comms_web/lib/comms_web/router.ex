@@ -105,6 +105,14 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :scim_api do
+    plug(:accepts, ["json", "scim"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :service_authentication_ip)
+    plug(CommsWeb.Plugs.AuthenticateService)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
   pipeline :password_verification_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -148,6 +156,12 @@ defmodule CommsWeb.Router do
   scope "/api/v1/telephony", CommsWeb do
     pipe_through(:telephony_provider_api)
     post("/livekit/webhook", TelephonyWebhookController, :create)
+    post("/pbx/webhook", TelephonyPBXWebhookController, :create)
+  end
+
+  scope "/api/v1/providers", CommsWeb do
+    pipe_through(:telephony_provider_api)
+    post("/livekit/egress/webhook", CallArtifactWebhookController, :create)
   end
 
   scope "/api/v1", CommsWeb do
@@ -155,6 +169,9 @@ defmodule CommsWeb.Router do
     post("/bootstrap", BootstrapController, :create)
     post("/sessions", SessionController, :create)
     post("/sessions/refresh", SessionController, :refresh)
+    post("/auth/mfa", EnterpriseIdentityController, :complete_mfa)
+    post("/auth/oidc/start", EnterpriseIdentityController, :oidc_start)
+    post("/auth/oidc/callback", EnterpriseIdentityController, :oidc_callback)
     post("/invitations/accept", InvitationController, :accept)
     post("/password-recovery/requests", PasswordRecoveryController, :request)
     post("/password-recovery/resets", PasswordRecoveryController, :reset)
@@ -202,6 +219,14 @@ defmodule CommsWeb.Router do
 
     post("/socket-tickets", GuestCommunicationController, :socket_ticket)
     get("/conversation/call", GuestCommunicationController, :show_call)
+    get("/conversation/calls/:call_id/artifacts", GuestCallArtifactController, :index)
+
+    post(
+      "/conversation/calls/:call_id/artifacts/:id/consent",
+      GuestCallArtifactController,
+      :consent
+    )
+
     post("/conversation/calls", GuestCommunicationController, :create_call)
     post("/conversation/calls/:call_id/join", GuestCommunicationController, :join_call)
     post("/conversation/calls/:call_id/end", GuestCommunicationController, :end_call)
@@ -216,7 +241,140 @@ defmodule CommsWeb.Router do
   scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
 
+    get("/whiteboards", WhiteboardLibraryController, :index)
+    put("/conversations/:conversation_id/whiteboard/title", WhiteboardLibraryController, :rename)
+
+    get(
+      "/conversations/:conversation_id/whiteboard/versions",
+      WhiteboardLibraryController,
+      :versions
+    )
+
+    post(
+      "/conversations/:conversation_id/whiteboard/versions",
+      WhiteboardLibraryController,
+      :checkpoint
+    )
+
+    post(
+      "/conversations/:conversation_id/whiteboard/versions/:version_id/restore",
+      WhiteboardLibraryController,
+      :restore
+    )
+
+    get("/conversations/:conversation_id/whiteboard/export", WhiteboardLibraryController, :export)
+
+    post(
+      "/conversations/:conversation_id/whiteboard/assets",
+      WhiteboardLibraryController,
+      :create_asset
+    )
+
+    get(
+      "/conversations/:conversation_id/whiteboard/assets/:asset_id",
+      WhiteboardLibraryController,
+      :asset
+    )
+
+    get("/saved-items", PersonalContentController, :saved)
+    put("/saved-items/:message_id", PersonalContentController, :save)
+    delete("/saved-items/:message_id", PersonalContentController, :unsave)
+    get("/conversations/:conversation_id/draft", PersonalContentController, :draft)
+    put("/conversations/:conversation_id/draft", PersonalContentController, :update_draft)
+    get("/search/unified", UnifiedSearchController, :index)
+
+    get("/me/security", EnterpriseIdentityController, :security)
+    post("/me/mfa/enroll", EnterpriseIdentityController, :enroll_mfa)
+    post("/me/mfa/confirm", EnterpriseIdentityController, :confirm_mfa)
+    post("/me/mfa/disable", EnterpriseIdentityController, :disable_mfa)
+    post("/me/mfa/recovery-codes", EnterpriseIdentityController, :recovery_codes)
+    get("/me/availability", EnterpriseIdentityController, :availability)
+    put("/me/availability", EnterpriseIdentityController, :update_availability)
+    post("/me/oidc/step-up/start", EnterpriseIdentityController, :oidc_step_up)
+    post("/me/oidc/link/start", EnterpriseIdentityController, :oidc_link)
+    post("/me/oidc/link/callback", EnterpriseIdentityController, :oidc_link_callback)
+
+    get("/meetings", MeetingController, :index)
+    post("/conversations/:conversation_id/meetings", MeetingController, :create)
+    get("/meetings/:meeting_id", MeetingController, :show)
+    patch("/meetings/:meeting_id", MeetingController, :update)
+    post("/meetings/:meeting_id/cancel", MeetingController, :cancel)
+    get("/meetings/:meeting_id/calendar", MeetingController, :calendar)
+    post("/meetings/:meeting_id/occurrences/:occurrence_id/start", MeetingController, :start)
+
     get("/me", MeController, :show)
+    get("/telephony/voicemails", VoicemailController, :index)
+    get("/telephony/voicemails/:id/playback", VoicemailController, :playback)
+    post("/telephony/voicemails/:id/read", VoicemailController, :read)
+    delete("/telephony/voicemails/:id", VoicemailController, :delete)
+    get("/admin/telephony/mailbox", VoicemailController, :mailbox)
+    put("/admin/telephony/mailbox", VoicemailController, :save_mailbox)
+    get("/admin/telephony/routes", TelephonyController, :routes)
+    put("/admin/telephony/routes", TelephonyController, :save_route)
+    get("/telephony/capabilities", TelephonyController, :capabilities)
+    get("/telephony/calls/:id/controls", TelephonyController, :controls)
+    post("/telephony/calls/:id/controls", TelephonyController, :control)
+
+    post(
+      "/telephony/calls/:id/controls/:command_id/complete",
+      TelephonyController,
+      :complete_control
+    )
+
+    post(
+      "/telephony/calls/:id/controls/:command_id/reconcile",
+      TelephonyController,
+      :reconcile_control
+    )
+
+    get(
+      "/conversations/:conversation_id/calls/:call_id/artifacts",
+      CallArtifactController,
+      :index
+    )
+
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts",
+      CallArtifactController,
+      :create
+    )
+
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/consent",
+      CallArtifactController,
+      :consent
+    )
+
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/start",
+      CallArtifactController,
+      :start
+    )
+
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/stop",
+      CallArtifactController,
+      :stop
+    )
+
+    get(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/playback",
+      CallArtifactController,
+      :playback
+    )
+
+    get(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/transcript",
+      CallArtifactController,
+      :transcript
+    )
+
+    delete(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id",
+      CallArtifactController,
+      :delete
+    )
+
     get("/telephony/config", TelephonyController, :config)
     get("/telephony/calls", TelephonyController, :index)
     get("/telephony/calls/:id", TelephonyController, :show)
@@ -366,6 +524,23 @@ defmodule CommsWeb.Router do
     get("/conversations/:conversation_id/messages", ServiceMessageController, :index)
     post("/conversations/:conversation_id/messages", ServiceMessageController, :create)
     get("/search", ServiceSearchController, :index)
+  end
+
+  scope "/scim/v2", CommsWeb do
+    pipe_through(:scim_api)
+    get("/ServiceProviderConfig", ScimController, :configuration)
+    get("/Users", ScimController, :users)
+    post("/Users", ScimController, :create_user)
+    get("/Users/:id", ScimController, :user)
+    put("/Users/:id", ScimController, :replace_user)
+    patch("/Users/:id", ScimController, :patch_user)
+    delete("/Users/:id", ScimController, :delete_user)
+    get("/Groups", ScimController, :groups)
+    post("/Groups", ScimController, :create_group)
+    get("/Groups/:id", ScimController, :group)
+    put("/Groups/:id", ScimController, :replace_group)
+    patch("/Groups/:id", ScimController, :patch_group)
+    delete("/Groups/:id", ScimController, :delete_group)
   end
 
   scope "/", CommsWeb do

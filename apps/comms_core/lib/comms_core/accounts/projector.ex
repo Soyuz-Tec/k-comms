@@ -30,6 +30,8 @@ defmodule CommsCore.Accounts.Projector do
       tenant_id: user.tenant_id,
       display_name: visible_display_name(user),
       email: if(user.account_type in [:service, :guest], do: nil, else: user.email),
+      avatar_url: if(user.status == :deleted, do: nil, else: user.avatar_url),
+      timezone: user.timezone,
       account_type: user.account_type,
       access_scope: user.access_scope,
       guest_expires_at: user.guest_expires_at,
@@ -44,7 +46,10 @@ defmodule CommsCore.Accounts.Projector do
   def directory_person(%User{} = user) do
     struct!(DirectoryPersonView, %{
       id: user.id,
-      display_name: visible_display_name(user)
+      display_name: visible_display_name(user),
+      avatar_url: user.avatar_url,
+      timezone: user.timezone,
+      presence_state: CommsCore.Accounts.Availability.view(user).status
     })
   end
 

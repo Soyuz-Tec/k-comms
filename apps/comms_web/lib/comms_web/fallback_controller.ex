@@ -27,6 +27,106 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:forbidden), do: {403, "forbidden", "This operation is not permitted"}
 
+  defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],
+    do: {401, Atom.to_string(reason), "The authenticator or recovery code is invalid or expired"}
+
+  defp error(:mfa_rate_limited),
+    do: {429, "mfa_rate_limited", "Too many verification attempts. Try again later"}
+
+  defp error(:mfa_required),
+    do: {428, "mfa_required", "An authenticator or unused recovery code is required"}
+
+  defp error(:oidc_not_configured),
+    do: {503, "oidc_not_configured", "Corporate sign in is not configured for this deployment"}
+
+  defp error(reason)
+       when reason in [:invalid_oidc_state, :invalid_oidc_token, :invalid_oidc_response],
+       do:
+         {401, Atom.to_string(reason),
+          "Corporate identity verification failed. Start sign in again"}
+
+  defp error(:federated_identity_not_linked),
+    do:
+      {403, "federated_identity_not_linked",
+       "Link corporate sign in in account security or ask your administrator to provision it"}
+
+  defp error(reason)
+       when reason in [
+              :mfa_already_enabled,
+              :mfa_enrollment_expired,
+              :federated_identity_conflict
+            ],
+       do:
+         {409, Atom.to_string(reason), "Account security changed. Reload and retry verification"}
+
+  defp error(:mfa_enrollment_required),
+    do: {428, "mfa_enrollment_required", "Begin authenticator setup before confirming it"}
+
+  defp error(:oidc_recent_authentication_required),
+    do: {428, "oidc_recent_authentication_required", "Verify your corporate session again"}
+
+  defp error(:invalid_break_glass_credentials),
+    do: {401, "unauthenticated", "Emergency identity verification failed"}
+
+  defp error(reason) when reason in [:invalid_availability, :invalid_availability_channel],
+    do: {422, Atom.to_string(reason), "Choose a valid availability state, timezone, and schedule"}
+
+  defp error(reason)
+       when reason in [
+              :oidc_provider_unavailable,
+              :invalid_oidc_discovery,
+              :identity_secret_encryption_key_not_configured,
+              :identity_secret_decryption_failed,
+              :identity_secret_encryption_key_unavailable,
+              :current_identity_secret_key_not_configured,
+              :invalid_identity_secret_encryption_key,
+              :invalid_identity_secret_encryption_key_id
+            ],
+       do:
+         {503, Atom.to_string(reason), "Account security verification is temporarily unavailable"}
+
+  defp error(:meeting_guests_disabled),
+    do: {403, "meeting_guests_disabled", "Guests are disabled for this meeting"}
+
+  defp error(:meeting_erasure_pending),
+    do:
+      {409, "meeting_erasure_pending",
+       "This meeting is unavailable while deletion is in progress"}
+
+  defp error(:meeting_authorship_unavailable),
+    do:
+      {503, "meeting_authorship_unavailable",
+       "Meeting history verification is temporarily unavailable"}
+
+  defp error(:meeting_legal_hold),
+    do: {409, "meeting_legal_hold", "A preservation hold prevents this change"}
+
+  defp error(:recording_consent_admission_blocked),
+    do:
+      {409, "recording_consent_admission_blocked",
+       "Recording must stop before a new participant can join"}
+
+  defp error(reason)
+       when reason in [
+              :meeting_cancelled,
+              :meeting_already_started,
+              :meeting_not_joinable,
+              :meeting_host_required
+            ],
+       do: {409, Atom.to_string(reason), "This meeting cannot be joined in its current state"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_meeting,
+              :invalid_meeting_range,
+              :invalid_meeting_timezone,
+              :invalid_meeting_recurrence,
+              :invalid_meeting_host_policy,
+              :ambiguous_meeting_time,
+              :nonexistent_meeting_time
+            ],
+       do: {422, Atom.to_string(reason), "The meeting schedule is invalid"}
+
   defp error(:platform_role_console_only),
     do: {403, "platform_role_console_only", "Platform roles are managed outside tenant APIs"}
 
@@ -67,13 +167,32 @@ defmodule CommsWeb.FallbackController do
   defp error(:stale_version),
     do: {409, "stale_version", "The resource changed; reload it before retrying"}
 
+  defp error(reason)
+       when reason in [:stale_draft, :stale_board_version],
+       do:
+         {409, Atom.to_string(reason),
+          "This content changed on another device. Reload before retrying"}
+
+  defp error(reason)
+       when reason in [
+              :draft_capacity,
+              :saved_item_capacity,
+              :whiteboard_version_capacity,
+              :whiteboard_asset_capacity
+            ],
+       do: {409, Atom.to_string(reason), "This content collection has reached its capacity"}
+
+  defp error(reason)
+       when reason in [:invalid_draft, :invalid_board_title, :asset_unavailable],
+       do: {422, Atom.to_string(reason), "Use valid content and an approved available asset"}
+
   defp error(:stale_whiteboard_generation),
     do:
       {409, "stale_whiteboard_generation",
        "The whiteboard was cleared after this edit began; reload before retrying"}
 
   defp error(:step_up_required),
-    do: {428, "step_up_required", "Recent password verification is required"}
+    do: {428, "step_up_required", "Recent identity verification is required"}
 
   defp error(:invalid_provider_webhook),
     do: {401, "invalid_provider_webhook", "A valid provider signature is required"}
@@ -89,6 +208,49 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:telephony_not_configured),
     do: {409, "telephony_not_configured", "A telephone line must be assigned before calling"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_telephony_command,
+              :invalid_telephony_route,
+              :invalid_telephony_mailbox,
+              :invalid_voicemail_limit,
+              :invalid_voicemail_cursor,
+              :invalid_voicemail_media,
+              :voicemail_storage_identity_invalid
+            ],
+       do: {422, Atom.to_string(reason), "Use valid telephone controls and mailbox settings"}
+
+  defp error(reason)
+       when reason in [
+              :telephony_control_conflict,
+              :recipient_unavailable,
+              :voicemail_capture_cancelled,
+              :voicemail_provider_identity_invalid,
+              :voicemail_legal_hold,
+              :voicemail_not_deletable,
+              :voicemail_already_deleted,
+              :telephony_mailbox_full,
+              :telephony_mailbox_unavailable
+            ],
+       do:
+         {409, Atom.to_string(reason), "The telephone operation conflicts with the current state"}
+
+  defp error(:telephony_control_limit),
+    do: {429, "telephony_control_limit", "Too many telephone control requests. Try again later"}
+
+  defp error(reason)
+       when reason in [
+              :telephony_control_unsupported,
+              :telephony_control_unavailable,
+              :telephony_voicemail_unavailable,
+              :voicemail_storage_unavailable,
+              :voicemail_provider_unavailable,
+              :voicemail_protection_unavailable,
+              :voicemail_source_deletion_pending
+            ],
+       do:
+         {503, Atom.to_string(reason), "A required telephone service is temporarily unavailable"}
 
   defp error(:email_change_requires_verification),
     do:

@@ -20,7 +20,7 @@ defmodule CommsCore.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   def application do
-    [extra_applications: [:logger, :crypto], mod: {CommsCore.Application, []}]
+    [extra_applications: [:logger, :crypto, :inets, :ssl], mod: {CommsCore.Application, []}]
   end
 
   defp deps do
@@ -29,6 +29,9 @@ defmodule CommsCore.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:oban, "~> 2.23"},
       {:jason, "~> 1.4"},
+      {:jose, "~> 1.11"},
+      {:nimble_totp, "~> 1.0"},
+      {:tzdata, "~> 1.1"},
       {:libcluster, "~> 3.5"}
     ]
   end

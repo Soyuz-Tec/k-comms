@@ -76,6 +76,7 @@ target_label_revision="$(podman image inspect "$target_image" \
   --format '{{index .Labels "org.opencontainers.image.revision"}}')"
 [[ "$target_source" == "$K_COMMS_SOURCE" && "$target_label_revision" == "$target_revision" ]] ||
   die "rollback target labels do not match the approved repository and revision"
+assert_image_rollback_capabilities "$target_image" "$target_capabilities"
 
 systemctl stop k-comms-app.service
 
@@ -100,6 +101,10 @@ podman run --rm \
   --env K_COMMS_ROLLBACK_WRITES_QUIESCED=true \
   --env PUBLIC_APP_URL=https://localhost \
   --env AUDIO_PROVIDER_MODE=disabled \
+  --env TELEPHONY_PROVIDER_MODE=disabled \
+  --env MEETING_ARTIFACTS_ENABLED=false \
+  --env LIVEKIT_EGRESS_ENABLED=false \
+  --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
   --env LIVEKIT_SERVER_URL= \
   --env LIVEKIT_API_URL= \
   "$current_image" eval 'CommsCore.Release.assert_communication_rollback_compatible!()'
@@ -110,6 +115,7 @@ render_template \
   "${K_COMMS_QUADLET_DIR}/k-comms-app.container" \
   IMAGE_REF "$target_image" \
   REVISION "$target_revision" \
+  ROLLBACK_CAPABILITIES "$target_capabilities" \
   BIND_ADDRESS "$bind_address"
 write_release_env "$target_image" "$target_revision" "$K_COMMS_RELEASE_ENV"
 systemctl daemon-reload

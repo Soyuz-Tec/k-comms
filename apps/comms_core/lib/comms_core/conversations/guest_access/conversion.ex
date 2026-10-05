@@ -34,7 +34,22 @@ defmodule CommsCore.Conversations.GuestAccess.Conversion do
          %GuestAdmission{} = snapshot <-
            admission_snapshot(admission_id, conversation_id, guest_subject) do
       Repo.transaction(fn ->
+        deadline = System.monotonic_time(:millisecond) + 15_000
+        lock_parents!(snapshot.tenant_id, [], deadline)
         _policy = admission_policy!(snapshot.tenant_id)
+
+        target_ids =
+          Repo.all(
+            from(admission in GuestAdmission,
+              where:
+                admission.tenant_id == ^snapshot.tenant_id and
+                  admission.conversation_id == ^snapshot.conversation_id and
+                  is_nil(admission.revoked_at) and is_nil(admission.converted_at),
+              select: admission.guest_user_id
+            )
+          )
+
+        lock_parents!(snapshot.tenant_id, [snapshot.guest_user_id | target_ids], deadline)
         conversation = lock_conversion_conversation!(snapshot)
         link = lock_conversion_link!(snapshot)
         ephemeral_room = EphemeralRooms.lock_conversion_room(link)
@@ -91,6 +106,9 @@ defmodule CommsCore.Conversations.GuestAccess.Conversion do
           %{conversation_id: admission.conversation_id, guest_link_id: admission.guest_link_id},
           value(guest_subject, :request_id)
         )
+
+        ensure_convertible!(conversation, link, admission, membership, now())
+        lock_parents!(snapshot.tenant_id, [snapshot.guest_user_id | target_ids], deadline)
 
         %{
           authentication: authentication,
@@ -239,6 +257,18 @@ defmodule CommsCore.Conversations.GuestAccess.Conversion do
            request_id: request_id
          }) do
       {:ok, _event} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_parents!(tenant_id, user_ids, deadline) do
+    case Accounts.lock_guest_identity_parents(%Accounts.GuestIdentityParentsLockQuery{
+           tenant_id: tenant_id,
+           user_ids: user_ids,
+           deadline: deadline,
+           require_active_tenant: true
+         }) do
+      {:ok, receipt} -> receipt
       {:error, reason} -> Repo.rollback(reason)
     end
   end

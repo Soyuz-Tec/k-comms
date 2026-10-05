@@ -27,7 +27,7 @@ export class StepUpCancelledError extends Error {
 }
 
 export function StepUpProvider({ children }: { children: ReactNode }) {
-  const { api } = useSession();
+  const { api, session } = useSession();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,11 +60,13 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     event.preventDefault();
     if (!pending) return;
     const form = event.currentTarget;
-    const password = stringValue(new FormData(form), "current_password");
+    const data = new FormData(form);
+    const password = stringValue(data, "current_password");
+    const mfaCode = stringValue(data, "mfa_code") || undefined;
     setBusy(true);
     setError(null);
     try {
-      await api.stepUp(password);
+      await api.stepUp(password, mfaCode);
       form.reset();
       const value = await pending.action();
       pending.resolve(value);
@@ -76,10 +78,23 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function corporateVerification() {
+    if (!session || !pending) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await api.stepUpOidc(session.tenant.slug);
+      const url = new URL(result.authorization_url);
+      if (url.protocol !== "https:" || url.username || url.password) throw new Error("The corporate verification address could not be verified.");
+      sessionStorage.setItem("kcomms:oidc-link", "1");
+      // A redirect drops the in-memory action; the user retries it after proof.
+      window.location.assign(url.href);
+    } catch (reason: unknown) { setError(errorText(reason)); setBusy(false); }
+  }
+
   return (
     <StepUpContext.Provider value={{ runWithStepUp }}>
       {children}
-      {pending && <StepUpDialog busy={busy} error={error} formRef={formRef} onCancel={cancel} onSubmit={submit} />}
+      {pending && <StepUpDialog busy={busy} error={error} formRef={formRef} onCancel={cancel} onSubmit={submit} onCorporateVerification={typeof api.stepUpOidc === "function" ? corporateVerification : undefined} />}
     </StepUpContext.Provider>
   );
 }
@@ -89,13 +104,15 @@ function StepUpDialog({
   error,
   formRef,
   onCancel,
-  onSubmit
+  onSubmit,
+  onCorporateVerification
 }: {
   busy: boolean;
   error: string | null;
   formRef: React.RefObject<HTMLFormElement | null>;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCorporateVerification?: () => Promise<void>;
 }) {
   const dialogRef = useModalDialog(() => {
     if (!busy) onCancel();
@@ -116,11 +133,13 @@ function StepUpDialog({
         {error && <div className="form-error" role="alert">{error}</div>}
         <form ref={formRef} onSubmit={onSubmit}>
           <label className="field">Current password<input autoFocus data-initial-focus name="current_password" type="password" autoComplete="current-password" required /></label>
+          <label className="field">Authenticator or recovery code, if enabled<input name="mfa_code" autoComplete="one-time-code" /></label>
           <div className="form-actions">
             <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
             <button className="button primary" type="submit" disabled={busy}>{busy ? "Verifying…" : "Continue"}</button>
           </div>
         </form>
+        {onCorporateVerification && <><button className="button ghost" type="button" disabled={busy} onClick={() => void onCorporateVerification()}>Verify with corporate sign in</button><p>After verification, return to this action and try again.</p></>}
       </section>
     </div>,
     document.body

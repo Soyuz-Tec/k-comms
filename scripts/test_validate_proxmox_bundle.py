@@ -17,6 +17,48 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
     def test_repository_bundle_passes(self) -> None:
         self.assertEqual(validate(REPO_ROOT), [])
 
+    def test_rejects_missing_immutable_rollback_capability_contract(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "Dockerfile"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "io.k-comms.rollback-capabilities=", "io.k-comms.unverified-capabilities="
+            ), encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "immutable rollback capability contract" in error for error in validate(root)
+        ))
+
+    def test_rejects_rollback_that_does_not_preserve_verified_target_capabilities(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/rollback.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'ROLLBACK_CAPABILITIES "$target_capabilities"',
+                'ROLLBACK_CAPABILITIES "$K_COMMS_CAPABILITIES"',
+            ), encoding="utf-8",
+        )
+        self.assertTrue(any(
+            'ROLLBACK_CAPABILITIES "$target_capabilities"' in error
+            for error in validate(root)
+        ))
+
+    def test_rejects_one_shot_media_activation_inheritance(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/deploy.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "--env MEETING_ARTIFACTS_ENABLED=false", "--env MEETING_ARTIFACTS_ENABLED=true"
+            ), encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "one-shot must override MEETING_ARTIFACTS_ENABLED=false" in error
+            for error in validate(root)
+        ))
+
     def test_rejects_weakened_post_development_completion_standard(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

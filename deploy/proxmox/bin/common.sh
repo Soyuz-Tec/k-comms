@@ -14,7 +14,8 @@ K_COMMS_RECEIPT_DIR=/var/lib/k-comms/receipts
 K_COMMS_BACKUP_ROOT=/var/backups/k-comms
 K_COMMS_LOCK_FILE=/run/lock/k-comms-deploy.lock
 K_COMMS_SOURCE=https://github.com/Soyuz-Tec/k-comms
-K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
+K_COMMS_LEGACY_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
+K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1
 K_COMMS_MINIO_MC_IMAGE=quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
 K_COMMS_LOCAL_LIVEKIT_TOPOLOGY=local_sidecar
 K_COMMS_MANAGED_LIVEKIT_TOPOLOGY=managed_cloud
@@ -492,7 +493,71 @@ current_app_revision() {
 
 current_app_capabilities() {
   if container_exists k-comms-app; then
-    podman inspect k-comms-app \
-      --format '{{index .Config.Labels "io.k-comms.rollback-capabilities"}}'
+    local immutable_capabilities
+    local declared_capabilities
+    local capability
+    local retained=
+    immutable_capabilities="$(image_rollback_capabilities "$(current_app_image)")"
+    if [[ -n "$immutable_capabilities" ]]; then
+      validate_rollback_capabilities "$immutable_capabilities"
+      printf '%s\n' "$immutable_capabilities"
+      return
+    fi
+    # Older images did not carry immutable capability metadata. A host template
+    # can attest only the established legacy contract for these images; it must
+    # never promote an old binary to a new security capability.
+    declared_capabilities="$(podman inspect k-comms-app \
+      --format '{{index .Config.Labels "io.k-comms.rollback-capabilities"}}')"
+    local -a declared_parts
+    IFS=, read -r -a declared_parts <<<"$declared_capabilities"
+    for capability in "${declared_parts[@]}"; do
+      if [[ ",$K_COMMS_LEGACY_CAPABILITIES," == *",$capability,"* && -n "$capability" ]]; then
+        retained="${retained:+$retained,}$capability"
+      fi
+    done
+    printf '%s\n' "$retained"
+  fi
+}
+
+image_rollback_capabilities() {
+  local capabilities
+  capabilities="$(podman image inspect "$1" \
+    --format '{{index .Labels "io.k-comms.rollback-capabilities"}}')" || return 1
+  case "$capabilities" in
+    ""|"<no value>"|"<nil>") printf '\n' ;;
+    *) printf '%s\n' "$capabilities" ;;
+  esac
+}
+
+validate_rollback_capabilities() {
+  local capabilities=$1
+  local capability
+  local -a parts
+  [[ "$capabilities" =~ ^[a-z0-9_,]*$ ]] || die "unsafe rollback capabilities"
+  IFS=, read -r -a parts <<<"$capabilities"
+  for capability in "${parts[@]}"; do
+    [[ -n "$capability" && ",$K_COMMS_CAPABILITIES," == *",$capability,"* ]] ||
+      die "unknown rollback capability"
+  done
+}
+
+assert_image_rollback_capabilities() {
+  local image=$1
+  local declared_capabilities=$2
+  local immutable_capabilities
+  local capability
+  local -a declared_parts
+  validate_rollback_capabilities "$declared_capabilities"
+  immutable_capabilities="$(image_rollback_capabilities "$image")" || return 1
+  if [[ -n "$immutable_capabilities" ]]; then
+    validate_rollback_capabilities "$immutable_capabilities"
+    [[ "$immutable_capabilities" == "$declared_capabilities" ]] ||
+      die "rollback capability receipt does not match the immutable image"
+  else
+    IFS=, read -r -a declared_parts <<<"$declared_capabilities"
+    for capability in "${declared_parts[@]}"; do
+      [[ ",$K_COMMS_LEGACY_CAPABILITIES," == *",$capability,"* ]] ||
+        die "rollback target lacks immutable proof of the declared security capabilities"
+    done
   fi
 }

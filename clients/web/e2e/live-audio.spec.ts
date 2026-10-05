@@ -149,7 +149,7 @@ test.describe("real-stack audio qualification", () => {
       await memberPage.getByRole("textbox", { name: "Password" }).fill(
         fixture.memberCredentials.password
       );
-      await memberPage.getByRole("button", { name: "Sign in" }).click();
+      await memberPage.getByRole("button", { name: "Sign in", exact: true }).click();
       await expect(memberPage).toHaveURL(
         new RegExp(
           `/app/\\?conversation=${fixture.conversation.id}$`

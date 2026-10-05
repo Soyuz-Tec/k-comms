@@ -3,7 +3,7 @@ defmodule CommsCore.Notifications.Deliveries do
 
   import Ecto.Query
 
-  alias CommsCore.Audit
+  alias CommsCore.{Accounts, Audit}
 
   alias CommsCore.Notifications.{
     Attempt,
@@ -47,7 +47,7 @@ defmodule CommsCore.Notifications.Deliveries do
       cond do
         is_nil(intent) -> Repo.rollback(:not_found)
         intent.status == :delivered -> {:already_delivered, intent}
-        claimable?(intent) -> update_claim!(intent)
+        claimable?(intent) -> claim_available!(intent)
         true -> Repo.rollback(:not_claimable)
       end
     end)
@@ -147,6 +147,42 @@ defmodule CommsCore.Notifications.Deliveries do
     })
     |> Repo.update!()
   end
+
+  # Availability is re-evaluated on every durable retry, before a provider claim.
+  # Account recovery remains available even while ordinary notifications are quiet.
+  defp claim_available!(%Intent{event_type: @recovery_event_type} = intent),
+    do: update_claim!(intent)
+
+  defp claim_available!(%Intent{channel: :in_app} = intent), do: update_claim!(intent)
+
+  defp claim_available!(intent) do
+    case Accounts.delivery_availability(intent.tenant_id, intent.user_id, intent.channel) do
+      {:ok, %{allowed: true}} ->
+        update_claim!(intent)
+
+      {:ok, %{allowed: false, retry_at: retry_at}} ->
+        seconds = availability_retry_seconds(retry_at)
+
+        intent
+        |> Intent.changeset(%{
+          status: :pending,
+          claimed_at: nil,
+          claim_token: nil,
+          next_attempt_at: DateTime.add(now(), seconds, :second)
+        })
+        |> Repo.update!()
+
+        {:availability_deferred, seconds}
+
+      {:error, _} ->
+        Repo.rollback(:recipient_unavailable)
+    end
+  end
+
+  defp availability_retry_seconds(%DateTime{} = retry_at),
+    do: retry_at |> DateTime.diff(now(), :second) |> max(1) |> min(3_600)
+
+  defp availability_retry_seconds(_), do: 3_600
 
   defp attempt_attrs(intent, attempt_number, result, completed_at) do
     metadata = result_metadata(result)
@@ -278,6 +314,9 @@ defmodule CommsCore.Notifications.Deliveries do
 
   defp project_claim_result({:ok, {:already_delivered, intent}}),
     do: {:ok, {:already_delivered, Projector.intent(intent)}}
+
+  defp project_claim_result({:ok, {:availability_deferred, seconds}}),
+    do: {:error, {:availability_deferred, seconds}}
 
   defp project_claim_result({:ok, intent}), do: {:ok, Projector.delivery(intent)}
   defp project_claim_result({:error, _reason} = error), do: error

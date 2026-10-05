@@ -13,16 +13,20 @@ defmodule CommsCore.Conversations.DirectConversations do
          false <- grant.user_id == other_user_id do
       Repo.transaction(fn ->
         policy = Commands.admission_policy!(grant.tenant_id)
-        locked_grant = lock_direct_access!(subject, grant)
-        member_ids = Enum.sort([locked_grant.user_id, other_user_id])
+        member_ids = Enum.sort([grant.user_id, other_user_id])
 
-        lock_directory_members!(locked_grant.tenant_id, member_ids)
+        # Every identity precedes Session authority. Revocation retains the
+        # same User rows before its Device/Session updates, and Governance
+        # retains multiple Users in this same canonical order.
+        lock_directory_members!(grant.tenant_id, member_ids)
+        locked_grant = lock_direct_access!(subject, grant)
 
         direct_key = direct_key(member_ids)
 
         case lock_direct_conversation(locked_grant.tenant_id, direct_key) do
           %Conversation{archived_at: nil} = conversation ->
             ensure_active_direct_memberships!(conversation, member_ids)
+            lock_direct_access!(subject, locked_grant)
 
             %{conversation: conversation, created: false}
 
@@ -38,6 +42,10 @@ defmodule CommsCore.Conversations.DirectConversations do
               )
             )
 
+            # Row waits may cross the live session's expiry even though its
+            # revocation is fenced. Recheck current authority before effects.
+            lock_direct_access!(subject, locked_grant)
+
             conversation =
               create_direct_conversation!(
                 locked_grant.tenant_id,
@@ -46,6 +54,8 @@ defmodule CommsCore.Conversations.DirectConversations do
                 direct_key,
                 subject
               )
+
+            lock_direct_access!(subject, locked_grant)
 
             %{conversation: conversation, created: true}
         end
@@ -67,7 +77,10 @@ defmodule CommsCore.Conversations.DirectConversations do
     case Accounts.lock_access_grant(subject) do
       {:ok, locked_grant}
       when locked_grant.tenant_id == expected_grant.tenant_id and
-             locked_grant.user_id == expected_grant.user_id ->
+             locked_grant.user_id == expected_grant.user_id and
+             locked_grant.device_id == expected_grant.device_id and
+             locked_grant.session_id == expected_grant.session_id and
+             locked_grant.account_type == :human and locked_grant.access_scope == :workspace ->
         locked_grant
 
       _ ->

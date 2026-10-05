@@ -48,6 +48,8 @@ defmodule CommsCore.Conversations.GuestAccess.Redemption do
          {:ok, display_name} <- display_name(attrs),
          {:ok, device} <- device(attrs) do
       Repo.transaction(fn ->
+        deadline = System.monotonic_time(:millisecond) + 15_000
+        lock_admission_parents!(tenant_id, deadline)
         policy = admission_policy!(tenant_id)
         conversation = lock_available_guest_conversation!(tenant_id, conversation_id)
         link = lock_available_link!(tenant_id, conversation.id, link_id, secret)
@@ -117,6 +119,9 @@ defmodule CommsCore.Conversations.GuestAccess.Redemption do
           },
           value(attrs, :request_id)
         )
+
+        available_link!(link, now())
+        lock_admission_parents!(tenant_id, deadline)
 
         %{
           authentication: authentication,
@@ -401,6 +406,18 @@ defmodule CommsCore.Conversations.GuestAccess.Redemption do
            request_id: request_id
          }) do
       {:ok, _event} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_admission_parents!(tenant_id, deadline) do
+    case Accounts.lock_guest_identity_parents(%Accounts.GuestIdentityParentsLockQuery{
+           tenant_id: tenant_id,
+           user_ids: [],
+           deadline: deadline,
+           require_active_tenant: true
+         }) do
+      {:ok, _receipt} -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
   end

@@ -18,10 +18,17 @@ defmodule CommsCore.Release.Environment do
                                         "instant_room_expiry_worker_v1",
                                         "conversation_only_human_v1"
                                       ])
-  @communication_rollback_capabilities MapSet.union(
-                                         @guest_rollback_capabilities,
-                                         @instant_room_rollback_capabilities
-                                       )
+  @full_uc_rollback_capabilities MapSet.new([
+                                   "enterprise_identity_v1",
+                                   "uc_artifact_lifecycle_v1",
+                                   "uc_voicemail_lifecycle_v1",
+                                   "uc_advanced_telephony_v1",
+                                   "scheduled_meeting_lifecycle_v1",
+                                   "rich_content_erasure_v1"
+                                 ])
+  @communication_rollback_capabilities @guest_rollback_capabilities
+                                       |> MapSet.union(@instant_room_rollback_capabilities)
+                                       |> MapSet.union(@full_uc_rollback_capabilities)
   @migration_lock_timeout_default_ms 5_000
   @migration_lock_timeout_range 1_000..30_000
   @migration_statement_timeout_default_ms 300_000

@@ -367,6 +367,16 @@
 .whiteboard-context-actions > label { flex: 1; min-width: 0; }
 .whiteboard-context-actions select { max-width: 100%; }
 
+.whiteboard-context-actions > .board-history-trigger {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex: 0 0 44px;
+}
+
+.whiteboard-context-actions > .board-history-trigger > span { display: none; }
+
 @media (max-width: 760px) {
   .whiteboard-context-actions { width: 100%; gap: var(--space-2); }
   .whiteboard-context-actions > label { grid-template-columns: minmax(0, 1fr); }

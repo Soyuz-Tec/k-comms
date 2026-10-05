@@ -307,6 +307,18 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_rollback_preflight_cannot_inherit_activated_media_admission(self) -> None:
+        documents = valid_documents()
+        operation = guest_rollback_operation()
+        container = operation["spec"]["template"]["spec"]["containers"][0]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["MEETING_ARTIFACTS_ENABLED"]["value"] = "true"
+        documents.append(operation)
+        self.assertTrue(any(
+            "MEETING_ARTIFACTS_ENABLED must be false" in error
+            for error in validate_documents(documents)
+        ))
+
     def test_rejects_development_identity_modes_and_invalid_oidc_issuer(self) -> None:
         documents = valid_documents()
         config = documents[0]["data"]

@@ -10,7 +10,13 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "instant_room_lifecycle_v1",
                                   "instant_room_presence_lease_v1",
                                   "instant_room_expiry_worker_v1",
-                                  "conversation_only_human_v1"
+                                  "conversation_only_human_v1",
+                                  "enterprise_identity_v1",
+                                  "uc_artifact_lifecycle_v1",
+                                  "uc_voicemail_lifecycle_v1",
+                                  "uc_advanced_telephony_v1",
+                                  "scheduled_meeting_lifecycle_v1",
+                                  "rich_content_erasure_v1"
                                 ],
                                 ","
                               )
@@ -187,5 +193,43 @@ defmodule CommsCore.Release.EnvironmentTest do
              )
 
     refute MapSet.member?(partial_context.capabilities, "instant_room_lifecycle_v1")
+
+    previous_release =
+      Map.put(
+        compatible,
+        "K_COMMS_ROLLBACK_TARGET_CAPABILITIES",
+        @communication_capabilities |> String.split(",") |> Enum.take(6) |> Enum.join(",")
+      )
+
+    assert {:error, :rollback_writes_quiescence_confirmation_required} =
+             Release.validate_communication_rollback_environment(&Map.get(previous_release, &1))
+
+    assert {:ok, previous_context} =
+             Release.validate_communication_rollback_environment(
+               &(previous_release
+                 |> Map.put("K_COMMS_ROLLBACK_WRITES_QUIESCED", "true")
+                 |> Map.get(&1))
+             )
+
+    refute MapSet.member?(previous_context.capabilities, "enterprise_identity_v1")
+    assert MapSet.member?(previous_context.capabilities, "instant_room_lifecycle_v1")
+
+    # Omitting any new capability must disable the database-free fast path.
+    for capability <- ~w(enterprise_identity_v1 uc_artifact_lifecycle_v1
+                         uc_voicemail_lifecycle_v1 uc_advanced_telephony_v1
+                         scheduled_meeting_lifecycle_v1 rich_content_erasure_v1) do
+      missing =
+        @communication_capabilities
+        |> String.split(",")
+        |> Enum.reject(&(&1 == capability))
+        |> Enum.join(",")
+
+      assert {:error, :rollback_writes_quiescence_confirmation_required} =
+               Release.validate_communication_rollback_environment(
+                 &(compatible
+                   |> Map.put("K_COMMS_ROLLBACK_TARGET_CAPABILITIES", missing)
+                   |> Map.get(&1))
+               )
+    end
   end
 end

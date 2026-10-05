@@ -318,6 +318,7 @@ async function installGuestCommunicationFixture(
     guestDevice
   );
   let guestMessages: Record<string, unknown>[] = [];
+  const drafts = new Map<string, { body: string; version: number }>();
 
   if (authenticatedHost) {
     await page.addInitScript((session) => {
@@ -419,6 +420,18 @@ async function installGuestCommunicationFixture(
         data: convertedRequest ? guestMessages : [],
         page: { has_more: false, next_after_sequence: null, reset_required: false }
       });
+    }
+    if (path === `/api/v1/conversations/${conversationId}/draft` && (method === "GET" || method === "PUT")) {
+      const input = method === "PUT" ? request.postDataJSON() as { thread_key: string; body: string; expected_version: number } : null;
+      const key = `${authorization}:${input?.thread_key || url.searchParams.get("thread_key") || "main"}`;
+      const current = drafts.get(key) || { body: "", version: 0 };
+      if (input) {
+        if (input.expected_version !== current.version) return json(route, { error: { code: "stale_draft", detail: "This draft changed on another device." } }, 409);
+        current.body = input.body;
+        current.version += 1;
+        drafts.set(key, current);
+      }
+      return json(route, { data: { conversation_id: conversationId, thread_key: input?.thread_key || url.searchParams.get("thread_key") || "main", ...current, expires_at: "2099-01-01T00:00:00Z" } });
     }
     if (method === "PUT" && path === `/api/v1/conversations/${conversationId}/read-cursor`) {
       return route.fulfill({ status: 204 });

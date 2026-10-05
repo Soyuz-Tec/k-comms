@@ -232,7 +232,13 @@ test("conversation whiteboard renders a usable white-labeled drawing workspace",
   await expect(room).toHaveCSS("border-radius", "0px");
   await expect(room).toHaveCSS("box-shadow", "none");
   expect(bounds?.width).toBeGreaterThan(250);
-  expect(bounds?.height).toBeGreaterThan(500);
+  expect(bounds?.height, JSON.stringify(await page.evaluate(() => {
+    const selectors = [".app-shell", ".app-header", ".whiteboard-page", ".whiteboard-heading", ".whiteboard-context-actions", ".whiteboard-heading-status", ".whiteboard-room", ".board-library-controls", ".whiteboard-canvas"];
+    return { viewport: { width: innerWidth, height: innerHeight }, surfaces: selectors.map(selector => {
+      const element = document.querySelector(selector);
+      return { selector, bounds: element?.getBoundingClientRect().toJSON(), display: element ? getComputedStyle(element).display : null };
+    }) };
+  }))).toBeGreaterThan(500);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth)
   ).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
@@ -247,7 +253,10 @@ test("whiteboard tools reclaim space while remaining discoverable", async ({ pag
   await expect(toolbar).toBeVisible();
   await page.clock.fastForward(8_100);
   await expect(toolbar).toHaveAttribute("aria-hidden", "true");
-  await page.clock.runFor(250);
+  await expect(toolbar).toHaveAttribute("inert", "");
+  // Let the native CSS compositor finish its transition after advancing the
+  // JavaScript idle timer; a paused clock can freeze WebKit's visibility step.
+  await page.clock.resume();
   await expect(toolbar).toBeHidden();
   const reveal = page.getByRole("button", { name: "Show drawing tools" });
   await expect(reveal).toBeVisible();

@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/rich-content.v1.json",
+  "title": "rich-content.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/BoardExport"
+    },
+    {
+      "$ref": "#/$defs/UnifiedSearchPage"
+    },
+    {
+      "$ref": "#/$defs/SynchronizedDraft"
+    }
+  ],
+  "$defs": {
+    "BoardExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "version",
+        "source",
+        "title",
+        "library_version",
+        "through_sequence",
+        "elements",
+        "assets",
+        "files"
+      ],
+      "properties": {
+        "type": {
+          "const": "excalidraw"
+        },
+        "version": {
+          "const": 2
+        },
+        "source": {
+          "const": "K-Comms"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "library_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "through_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "elements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WhiteboardElement"
+          },
+          "minItems": 0,
+          "maxItems": 5000
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BoardAsset"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        }
+      }
+    },
+    "WhiteboardElement": {
+      "type": "object",
+      "description": "Bounded Excalidraw element data. Images require an approved conversation-scoped durable asset UUID; inline data, remote image URLs, embeds, links, and custom data are rejected.",
+      "required": [
+        "id",
+        "type",
+        "version",
+        "versionNonce"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "type": {
+          "enum": [
+            "rectangle",
+            "diamond",
+            "ellipse",
+            "line",
+            "arrow",
+            "freedraw",
+            "text",
+            "frame",
+            "image"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "versionNonce": {
+          "type": "integer"
+        },
+        "link": {
+          "type": "null"
+        },
+        "customData": {
+          "type": "null"
+        }
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "image"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "fileId"
+            ],
+            "properties": {
+              "fileId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "dataURL": {
+                "type": "null"
+              },
+              "src": {
+                "type": "null"
+              },
+              "url": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "BoardAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attachment_id",
+        "source_message_id",
+        "content_type",
+        "byte_size"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attachment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content_type": {
+          "type": "string",
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif"
+          ]
+        },
+        "byte_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10485760
+        }
+      }
+    },
+    "UnifiedSearchPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "facets",
+        "page"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UnifiedResult"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "facets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "message": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "file": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "whiteboard": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "meeting": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "recording": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "transcript": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "has_more",
+            "next_cursor",
+            "source_limits",
+            "ranking_scope",
+            "meeting_window_days"
+          ],
+          "properties": {
+            "has_more": {
+              "type": "boolean"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "source_limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "messages",
+                "files",
+                "whiteboards",
+                "meetings",
+                "artifacts"
+              ],
+              "properties": {
+                "messages": {
+                  "type": "boolean"
+                },
+                "files": {
+                  "type": "boolean"
+                },
+                "whiteboards": {
+                  "type": "boolean"
+                },
+                "meetings": {
+                  "type": "boolean"
+                },
+                "artifacts": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "ranking_scope": {
+              "const": "authorized_source_candidates"
+            },
+            "meeting_window_days": {
+              "const": 732
+            }
+          }
+        }
+      }
+    },
+    "UnifiedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "excerpt",
+        "conversation_id",
+        "occurred_at",
+        "score",
+        "path"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "file",
+            "whiteboard",
+            "meeting",
+            "recording",
+            "transcript"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "excerpt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 280
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^/app[/?.]"
+        }
+      }
+    },
+    "SynchronizedDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conversation_id",
+        "thread_key",
+        "body",
+        "version",
+        "expires_at"
+      ],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "thread_key": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 36,
+          "pattern": "^(main|[0-9a-f-]{36})$"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 65535
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

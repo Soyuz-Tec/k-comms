@@ -8,6 +8,14 @@ import json
 import re
 from pathlib import Path
 
+ROLLBACK_CAPABILITIES = (
+    "guest_identity_v1,guest_admission_expiry_worker_v1,"
+    "instant_room_lifecycle_v1,instant_room_presence_lease_v1,"
+    "instant_room_expiry_worker_v1,conversation_only_human_v1,"
+    "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
+    "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
+)
 
 REQUIRED_FILES = (
     "AGENTS.md",
@@ -244,7 +252,7 @@ def validate(root: Path) -> list[str]:
         "DropCapability=all",
         "NoNewPrivileges=true",
         "Notify=healthy",
-        "io.k-comms.rollback-capabilities=",
+        "io.k-comms.rollback-capabilities=@@ROLLBACK_CAPABILITIES@@",
     ):
         if required not in app:
             errors.append(f"application Quadlet is missing: {required}")
@@ -320,6 +328,19 @@ def validate(root: Path) -> list[str]:
     )[2]
     if 'io.k-comms.pwa="1"' not in runtime_dockerfile:
         errors.append("Dockerfile runtime image is missing io.k-comms.pwa=1")
+    if f'io.k-comms.rollback-capabilities="{ROLLBACK_CAPABILITIES}"' not in runtime_dockerfile:
+        errors.append("Dockerfile runtime image is missing the immutable rollback capability contract")
+
+    common = read(root, "deploy/proxmox/bin/common.sh")
+    for required in (
+        f"K_COMMS_CAPABILITIES={ROLLBACK_CAPABILITIES}",
+        "image_rollback_capabilities()",
+        "assert_image_rollback_capabilities()",
+        'immutable_capabilities="$(image_rollback_capabilities "$(current_app_image)")"',
+        "K_COMMS_LEGACY_CAPABILITIES",
+    ):
+        if required not in common:
+            errors.append(f"common.sh is missing rollback provenance control: {required}")
 
     deploy = read(root, "deploy/proxmox/bin/deploy.sh")
     for required in (
@@ -342,6 +363,9 @@ def validate(root: Path) -> list[str]:
         "CommsCore.Release.assert_communication_rollback_compatible!()",
         "recovery=previous_verified",
         "failed-deployments",
+        'candidate_capabilities="$(image_rollback_capabilities "$image")"',
+        '[[ "$candidate_capabilities" == "$K_COMMS_CAPABILITIES" ]]',
+        'ROLLBACK_CAPABILITIES "$candidate_capabilities"',
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
@@ -522,6 +546,8 @@ def validate(root: Path) -> list[str]:
     rollback = read(root, "deploy/proxmox/bin/rollback.sh")
     for required in (
         "CommsCore.Release.assert_communication_rollback_compatible!()",
+        'assert_image_rollback_capabilities "$target_image" "$target_capabilities"',
+        'ROLLBACK_CAPABILITIES "$target_capabilities"',
         "K_COMMS_ROLLBACK_WRITES_QUIESCED=true",
         "backup.sh",
     ):
@@ -531,6 +557,19 @@ def validate(root: Path) -> list[str]:
         errors.append(
             "rollback.sh must permit feature-aware verification of a pre-PWA image"
         )
+
+    for name, source in (("deploy.sh", deploy), ("rollback.sh", rollback)):
+        preflights = re.findall(
+            r"--env AUDIO_PROVIDER_MODE=disabled.*?eval 'CommsCore\.Release\.[^']*'",
+            source, re.DOTALL,
+        )
+        for preflight in preflights:
+            for key, value in (("TELEPHONY_PROVIDER_MODE", "disabled"),
+                               ("MEETING_ARTIFACTS_ENABLED", "false"),
+                               ("LIVEKIT_EGRESS_ENABLED", "false"),
+                               ("ARTIFACT_TRANSCRIPTION_ENABLED", "false")):
+                if f"--env {key}={value}" not in preflight:
+                    errors.append(f"{name}: disabled-audio one-shot must override {key}={value}")
 
     restore = read(root, "deploy/proxmox/bin/restore.sh")
     for required in (

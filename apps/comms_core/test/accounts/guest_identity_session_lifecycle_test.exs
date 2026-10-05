@@ -345,6 +345,28 @@ defmodule CommsCore.Accounts.GuestIdentitySessionLifecycleTest do
              Accounts.revoke_guest_session("not-a-uuid", "guest_link_revoked")
   end
 
+  test "expired suspended guest cleanup remains available when the tenant is inactive" do
+    account = Fixtures.account_fixture()
+    guest = provision_guest(guest_attrs(account, future_time(3_600)))
+    expired_at = past_time(60)
+
+    from(user in User, where: user.id == ^guest.user.id)
+    |> Repo.update_all(set: [status: :suspended, guest_expires_at: expired_at])
+
+    from(session in Session, where: session.id == ^guest.session_id)
+    |> Repo.update_all(set: [expires_at: expired_at])
+
+    from(tenant in CommsCore.Administration.Tenant, where: tenant.id == ^account.tenant.id)
+    |> Repo.update_all(set: [status: :suspended])
+
+    assert {:error, :forbidden} = Accounts.access_grant(subject_for(guest))
+    assert :ok = Accounts.revoke_guest_session(guest.session_id, "expired_guest_cleanup")
+    assert %Session{revoked_at: %DateTime{}} = Repo.get!(Session, guest.session_id)
+    assert Repo.get!(User, guest.user.id).guest_expires_at == expired_at
+    assert :ok = Accounts.revoke_guest_session(guest.session_id, "expired_guest_cleanup")
+    assert {:error, :forbidden} = Accounts.access_grant(subject_for(guest))
+  end
+
   defp provision_guest(attrs) do
     assert {:ok, %AuthenticationResult{} = guest} =
              Repo.transaction(fn ->

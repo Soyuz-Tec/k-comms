@@ -8,7 +8,7 @@ defmodule CommsCore.Notifications.Intents do
 
   @max_list_limit 100
   @recovery_event_type "account.password_recovery.requested.v1"
-  @payload_keys ~w(title body action_url conversation_id message_id sender_user_id aggregate_id aggregate_type event_id recovery_request_id)
+  @payload_keys ~w(title body action_url conversation_id message_id sender_user_id aggregate_id aggregate_type event_id recovery_request_id meeting_id occurrence_id starts_at)
 
   def list(subject, opts \\ %{}) do
     limit = limit(opts)
@@ -85,6 +85,7 @@ defmodule CommsCore.Notifications.Intents do
     |> Oban.Job.new(
       worker: RuntimePorts.job_worker_name!(:notification_delivery),
       queue: :notifications,
+      scheduled_at: intent.next_attempt_at,
       unique: [
         period: :infinity,
         fields: [:worker, :args],

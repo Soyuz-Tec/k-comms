@@ -10,6 +10,17 @@ defmodule CommsCore.AudioCalls.Participants do
 
   @doc false
   def admit_and_issue!(call, subject, issuer) when is_function(issuer, 1) do
+    CommsCore.AudioCalls.MeetingCallPolicy.authorize_call_access!(call, subject)
+
+    case CommsCore.AudioCalls.Artifacts.authorize_admission(
+           call.tenant_id,
+           call.id,
+           value(subject, :session_id)
+         ) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     participant = active_admission!(call, subject)
     credential = issue_credential!(call, participant, issuer)
     {participant, credential}
@@ -269,6 +280,19 @@ defmodule CommsCore.AudioCalls.Participants do
   defp revoke_matching(query, reason) do
     with {:ok, normalized_reason} <- revocation_reason(reason) do
       Repo.transaction(fn ->
+        # Admission and recording start already hold the call lock. Revocation
+        # takes the same ordered locks before changing the admitted snapshot.
+        call_ids =
+          query |> select([participant], participant.audio_call_id) |> Repo.all() |> Enum.uniq()
+
+        Repo.all(
+          from(call in AudioCall,
+            where: call.id in ^call_ids,
+            order_by: [asc: call.id],
+            lock: "FOR UPDATE"
+          )
+        )
+
         participants =
           query
           |> where(
@@ -286,6 +310,18 @@ defmodule CommsCore.AudioCalls.Participants do
           |> Repo.all()
 
         Enum.each(participants, &revoke_participant!(&1, normalized_reason))
+
+        participants
+        |> Enum.group_by(& &1.tenant_id)
+        |> Enum.each(fn {tenant_id, admissions} ->
+          ids = admissions |> Enum.map(& &1.audio_call_id) |> Enum.uniq()
+
+          case CommsCore.AudioCalls.Artifacts.stop_for_access_change(tenant_id, ids) do
+            :ok -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
         length(participants)
       end)
       |> unwrap()

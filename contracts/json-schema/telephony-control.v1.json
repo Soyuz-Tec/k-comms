@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/telephony-control.v1.json",
+  "title": "telephony-control.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/TelephonyControl"
+    }
+  ],
+  "$defs": {
+    "TelephonyControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "call_id",
+        "action",
+        "status",
+        "dispatch",
+        "created_at",
+        "expires_at",
+        "completed_at",
+        "failure_reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "call_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "dtmf",
+            "hold",
+            "resume",
+            "blind_transfer",
+            "consult_transfer",
+            "complete_transfer",
+            "cancel_transfer",
+            "voicemail"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "dispatching",
+            "submitted",
+            "failed",
+            "unknown"
+          ]
+        },
+        "dispatch": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "failure_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    }
+  }
+}

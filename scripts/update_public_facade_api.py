@@ -84,6 +84,22 @@ def build_snapshot(root: Path) -> dict:
                 for operation in declaration.get("operations", [])
                 if isinstance(operation, dict)
             )
+    # Configured runtime collaborations invoke their provider facade through a
+    # consumer-owned port, so there is deliberately no direct provider call for
+    # the source-call inventory to discover. Preserve their exact reviewed
+    # operation classification without publishing undeclared exports.
+    for declaration in manifest.get("runtime_collaborations", []):
+        facade = declaration.get("implementation")
+        if facade in collaboration_operations:
+            definitions = public_definition_operations(
+                module_sources[facade].read_text(encoding="utf-8")
+            )
+            collaboration_operations[facade].update(
+                (operation.get("name"), operation.get("arity"))
+                for operation in declaration.get("operations", [])
+                if isinstance(operation, dict)
+                and (operation.get("name"), operation.get("arity")) in definitions
+            )
     for exception in manifest.get("read_model_exceptions", []):
         for query in exception.get("access", {}).get("public_queries", []):
             facade, operation = query.rsplit(".", 1)

@@ -85,7 +85,8 @@ paths:
           $ref: '#/components/responses/Error'
   /api/v1/sessions:
     post:
-      tags: [Sessions]
+      tags:
+      - Sessions
       operationId: createSession
       requestBody:
         required: true
@@ -95,14 +96,18 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Authenticated session
+          description: Authenticated session or a required one-use MFA challenge
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenResponse'
+                oneOf:
+                - $ref: '#/components/schemas/TokenResponse'
+                - $ref: '#/components/schemas/MfaChallenge'
         '401':
           $ref: '#/components/responses/Error'
         '426':
+          $ref: '#/components/responses/Error'
+        '429':
           $ref: '#/components/responses/Error'
   /api/v1/sessions/refresh:
     post:
@@ -1967,40 +1972,86 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
   /api/v1/me/step-up:
     post:
-      tags: [Sessions]
+      tags:
+      - Sessions
       operationId: stepUpSession
-      security: [{bearerAuth: []}]
+      security:
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [current_password]
+              required:
+              - current_password
               properties:
-                current_password: {type: string}
+                current_password:
+                  type: string
+                mfa_code:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
       responses:
-        '200': {description: Session elevated for a bounded sensitive-operation window}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-        '426': {$ref: '#/components/responses/Error'}
-
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - step_up_at
+                    properties:
+                      step_up_at:
+                        type: string
+                        format: date-time
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/me/profile:
     patch:
-      tags: [Users]
+      tags:
+      - Users
       operationId: updateCurrentProfile
-      security: [{bearerAuth: []}]
+      security:
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/UpdateProfileRequest'}
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
       responses:
-        '200': {description: Updated profile}
-        '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
-        '409': {$ref: '#/components/responses/Error'}
-        '422': {$ref: '#/components/responses/Error'}
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/IdentityUser'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /api/v1/me/password:
     put:
       tags: [Users]
@@ -2921,6 +2972,3409 @@ paths:
               schema: {$ref: '#/components/schemas/OperationsSnapshotResponse'}
         '403': {$ref: '#/components/responses/Error'}
 
+  /api/v1/auth/mfa:
+    post:
+      tags:
+      - Sessions
+      operationId: completeMfaSignIn
+      security: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaSignInRequest'
+  /api/v1/auth/oidc/start:
+    post:
+      tags:
+      - Sessions
+      operationId: startOidc
+      security: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcStartResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Authorization Code with S256 PKCE, one-use state/nonce and signed HttpOnly browser-binding cookie. Disabled until secure issuer configuration is available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcStartRequest'
+  /api/v1/auth/oidc/callback:
+    post:
+      tags:
+      - Sessions
+      operationId: completeOidc
+      security: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcLoginResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Authorization Code with S256 PKCE, one-use state/nonce and signed HttpOnly browser-binding cookie. Disabled until secure issuer configuration is available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcCallbackRequest'
+  /api/v1/me/security:
+    get:
+      tags:
+      - Sessions
+      operationId: getIdentitySecurity
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/IdentitySecurity'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/me/mfa/enroll:
+    post:
+      tags:
+      - Sessions
+      operationId: enrollMfa
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MfaEnrollment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Recent step-up is required; encrypted enrollment expires after ten minutes.
+  /api/v1/me/mfa/confirm:
+    post:
+      tags:
+      - Sessions
+      operationId: confirmMfa
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RecoveryCodes'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Recovery credentials are shown once. Factor changes revoke other sessions and require recent step-up plus an unused separate factor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+  /api/v1/me/mfa/recovery-codes:
+    post:
+      tags:
+      - Sessions
+      operationId: rotateMfaRecovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RecoveryCodes'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Recovery credentials are shown once. Factor changes revoke other sessions and require recent step-up plus an unused separate factor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+  /api/v1/me/mfa/disable:
+    post:
+      tags:
+      - Sessions
+      operationId: disableMfa
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: []
+                    properties: {}
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Recovery credentials are shown once. Factor changes revoke other sessions and require recent step-up plus an unused separate factor proof.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaCodeRequest'
+  /api/v1/me/oidc/link/start:
+    post:
+      tags:
+      - Sessions
+      operationId: linkOidc
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcStartResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Bound to the exact active initiating session and tenant. Step-up additionally requires the same already-linked issuer/subject and auth_time within five minutes; never links by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcStartRequest'
+  /api/v1/me/oidc/step-up/start:
+    post:
+      tags:
+      - Sessions
+      operationId: stepUpOidc
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcStartResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Bound to the exact active initiating session and tenant. Step-up additionally requires the same already-linked issuer/subject and auth_time within five minutes; never links by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcStartRequest'
+  /api/v1/me/oidc/link/callback:
+    post:
+      tags:
+      - Sessions
+      operationId: completeOidcLink
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcLinkResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Bound to the exact active initiating session and tenant. Step-up additionally requires the same already-linked issuer/subject and auth_time within five minutes; never links by email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcCallbackRequest'
+  /api/v1/me/availability:
+    get:
+      tags:
+      - Users
+      operationId: getAvailability
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Availability'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - Users
+      operationId: updateAvailability
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Availability'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: DND defers outbound email/push and incoming ringing while retaining in-app messages and allowing voluntary meeting joins. Weekly schedules use the saved IANA timezone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvailabilityUpdate'
+  /scim/v2/Users:
+    get:
+      tags:
+      - Enterprise Directory
+      operationId: scimGetUsers
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimUserList'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: startIndex
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+      - name: count
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: filter
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Only externalId eq "value" is supported.
+      x-required-scope: scim:read
+    post:
+      tags:
+      - Enterprise Directory
+      operationId: scimPostUsers
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimUser'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimUserCreate'
+      x-required-scope: scim:write
+  /scim/v2/Users/{scimId}:
+    parameters:
+    - name: scimId
+      in: path
+      required: true
+      schema: &uc_anchor_1
+        type: string
+        format: uuid
+    get:
+      tags:
+      - Enterprise Directory
+      operationId: scimGetUser
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimUser'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      x-required-scope: scim:read
+    put:
+      tags:
+      - Enterprise Directory
+      operationId: scimPutUser
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimUser'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimUserUpdate'
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+    patch:
+      tags:
+      - Enterprise Directory
+      operationId: scimPatchUser
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimUser'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimPatchRequest'
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+    delete:
+      tags:
+      - Enterprise Directory
+      operationId: scimDeleteUser
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '204':
+          description: Successful authorized operation
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+  /scim/v2/Groups:
+    get:
+      tags:
+      - Enterprise Directory
+      operationId: scimGetGroups
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimGroupList'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: startIndex
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+      - name: count
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: filter
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Only externalId eq "value" is supported.
+      x-required-scope: scim:read
+    post:
+      tags:
+      - Enterprise Directory
+      operationId: scimPostGroups
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimGroup'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimGroupCreate'
+      x-required-scope: scim:write
+  /scim/v2/Groups/{scimId}:
+    parameters:
+    - name: scimId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Enterprise Directory
+      operationId: scimGetGroup
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimGroup'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      x-required-scope: scim:read
+    put:
+      tags:
+      - Enterprise Directory
+      operationId: scimPutGroup
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimGroup'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimGroupUpdate'
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+    patch:
+      tags:
+      - Enterprise Directory
+      operationId: scimPatchGroup
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimGroup'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: '#/components/schemas/ScimPatchRequest'
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+    delete:
+      tags:
+      - Enterprise Directory
+      operationId: scimDeleteGroup
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '204':
+          description: Successful authorized operation
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      description: Tenant scoped lifecycle input only. Sensitive role/entitlement/password input is rejected. Suspension revokes local sessions, sockets, push and call access. Last owner is protected; recovery email changes require a separate verified workflow.
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 5
+          maxLength: 30
+          pattern: ^W/"[1-9][0-9]*"$
+      x-required-scope: scim:write
+  /scim/v2/ServiceProviderConfig:
+    get:
+      tags:
+      - Enterprise Directory
+      operationId: scimGetScimProviderConfig
+      security:
+      - serviceAccountAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimProviderConfig'
+        '400':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '403':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '404':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '409':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '412':
+          description: SCIM lifecycle or precondition failure
+          content:
+            application/scim+json:
+              schema:
+                $ref: '#/components/schemas/ScimError'
+        '401':
+          $ref: '#/components/responses/Error'
+      x-required-scope: scim:read
+  /api/v1/meetings:
+    get:
+      tags:
+      - Meetings
+      operationId: listMeetings
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Date range bounded to 93 days; membership scoped. Provider calendar synchronization remains unavailable.
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema: &uc_anchor_2
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: false
+        schema: *uc_anchor_2
+  /api/v1/conversations/{conversationId}/meetings:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meetings
+      operationId: scheduleMeeting
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Meeting'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingRequest'
+  /api/v1/meetings/{meetingId}:
+    parameters:
+    - name: meetingId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meetings
+      operationId: getMeeting
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Meeting'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags:
+      - Meetings
+      operationId: updateMeeting
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Meeting'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Versioned host operation; local times must resolve uniquely in the IANA zone. Maximum52 occurrences and366-day scheduling horizon.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingUpdate'
+  /api/v1/meetings/{meetingId}/cancel:
+    parameters:
+    - name: meetingId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meetings
+      operationId: cancelMeeting
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Meeting'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expected_version
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+                  maximum: 2147483647
+  /api/v1/meetings/{meetingId}/calendar:
+    parameters:
+    - name: meetingId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meetings
+      operationId: downloadMeetingCalendar
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - ics
+                    - filename
+                    properties:
+                      ics:
+                        type: string
+                        minLength: 1
+                        maxLength: 131072
+                      filename:
+                        type: string
+                        minLength: 1
+                        maxLength: 120
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/meetings/{meetingId}/occurrences/{occurrenceId}/start:
+    parameters:
+    - name: meetingId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: occurrenceId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meetings
+      operationId: startMeetingOccurrence
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioCallCredentialResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioCallCredentialResponse'
+      description: Existing active call replay returns200; host/join-before-host/guest policy enforced at admission. TLS and qualified media provider required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - media_kind
+              properties:
+                media_kind:
+                  type: string
+                  enum:
+                  - audio
+                  - video
+  /api/v1/telephony/capabilities:
+    get:
+      tags:
+      - Telephony
+      operationId: getTelephonyControlCapabilities
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TelephonyControlCapabilities'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/telephony/calls/{callId}/controls:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Telephony
+      operationId: listTelephonyControls
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - limit
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelephonyControl'
+                    minItems: 0
+                    maxItems: 100
+                  limit:
+                    const: 100
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - Telephony
+      operationId: requestTelephonyControl
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TelephonyControl'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Durable idempotent receipt tied to exact call/device/session. Submitted acknowledges dispatch and does not establish carrier completion. Transfer destination must match reviewed operator prefix configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelephonyControlRequest'
+  /api/v1/telephony/calls/{callId}/controls/{commandId}/complete:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: commandId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Telephony
+      operationId: completeBrowserTelephonyControl
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TelephonyControl'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - status
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - submitted
+                  - unknown
+  /api/v1/admin/telephony/routes:
+    get:
+      tags:
+      - Telephony
+      operationId: listTelephonyRoutes
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - limit
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TelephonyRoute'
+                    minItems: 0
+                    maxItems: 100
+                  limit:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - Telephony
+      operationId: saveTelephonyRoute
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TelephonyRoute'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelephonyRouteRequest'
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: listMeetingArtifacts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingArtifactList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: requestMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingArtifactRequest'
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/consent:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: consentMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Revalidates current membership, consent, tenant policy, retention and revocation. Provider capture/transcription remains disabled unless qualified.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - accepted
+              properties:
+                accepted: &uc_anchor_3
+                  type: boolean
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/start:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: startMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '202':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Revalidates current membership, consent, tenant policy, retention and revocation. Provider capture/transcription remains disabled unless qualified.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/stop:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: stopMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '202':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Revalidates current membership, consent, tenant policy, retention and revocation. Provider capture/transcription remains disabled unless qualified.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/playback:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: playbackMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - download
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+                  download:
+                    allOf:
+                    - $ref: '#/components/schemas/PresignDescriptor'
+                    - properties:
+                        expires_in: {type: integer, minimum: 1, maximum: 120}
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Revalidates current membership, consent, tenant policy, retention and revocation. Provider capture/transcription remains disabled unless qualified.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/transcript:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: getMeetingArtifactTranscript
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactTranscript'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Revalidates current membership, consent, tenant policy, retention and revocation. Provider capture/transcription remains disabled unless qualified.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    delete:
+      tags:
+      - Meeting Artifacts
+      operationId: deleteMeetingArtifact
+      security:
+      - bearerAuth: []
+      responses:
+        '202':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Durable delete request; legal holds and active recording block deletion.
+  /api/v1/guest/conversation/calls/{callId}/artifacts:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: guestRecordingDisclosure
+      security:
+      - guestBearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingArtifactList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/guest/conversation/calls/{callId}/artifacts/{artifactId}/consent:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: artifactId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: guestRecordingConsent
+      security:
+      - guestBearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - accepted
+              properties:
+                accepted: *uc_anchor_3
+  /api/v1/providers/livekit/egress/webhook:
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: receiveVerifiedLivekitEgress
+      security:
+      - livekitWebhookAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - accepted
+                    properties:
+                      accepted:
+                        const: true
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Authenticates exact raw body using approved LiveKit issuer, HS256 signature, expiry and bodySHA-256 before decoding; never accepts member credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              format: binary
+              maxLength: 262144
+  /api/v1/whiteboards:
+    get:
+      tags:
+      - Whiteboards
+      operationId: listBoardGallery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - page
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BoardSummary'
+                    minItems: 0
+                    maxItems: 100
+                  page:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - truncated
+                    properties:
+                      truncated: *uc_anchor_3
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 0
+          maxLength: 160
+      - name: conversation_id
+        in: query
+        required: false
+        schema: *uc_anchor_1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+  /api/v1/conversations/{conversationId}/whiteboard/title:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    put:
+      tags:
+      - Whiteboards
+      operationId: renameWhiteboard
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BoardSummary'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - title
+              - expected_version
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                expected_version:
+                  type: integer
+                  minimum: 1
+                  maximum: 2147483647
+  /api/v1/conversations/{conversationId}/whiteboard/versions:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Whiteboards
+      operationId: listWhiteboardVersions
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BoardVersion'
+                    minItems: 0
+                    maxItems: 100
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags:
+      - Whiteboards
+      operationId: checkpointWhiteboard
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BoardVersion'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - label
+              - expected_sequence
+              properties:
+                label:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                expected_sequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 2147483647
+  /api/v1/conversations/{conversationId}/whiteboard/versions/{versionId}/restore:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: versionId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Whiteboards
+      operationId: restoreWhiteboardVersion
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BoardSummary'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Version and membership scoped scene restoration applies durable whiteboard operations; current sequence must match.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expected_sequence
+              properties:
+                expected_sequence:
+                  type: integer
+                  minimum: 0
+                  maximum: 2147483647
+  /api/v1/conversations/{conversationId}/whiteboard/export:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Whiteboards
+      operationId: exportWhiteboard
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BoardExport'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Portable durable scene and approved asset references; empty files map contains no provider object keys.
+  /api/v1/conversations/{conversationId}/whiteboard/assets:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Whiteboards
+      operationId: createWhiteboardAsset
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BoardAsset'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - attachment_id
+              properties:
+                attachment_id: *uc_anchor_1
+  /api/v1/conversations/{conversationId}/whiteboard/assets/{assetId}:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    - name: assetId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Whiteboards
+      operationId: downloadWhiteboardAsset
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - download
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - id
+                    - content_type
+                    - byte_size
+                    properties:
+                      id: *uc_anchor_1
+                      content_type:
+                        type: string
+                        enum:
+                        - image/png
+                        - image/jpeg
+                        - image/webp
+                        - image/gif
+                      byte_size:
+                        type: integer
+                        minimum: 1
+                        maximum: 10485760
+                  download:
+                    $ref: '#/components/schemas/PresignDescriptor'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/saved-items:
+    get:
+      tags:
+      - Messages
+      operationId: listSavedItems
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - page
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                    minItems: 0
+                    maxItems: 100
+                  page:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - truncated
+                    - has_more
+                    - next_cursor
+                    properties:
+                      truncated: *uc_anchor_3
+                      has_more: {type: boolean}
+                      next_cursor: {type: [string, "null"], minLength: 1, maxLength: 512}
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+      - name: cursor
+        in: query
+        required: false
+        schema: {type: string, minLength: 1, maxLength: 512}
+  /api/v1/saved-items/{messageId}:
+    parameters:
+    - name: messageId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    put:
+      tags:
+      - Messages
+      operationId: saveMessage
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - message_id
+                    - saved
+                    properties:
+                      message_id: *uc_anchor_1
+                      saved: *uc_anchor_3
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags:
+      - Messages
+      operationId: unsaveMessage
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - message_id
+                    - saved
+                    properties:
+                      message_id: *uc_anchor_1
+                      saved: *uc_anchor_3
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/conversations/{conversationId}/draft:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Messages
+      operationId: getSynchronizedDraft
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SynchronizedDraft'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: thread_key
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 4
+          maxLength: 36
+          pattern: ^(main|[0-9a-f-]{36})$
+    put:
+      tags:
+      - Messages
+      operationId: updateSynchronizedDraft
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SynchronizedDraft'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: User and active conversation/thread scoped optimistic draft. Missing draft is version0; saved drafts expire after30 days. Stale writes preserve the durable draft.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SynchronizedDraftUpdate'
+  /api/v1/search/unified:
+    get:
+      tags:
+      - Search
+      operationId: searchUnifiedContent
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnifiedSearchPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Ranks authorized source candidates, with source truncation and kind facets disclosed. Cursor is bound to query, tenant, current user and filters; it cannot broaden membership. Meeting search is bounded to732 days.
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 160
+      - name: kind
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - all
+          - message
+          - file
+          - whiteboard
+          - meeting
+          - recording
+          - transcript
+      - name: conversation_id
+        in: query
+        required: false
+        schema: *uc_anchor_1
+      - name: sender_user_id
+        description: Filters message candidates by sender; other authorized content sources have no comparable sender field.
+        in: query
+        required: false
+        schema: *uc_anchor_1
+      - name: after
+        in: query
+        required: false
+        schema: *uc_anchor_2
+      - name: before
+        in: query
+        required: false
+        schema: *uc_anchor_2
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 2048
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+  /api/v1/telephony/voicemails:
+    get:
+      tags:
+      - Telephony
+      operationId: listVoicemails
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                - page
+                - configured
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VoicemailMessage'
+                    minItems: 0
+                    maxItems: 100
+                  page:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - limit
+                    - has_more
+                    - next_cursor
+                    properties:
+                      limit:
+                        type: integer
+                        minimum: 1
+                        maximum: 100
+                      has_more: *uc_anchor_3
+                      next_cursor:
+                        type:
+                        - string
+                        - 'null'
+                        format: uuid
+                  configured: *uc_anchor_3
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Recipient or currently authorized shared-line membership scoped inbox. Removes access promptly after shared-line membership removal; configured reports actual qualified provider/storage readiness.
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 30
+      - name: cursor
+        in: query
+        required: false
+        schema: *uc_anchor_1
+  /api/v1/telephony/voicemails/{voicemailId}/playback:
+    parameters:
+    - name: voicemailId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    get:
+      tags:
+      - Telephony
+      operationId: playVoicemail
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VoicemailPlayback'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Issues a short-lived URL only after current recipient/route access, retention and storage version revalidation. Already issued object URLs remain valid only until bounded expiry.
+  /api/v1/telephony/voicemails/{voicemailId}/read:
+    parameters:
+    - name: voicemailId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    post:
+      tags:
+      - Telephony
+      operationId: markVoicemailRead
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VoicemailMessage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/telephony/voicemails/{voicemailId}:
+    parameters:
+    - name: voicemailId
+      in: path
+      required: true
+      schema: *uc_anchor_1
+    delete:
+      tags:
+      - Telephony
+      operationId: deleteVoicemail
+      security:
+      - bearerAuth: []
+      responses:
+        '202':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - status
+                    properties:
+                      status:
+                        const: deleting
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Durable source/object version deletion with retries; legal hold denies deletion.
+  /api/v1/admin/telephony/mailbox:
+    get:
+      tags:
+      - Telephony
+      operationId: getVoicemailMailbox
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    anyOf:
+                    - $ref: '#/components/schemas/VoicemailMailbox'
+                    - type: 'null'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      tags:
+      - Telephony
+      operationId: saveVoicemailMailbox
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VoicemailMailbox'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Tenant admin and recent step-up required. user_id must be active human in the exact tenant. Existing mailbox mutations require version; enabling requires qualified voicemail capability.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoicemailMailboxRequest'
+
+  /api/v1/telephony/calls/{callId}/controls/{commandId}/reconcile:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: &id001
+        type: string
+        format: uuid
+    - name: commandId
+      in: path
+      required: true
+      schema: *id001
+    post:
+      tags:
+      - Telephony
+      operationId: reconcileTelephonyControl
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/TelephonyControl'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      description: Reconcile an unknown ARI control using authoritative provider state for the same current owner, call, device, and session. DTMF and REFER operations reject reconciliation and are never resent. An unknown provider
+        result stays unknown.
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -3167,28 +6621,85 @@ components:
     TelephonyCall:
       type: object
       additionalProperties: false
-      required: [id, direction, status, from_number, to_number, extension, started_at, answered_at, ended_at, connected_seconds, can_answer, can_join, can_end, active_on_this_device, end_reason]
+      required:
+      - id
+      - direction
+      - status
+      - from_number
+      - to_number
+      - extension
+      - started_at
+      - answered_at
+      - ended_at
+      - connected_seconds
+      - can_answer
+      - can_join
+      - can_end
+      - active_on_this_device
+      - end_reason
+      - control_state
       properties:
-        id: {type: string, format: uuid}
-        direction: {enum: [inbound, outbound]}
+        id:
+          type: string
+          format: uuid
+        direction:
+          enum:
+          - inbound
+          - outbound
         status:
-          enum: [ringing, answered, declined, busy, no_answer, cancelled, failed, ended]
+          enum:
+          - ringing
+          - answered
+          - declined
+          - busy
+          - no_answer
+          - cancelled
+          - failed
+          - ended
           description: Failed with answer_unconfirmed expresses an incoming call claimed/joined by the app whose SIP answer could not be observed before end; it makes no missed-call or successful-connection claim.
-        from_number: {type: string}
-        to_number: {type: string}
-        extension: {type: string}
-        started_at: {type: string, format: date-time}
-        answered_at: {type: [string, 'null'], format: date-time}
-        ended_at: {type: [string, 'null'], format: date-time}
+        from_number:
+          type: string
+        to_number:
+          type: string
+        extension:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        answered_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        ended_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
         connected_seconds:
           type: integer
           minimum: 0
           description: Elapsed seconds from observed SIP answer to end, or current observation for an active answered call; zero for unanswered or answer-unconfirmed calls. This is not a carrier-rated duration.
-        can_answer: {type: boolean}
-        can_join: {type: boolean}
-        can_end: {type: boolean}
-        active_on_this_device: {type: boolean}
-        end_reason: {type: [string, 'null']}
+        can_answer:
+          type: boolean
+        can_join:
+          type: boolean
+        can_end:
+          type: boolean
+        active_on_this_device:
+          type: boolean
+        end_reason:
+          type:
+          - string
+          - 'null'
+        control_state:
+          type: string
+          enum:
+          - connected
+          - held
+          - consulting
+          - transferred
+          - voicemail
     TelephonyCallResponse:
       type: object
       additionalProperties: false
@@ -3872,19 +7383,46 @@ components:
       type: object
       additionalProperties: false
       properties:
-        display_name: {type: string, minLength: 1, maxLength: 120}
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
         email:
           type: string
           format: email
           deprecated: true
           description: Compatibility echo only; must normalize to the current recovery email.
+        avatar_url:
+          type:
+          - string
+          - 'null'
+          minLength: 0
+          maxLength: 131094
+          pattern: ^(|data:image/png;base64,[A-Za-z0-9+/=]+)$
+          description: Bounded PNG data avatar, at most 512 pixels in either dimension; external URLs are rejected.
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Valid IANA timezone.
     ChangePasswordRequest:
       type: object
       additionalProperties: false
-      required: [current_password, new_password]
+      required:
+      - current_password
+      - new_password
       properties:
-        current_password: {type: string}
-        new_password: {type: string, minLength: 12, maxLength: 256}
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+        mfa_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Required when an authenticator is enrolled; accepts an unused factor or recovery credential.
     VersionRequest:
       type: object
       additionalProperties: false
@@ -4224,7 +7762,13 @@ components:
         version: {type: integer, minimum: 1}
     ServiceAccountScope:
       type: string
-      enum: [conversations:read, messages:read, messages:write, search:read]
+      enum:
+      - conversations:read
+      - messages:read
+      - messages:write
+      - search:read
+      - scim:read
+      - scim:write
     AuditExportRequest:
       type: object
       additionalProperties: false
@@ -4347,13 +7891,56 @@ components:
           type: array
           uniqueItems: true
           items: {type: string, format: uuid}
+    UpdateConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: {type: integer, minimum: 1}
+        title:
+          type: [string, 'null']
+          maxLength: 160
+          description: Omitted or null leaves the current title unchanged; direct conversations remain untitled.
+        visibility: {enum: [private, tenant], description: Direct conversations remain private.}
+    UpdateConversationMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [version, role]
+      properties:
+        version: {type: integer, minimum: 1}
+        role: {enum: [member, moderator, owner]}
     DirectoryPerson:
       type: object
       additionalProperties: false
-      required: [id, display_name]
+      required:
+      - id
+      - display_name
       properties:
-        id: {type: string, format: uuid}
-        display_name: {type: string, minLength: 1, maxLength: 120}
+        id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        avatar_url:
+          type:
+          - string
+          - 'null'
+          minLength: 0
+          maxLength: 131094
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        presence_state:
+          type: string
+          enum:
+          - available
+          - away
+          - busy
+          - dnd
+          - offline
     RetainedSenderLabel:
       type: object
       additionalProperties: false
@@ -4612,9 +8199,8 @@ components:
     SendMessageRequest:
       type: object
       additionalProperties: false
-      required: [body]
       properties:
-        body: {type: string, minLength: 1, maxLength: 65535}
+        body: {type: [string, "null"], minLength: 0, maxLength: 65535}
         reply_to_message_id: {type: [string, 'null'], format: uuid}
         mentioned_user_ids:
           type: array
@@ -4627,6 +8213,14 @@ components:
           uniqueItems: true
           items: {type: string, format: uuid}
         metadata: {$ref: '#/components/schemas/MessageMetadata'}
+      description: Nonempty text or at least one ready, clean attachment. Every attachment is atomically claimed for the authenticated sender and tenant; empty text without attachments is rejected.
+      anyOf:
+      - required: [body]
+        properties:
+          body: {type: string, minLength: 1, pattern: '\S'}
+      - required: [attachment_ids]
+        properties:
+          attachment_ids: {minItems: 1}
     Message:
       type: object
       additionalProperties: false
@@ -4780,16 +8374,36 @@ components:
             reset_required: {type: boolean}
     WhiteboardElement:
       type: object
-      description: Bounded Excalidraw element data. Images, embeds, links, and custom data are not accepted.
+      description: Bounded Excalidraw element data. Images require an approved conversation-scoped durable asset UUID; inline data, remote image URLs, embeds, links, and custom data are rejected.
       required: [id, type, version, versionNonce]
       properties:
         id: {type: string, minLength: 8, maxLength: 128}
-        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame]}
+        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame, image]}
         version: {type: integer, minimum: 1}
         versionNonce: {type: integer}
         link: {type: 'null'}
         customData: {type: 'null'}
       additionalProperties: true
+      allOf:
+      - if:
+          properties:
+            type:
+              const: image
+          required:
+          - type
+        then:
+          required:
+          - fileId
+          properties:
+            fileId:
+              type: string
+              format: uuid
+            dataURL:
+              type: 'null'
+            src:
+              type: 'null'
+            url:
+              type: 'null'
     WhiteboardScenePayload:
       type: object
       additionalProperties: false
@@ -5158,22 +8772,1977 @@ components:
         replayed: {type: boolean}
     TokenResponse:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device]
+      required:
+      - access_token
+      - refresh_token
+      - token_type
+      - expires_in
+      - tenant
+      - user
+      - device
       properties:
-        access_token: {type: string, readOnly: true}
-        refresh_token: {type: string, readOnly: true}
-        token_type: {const: Bearer}
-        expires_in: {type: integer, minimum: 1}
-        tenant: {type: object}
+        access_token:
+          type: string
+          readOnly: true
+        refresh_token:
+          type: string
+          readOnly: true
+        token_type:
+          const: Bearer
+        expires_in:
+          type: integer
+          minimum: 1
+        tenant:
+          $ref: '#/components/schemas/IdentityTenant'
         user:
           type: object
-          required: [access_scope]
+          additionalProperties: false
+          required:
+          - id
+          - tenant_id
+          - display_name
+          - email
+          - avatar_url
+          - timezone
+          - account_type
+          - access_scope
+          - role
+          - status
+          - version
+          - platform_role
+          - platform_role_expires_at
           properties:
-            access_scope: {enum: [workspace, conversation_only]}
+            id:
+              type: string
+              format: uuid
+            tenant_id:
+              type: string
+              format: uuid
+            display_name:
+              type: string
+              minLength: 1
+              maxLength: 120
+            email:
+              type:
+              - string
+              - 'null'
+              minLength: 1
+              maxLength: 320
+              format: email
+            avatar_url:
+              type:
+              - string
+              - 'null'
+              minLength: 0
+              maxLength: 131094
+            timezone:
+              type: string
+              minLength: 1
+              maxLength: 100
+            account_type:
+              type: string
+              enum:
+              - human
+              - service
+              - guest
+            access_scope:
+              type: string
+              enum:
+              - workspace
+              - conversation_only
+            role:
+              type: string
+              enum:
+              - member
+              - moderator
+              - admin
+              - compliance_admin
+              - security_admin
+              - owner
+            status:
+              type: string
+              enum:
+              - active
+              - suspended
+              - deleted
+            version:
+              type: integer
+              minimum: 1
+              maximum: 2147483647
             platform_role:
-              type: [string, 'null']
-              enum: [platform_operator, support_operator, security_operator, null]
+              type:
+              - string
+              - 'null'
+              enum:
+              - platform_operator
+              - support_operator
+              - security_operator
+              - null
             platform_role_expires_at:
-              type: [string, 'null']
+              type:
+              - string
+              - 'null'
               format: date-time
-        device: {type: object}
+        device:
+          $ref: '#/components/schemas/IdentityDevice'
+    MfaChallenge:
+      type: object
+      additionalProperties: false
+      required:
+      - mfa_required
+      - challenge_token
+      - expires_in
+      properties:
+        mfa_required:
+          const: true
+        challenge_token:
+          type: string
+          minLength: 32
+          maxLength: 256
+        expires_in:
+          const: 300
+    MfaSignInRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - challenge_token
+      - code
+      properties:
+        challenge_token:
+          type: string
+          minLength: 32
+          maxLength: 256
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+    MfaCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+    IdentitySecurity:
+      type: object
+      additionalProperties: false
+      required:
+      - mfa_enabled
+      - recovery_codes_remaining
+      - authentication_method
+      properties:
+        mfa_enabled: &uc_anchor_4
+          type: boolean
+        recovery_codes_remaining:
+          type: integer
+          minimum: 0
+          maximum: 10
+        authentication_method:
+          type: string
+          enum:
+          - password
+          - oidc
+          - break_glass
+    MfaEnrollment:
+      type: object
+      additionalProperties: false
+      required:
+      - secret
+      - provisioning_uri
+      properties:
+        secret:
+          type: string
+          minLength: 32
+          maxLength: 64
+          pattern: ^[A-Z2-7]+$
+        provisioning_uri:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          pattern: ^otpauth://totp/
+    RecoveryCodes:
+      type: object
+      additionalProperties: false
+      required:
+      - recovery_codes
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+            minLength: 32
+            maxLength: 128
+          minItems: 10
+          maxItems: 10
+    OidcStartRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - tenant_slug
+      properties:
+        tenant_slug:
+          type: string
+          minLength: 1
+          maxLength: 120
+        return_to:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Reviewed same-origin member destination; unsafe input falls back to /app.
+    OidcStartResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - authorization_url
+      - expires_in
+      properties:
+        authorization_url:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          format: uri
+        expires_in:
+          const: 300
+    OidcCallbackRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - state
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        state:
+          type: string
+          minLength: 32
+          maxLength: 256
+    OidcLoginResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - session
+      - return_to
+      properties:
+        session:
+          $ref: '#/components/schemas/TokenResponse'
+        return_to:
+          type: string
+          minLength: 1
+          maxLength: 2048
+    OidcLinkResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - linked
+      - return_to
+      properties:
+        linked:
+          const: true
+        return_to:
+          type: string
+          minLength: 1
+          maxLength: 2048
+    DndSchedule:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: []
+        properties: {}
+      - type: object
+        additionalProperties: false
+        required:
+        - days
+        - start
+        - end
+        properties:
+          days:
+            type: array
+            items:
+              type: integer
+              minimum: 1
+              maximum: 7
+            minItems: 1
+            maxItems: 7
+            uniqueItems: true
+          start:
+            type: string
+            minLength: 5
+            maxLength: 5
+            pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+          end:
+            type: string
+            minLength: 5
+            maxLength: 5
+            pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+    AvailabilityUpdate:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        presence_state: &uc_anchor_5
+          type: string
+          enum:
+          - available
+          - away
+          - busy
+          - dnd
+          - offline
+        presence_expires_at: &uc_anchor_6
+          type: &uc_anchor_7
+          - string
+          - 'null'
+          format: date-time
+          description: Optional manual-state expiry, between now and seven days.
+        dnd_until: &uc_anchor_8
+          type: *uc_anchor_7
+          format: date-time
+          description: Optional DND deadline, between now and seven days.
+        dnd_schedule: &uc_anchor_9
+          $ref: '#/components/schemas/DndSchedule'
+    Availability:
+      type: object
+      additionalProperties: false
+      required:
+      - presence_state
+      - presence_expires_at
+      - dnd_until
+      - dnd_schedule
+      - status
+      - dnd_active
+      - retry_at
+      - timezone
+      properties:
+        presence_state: *uc_anchor_5
+        presence_expires_at: *uc_anchor_6
+        dnd_until: *uc_anchor_8
+        dnd_schedule: *uc_anchor_9
+        status:
+          type: string
+          enum:
+          - available
+          - away
+          - busy
+          - dnd
+          - offline
+        dnd_active: *uc_anchor_4
+        retry_at: &uc_anchor_10
+          type: *uc_anchor_7
+          format: date-time
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: IANA timezone.
+    ScimUser:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - id
+      - externalId
+      - userName
+      - displayName
+      - active
+      - meta
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          minItems: 1
+          maxItems: 2
+        id: &uc_anchor_11
+          type: string
+          format: uuid
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 512
+        userName:
+          type: string
+          minLength: 1
+          maxLength: 320
+          format: email
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        active: *uc_anchor_4
+        meta: &uc_anchor_12
+          type: object
+          additionalProperties: false
+          required:
+          - resourceType
+          - created
+          - lastModified
+          - version
+          properties:
+            resourceType:
+              type: string
+              enum:
+              - User
+              - Group
+            created: &uc_anchor_13
+              type: string
+              format: date-time
+            lastModified: *uc_anchor_13
+            version:
+              type: string
+              minLength: 5
+              maxLength: 30
+              pattern: ^W/"[1-9][0-9]*"$
+    ScimGroup:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - id
+      - externalId
+      - displayName
+      - members
+      - meta
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          minItems: 1
+          maxItems: 1
+        id: *uc_anchor_11
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 512
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        members:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - value
+            properties:
+              value: *uc_anchor_11
+          minItems: 0
+          maxItems: 1000
+        meta: *uc_anchor_12
+    ScimUserCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - externalId
+      - userName
+      properties: &uc_anchor_14
+        schemas:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          minItems: 1
+          maxItems: 2
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 512
+        userName:
+          type: string
+          minLength: 1
+          maxLength: 320
+          format: email
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        name:
+          type: object
+          additionalProperties: false
+          required:
+          - formatted
+          properties:
+            formatted:
+              type: string
+              minLength: 1
+              maxLength: 120
+        active: *uc_anchor_4
+        urn:kcomms:params:scim:schemas:extension:federation:2.0:User:
+          type: object
+          additionalProperties: false
+          required:
+          - issuer
+          - subject
+          properties:
+            issuer:
+              type: string
+              minLength: 1
+              maxLength: 2048
+              format: uri
+            subject:
+              type: string
+              minLength: 1
+              maxLength: 512
+      anyOf:
+      - required:
+        - displayName
+      - required:
+        - name
+    ScimUserUpdate:
+      type: object
+      additionalProperties: false
+      required: []
+      properties: *uc_anchor_14
+    ScimGroupCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - externalId
+      - displayName
+      properties: &uc_anchor_15
+        schemas:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          minItems: 1
+          maxItems: 1
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 512
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        members:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - value
+            properties:
+              value: *uc_anchor_11
+          minItems: 0
+          maxItems: 1000
+    ScimGroupUpdate:
+      type: object
+      additionalProperties: false
+      required: []
+      properties: *uc_anchor_15
+    ScimPatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - Operations
+      properties:
+        schemas:
+          type: array
+          items:
+            const: urn:ietf:params:scim:api:messages:2.0:PatchOp
+          minItems: 1
+          maxItems: 1
+        Operations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - op
+            properties:
+              op:
+                type: string
+                enum:
+                - add
+                - replace
+                - remove
+              path:
+                type: string
+                minLength: 1
+                maxLength: 256
+              value:
+                anyOf:
+                - *uc_anchor_4
+                - type: string
+                  minLength: 1
+                  maxLength: 512
+                - type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                    - value
+                    properties:
+                      value: *uc_anchor_11
+                  minItems: 0
+                  maxItems: 1000
+                - $ref: '#/components/schemas/ScimUserUpdate'
+                - $ref: '#/components/schemas/ScimGroupUpdate'
+          minItems: 1
+          maxItems: 25
+    ScimError:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - status
+      - detail
+      properties:
+        schemas:
+          type: array
+          items:
+            const: urn:ietf:params:scim:api:messages:2.0:Error
+          minItems: 1
+          maxItems: 1
+        status:
+          type: string
+          minLength: 3
+          maxLength: 3
+          pattern: ^[45][0-9]{2}$
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 512
+    ScimProviderConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - patch
+      - bulk
+      - filter
+      - changePassword
+      - sort
+      - etag
+      - authenticationSchemes
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          minItems: 1
+          maxItems: 1
+        patch:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          properties:
+            supported:
+              const: true
+        bulk:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          properties:
+            supported:
+              const: false
+        filter:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          - maxResults
+          properties:
+            supported:
+              const: true
+            maxResults:
+              const: 100
+        changePassword:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          properties:
+            supported:
+              const: false
+        sort:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          properties:
+            supported:
+              const: false
+        etag:
+          type: object
+          additionalProperties: false
+          required:
+          - supported
+          properties:
+            supported:
+              const: true
+        authenticationSchemes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - type
+            - name
+            - description
+            - primary
+            properties:
+              type:
+                const: oauthbearertoken
+              name:
+                type: string
+                minLength: 1
+                maxLength: 120
+              description:
+                type: string
+                minLength: 1
+                maxLength: 256
+              primary:
+                const: true
+          minItems: 1
+          maxItems: 1
+    ScimUserList:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - totalResults
+      - startIndex
+      - itemsPerPage
+      - Resources
+      properties:
+        schemas:
+          type: array
+          items:
+            const: urn:ietf:params:scim:api:messages:2.0:ListResponse
+          minItems: 1
+          maxItems: 1
+        totalResults:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        startIndex:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+        itemsPerPage:
+          type: integer
+          minimum: 0
+          maximum: 100
+        Resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScimUser'
+          minItems: 0
+          maxItems: 100
+    ScimGroupList:
+      type: object
+      additionalProperties: false
+      required:
+      - schemas
+      - totalResults
+      - startIndex
+      - itemsPerPage
+      - Resources
+      properties:
+        schemas:
+          type: array
+          items:
+            const: urn:ietf:params:scim:api:messages:2.0:ListResponse
+          minItems: 1
+          maxItems: 1
+        totalResults:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        startIndex:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+        itemsPerPage:
+          type: integer
+          minimum: 0
+          maximum: 100
+        Resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScimGroup'
+          minItems: 0
+          maxItems: 100
+    MeetingRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - timezone
+      - local_start
+      - duration_minutes
+      - reminder_minutes
+      properties:
+        title: &uc_anchor_16
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: UTF-8 at most800 bytes.
+        timezone: &uc_anchor_17
+          type: string
+          minLength: 1
+          maxLength: 100
+        local_start: &uc_anchor_18
+          type: string
+          minLength: 19
+          maxLength: 26
+          pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?$
+        duration_minutes: &uc_anchor_19
+          type: integer
+          minimum: 5
+          maximum: 480
+        recurrence: &uc_anchor_20
+          type: object
+          additionalProperties: false
+          required:
+          - frequency
+          - interval
+          - count
+          properties:
+            frequency:
+              type: string
+              enum:
+              - none
+              - daily
+              - weekly
+            interval:
+              type: integer
+              minimum: 1
+              maximum: 4
+            count:
+              type: integer
+              minimum: 1
+              maximum: 52
+        reminder_minutes: &uc_anchor_21
+          type: integer
+          minimum: 0
+          maximum: 10080
+        host_policy: &uc_anchor_22
+          type: object
+          additionalProperties: false
+          required:
+          - allow_guests
+          - join_before_host
+          properties:
+            allow_guests: *uc_anchor_4
+            join_before_host: *uc_anchor_4
+    MeetingUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - timezone
+      - local_start
+      - duration_minutes
+      - reminder_minutes
+      - expected_version
+      properties:
+        title: *uc_anchor_16
+        timezone: *uc_anchor_17
+        local_start: *uc_anchor_18
+        duration_minutes: *uc_anchor_19
+        recurrence: *uc_anchor_20
+        reminder_minutes: *uc_anchor_21
+        host_policy: *uc_anchor_22
+        expected_version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+    MeetingOccurrence:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - sequence
+      - starts_at
+      - ends_at
+      - status
+      - call_id
+      properties:
+        id: *uc_anchor_11
+        sequence:
+          type: integer
+          minimum: 1
+          maximum: 52
+        starts_at: *uc_anchor_13
+        ends_at: *uc_anchor_13
+        status:
+          type: string
+          enum:
+          - scheduled
+          - cancelled
+        call_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    Meeting:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - timezone
+      - local_start
+      - duration_minutes
+      - recurrence
+      - reminder_minutes
+      - host_policy
+      - id
+      - conversation_id
+      - host_user_id
+      - version
+      - status
+      - occurrences
+      - can_manage
+      properties:
+        title: *uc_anchor_16
+        timezone: *uc_anchor_17
+        local_start: *uc_anchor_18
+        duration_minutes: *uc_anchor_19
+        recurrence: *uc_anchor_20
+        reminder_minutes: *uc_anchor_21
+        host_policy: *uc_anchor_22
+        id: *uc_anchor_11
+        conversation_id: *uc_anchor_11
+        host_user_id: *uc_anchor_11
+        version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        status:
+          type: string
+          enum:
+          - scheduled
+          - cancelled
+        occurrences:
+          type: array
+          items:
+            $ref: '#/components/schemas/MeetingOccurrence'
+          minItems: 1
+          maxItems: 52
+        can_manage: *uc_anchor_4
+    MeetingList:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Meeting'
+          minItems: 0
+          maxItems: 500
+        meta:
+          type: object
+          additionalProperties: false
+          required:
+          - truncated
+          - calendar
+          properties:
+            truncated: *uc_anchor_4
+            calendar:
+              type: object
+              additionalProperties: false
+              required:
+              - ics
+              - google
+              - microsoft
+              properties:
+                ics:
+                  const: true
+                google:
+                  const: false
+                microsoft:
+                  const: false
+    TelephonyControl:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - call_id
+      - action
+      - status
+      - dispatch
+      - created_at
+      - expires_at
+      - completed_at
+      - failure_reason
+      properties:
+        id: *uc_anchor_11
+        call_id: *uc_anchor_11
+        action:
+          type: string
+          enum:
+          - dtmf
+          - hold
+          - resume
+          - blind_transfer
+          - consult_transfer
+          - complete_transfer
+          - cancel_transfer
+          - voicemail
+        status:
+          type: string
+          enum:
+          - pending
+          - dispatching
+          - submitted
+          - failed
+          - unknown
+        dispatch: *uc_anchor_4
+        created_at: *uc_anchor_13
+        expires_at: *uc_anchor_13
+        completed_at: *uc_anchor_10
+        failure_reason:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 512
+    TelephonyControlRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - action
+      - idempotency_key
+      properties:
+        action:
+          type: string
+          enum:
+          - dtmf
+          - hold
+          - resume
+          - blind_transfer
+          - consult_transfer
+          - complete_transfer
+          - cancel_transfer
+          - voicemail
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 128
+        digit:
+          type: string
+          minLength: 1
+          maxLength: 1
+          pattern: ^[0-9*#ABCD]$
+        destination:
+          type: string
+          minLength: 9
+          maxLength: 16
+          pattern: ^\+[1-9][0-9]{7,14}$
+      allOf:
+      - if:
+          properties:
+            action:
+              const: dtmf
+        then:
+          required:
+          - digit
+      - if:
+          properties:
+            action:
+              enum:
+              - blind_transfer
+              - consult_transfer
+        then:
+          required:
+          - destination
+    TelephonyActionCapability:
+      type: object
+      additionalProperties: false
+      required:
+      - supported
+      properties:
+        supported: *uc_anchor_4
+        configured: *uc_anchor_4
+        qualified: *uc_anchor_4
+        reason:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 160
+        transport:
+          type: string
+          minLength: 1
+          maxLength: 80
+        assurance:
+          type: string
+          minLength: 1
+          maxLength: 160
+    TelephonyControlCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+      - dtmf
+      - hold
+      - resume
+      - blind_transfer
+      - consult_transfer
+      - voicemail
+      - queues
+      - shared_lines
+      properties:
+        dtmf:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        hold:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        resume:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        blind_transfer:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        consult_transfer:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        complete_transfer:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        cancel_transfer:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        voicemail:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        queues:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+        shared_lines:
+          $ref: '#/components/schemas/TelephonyActionCapability'
+    TelephonyRoute:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - mode
+      - policy
+      - member_ids
+      - max_waiting
+      - max_wait_seconds
+      - enabled
+      - version
+      properties:
+        id: *uc_anchor_11
+        name: &uc_anchor_23
+          type: string
+          minLength: 1
+          maxLength: 100
+        mode: &uc_anchor_24
+          type: string
+          enum:
+          - queue
+          - shared_line
+        policy: &uc_anchor_25
+          type: string
+          enum:
+          - round_robin
+          - simultaneous
+        member_ids: &uc_anchor_26
+          type: array
+          items: *uc_anchor_11
+          minItems: 1
+          maxItems: 25
+          uniqueItems: true
+        max_waiting: &uc_anchor_27
+          type: integer
+          minimum: 1
+          maximum: 100
+        max_wait_seconds: &uc_anchor_28
+          type: integer
+          minimum: 10
+          maximum: 600
+        enabled: *uc_anchor_4
+        version: &uc_anchor_29
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+    TelephonyRouteRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - mode
+      - policy
+      - member_ids
+      - max_waiting
+      - max_wait_seconds
+      - enabled
+      - reason
+      properties:
+        name: *uc_anchor_23
+        mode: *uc_anchor_24
+        policy: *uc_anchor_25
+        member_ids: *uc_anchor_26
+        max_waiting: *uc_anchor_27
+        max_wait_seconds: *uc_anchor_28
+        enabled: *uc_anchor_4
+        version: *uc_anchor_29
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+      allOf:
+      - if:
+          properties:
+            mode:
+              const: queue
+          required:
+          - mode
+        then:
+          properties:
+            policy:
+              const: round_robin
+    MeetingArtifact:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - call_id
+      - meeting_id
+      - source_artifact_id
+      - transcript_language
+      - kind
+      - status
+      - created_at
+      - started_at
+      - ended_at
+      - expires_at
+      - failure_code
+      - consent_required_count
+      - consent_accepted_count
+      - my_consent
+      - can_manage
+      - byte_size
+      - content_type
+      properties:
+        id: *uc_anchor_11
+        conversation_id: *uc_anchor_11
+        call_id: *uc_anchor_11
+        meeting_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        source_artifact_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        transcript_language:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 80
+        kind:
+          type: string
+          enum:
+          - recording
+          - transcript
+        status:
+          type: string
+          enum:
+          - pending_consent
+          - starting
+          - recording
+          - stopping
+          - processing
+          - available
+          - failed
+          - deleting
+          - deleted
+        created_at: *uc_anchor_13
+        started_at: *uc_anchor_10
+        ended_at: *uc_anchor_10
+        expires_at: *uc_anchor_13
+        failure_code:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 80
+        consent_required_count:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        consent_accepted_count:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        my_consent:
+          type:
+          - boolean
+          - 'null'
+        can_manage: *uc_anchor_4
+        byte_size:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          maximum: 10737418240
+        content_type:
+          type: string
+          enum:
+          - video/mp4
+          - application/json
+    ArtifactCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+      - recording
+      - recording_reason
+      - participant_consent_required
+      - persistent_transcript
+      - persistent_transcript_reason
+      - captions
+      - automatic_capture
+      properties:
+        recording: *uc_anchor_4
+        recording_reason:
+          type: string
+          minLength: 1
+          maxLength: 160
+        participant_consent_required:
+          const: true
+        persistent_transcript: *uc_anchor_4
+        persistent_transcript_reason:
+          type: string
+          minLength: 1
+          maxLength: 160
+        captions:
+          const: provider_events_only
+        automatic_capture:
+          const: false
+    MeetingArtifactList:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - capabilities
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MeetingArtifact'
+          minItems: 0
+          maxItems: 100
+        capabilities:
+          $ref: '#/components/schemas/ArtifactCapabilities'
+    MeetingArtifactRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - idempotency_key
+      properties:
+        kind:
+          type: string
+          enum:
+          - recording
+          - transcript
+        idempotency_key:
+          type: string
+          minLength: 8
+          maxLength: 120
+        source_artifact_id: *uc_anchor_11
+      allOf:
+      - if:
+          required:
+          - kind
+          properties:
+            kind:
+              const: transcript
+        then:
+          required:
+          - source_artifact_id
+    TranscriptSegment:
+      type: object
+      additionalProperties: false
+      required:
+      - sequence
+      - start_ms
+      - end_ms
+      - text
+      properties:
+        sequence:
+          type: integer
+          minimum: 0
+          maximum: 9999
+        start_ms:
+          type: integer
+          minimum: 0
+          maximum: 28800000
+        end_ms:
+          type: integer
+          minimum: 0
+          maximum: 28800000
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          description: UTF-8 at most8000 bytes. end_ms must not precede start_ms.
+    ArtifactTranscript:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - segments
+      properties:
+        data:
+          $ref: '#/components/schemas/MeetingArtifact'
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptSegment'
+          minItems: 1
+          maxItems: 10000
+    BoardSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - title
+      - sequence
+      - library_version
+      - updated_at
+      properties:
+        id: *uc_anchor_11
+        conversation_id: *uc_anchor_11
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        sequence:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        library_version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        updated_at: *uc_anchor_13
+    BoardVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - label
+      - through_sequence
+      - actor_user_id
+      - inserted_at
+      properties:
+        id: *uc_anchor_11
+        label:
+          type: string
+          minLength: 1
+          maxLength: 160
+        through_sequence:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        actor_user_id: *uc_anchor_11
+        inserted_at: *uc_anchor_13
+    BoardAsset:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - attachment_id
+      - source_message_id
+      - content_type
+      - byte_size
+      properties:
+        id: *uc_anchor_11
+        attachment_id: *uc_anchor_11
+        source_message_id: *uc_anchor_11
+        content_type:
+          type: string
+          enum:
+          - image/png
+          - image/jpeg
+          - image/webp
+          - image/gif
+        byte_size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+    BoardExport:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - version
+      - source
+      - title
+      - library_version
+      - through_sequence
+      - elements
+      - assets
+      - files
+      properties:
+        type:
+          const: excalidraw
+        version:
+          const: 2
+        source:
+          const: K-Comms
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        library_version:
+          type: integer
+          minimum: 1
+        through_sequence:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        elements:
+          type: array
+          items:
+            $ref: '#/components/schemas/WhiteboardElement'
+          minItems: 0
+          maxItems: 5000
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardAsset'
+          minItems: 0
+          maxItems: 100
+        files:
+          type: object
+          additionalProperties: false
+          required: []
+          properties: {}
+    SynchronizedDraft:
+      type: object
+      additionalProperties: false
+      required:
+      - conversation_id
+      - thread_key
+      - body
+      - version
+      - expires_at
+      properties:
+        conversation_id: *uc_anchor_11
+        thread_key:
+          type: string
+          minLength: 4
+          maxLength: 36
+          pattern: ^(main|[0-9a-f-]{36})$
+        body:
+          type: string
+          minLength: 0
+          maxLength: 65535
+        version:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+        expires_at: *uc_anchor_10
+    SynchronizedDraftUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - body
+      - expected_version
+      properties:
+        thread_key:
+          type: string
+          minLength: 4
+          maxLength: 36
+          pattern: ^(main|[0-9a-f-]{36})$
+        body:
+          type: string
+          minLength: 0
+          maxLength: 65535
+        expected_version:
+          type: integer
+          minimum: 0
+          maximum: 2147483647
+    UnifiedResult:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - kind
+      - title
+      - excerpt
+      - conversation_id
+      - occurred_at
+      - score
+      - path
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 512
+        kind:
+          type: string
+          enum:
+          - message
+          - file
+          - whiteboard
+          - meeting
+          - recording
+          - transcript
+        title:
+          type: string
+          minLength: 1
+          maxLength: 512
+        excerpt:
+          type: string
+          minLength: 0
+          maxLength: 280
+        conversation_id: *uc_anchor_11
+        occurred_at: *uc_anchor_13
+        score:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        path:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          pattern: ^/app[/?.]
+    UnifiedSearchPage:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - facets
+      - page
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UnifiedResult'
+          minItems: 0
+          maxItems: 100
+        facets:
+          type: object
+          additionalProperties: false
+          required: []
+          properties:
+            message:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+            file:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+            whiteboard:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+            meeting:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+            recording:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+            transcript:
+              type: integer
+              minimum: 0
+              maximum: 2147483647
+        page:
+          type: object
+          additionalProperties: false
+          required:
+          - has_more
+          - next_cursor
+          - source_limits
+          - ranking_scope
+          - meeting_window_days
+          properties:
+            has_more: *uc_anchor_4
+            next_cursor:
+              type:
+              - string
+              - 'null'
+              minLength: 1
+              maxLength: 2048
+            source_limits:
+              type: object
+              additionalProperties: false
+              required:
+              - messages
+              - files
+              - whiteboards
+              - meetings
+              - artifacts
+              properties:
+                messages: *uc_anchor_4
+                files: *uc_anchor_4
+                whiteboards: *uc_anchor_4
+                meetings: *uc_anchor_4
+                artifacts: *uc_anchor_4
+            ranking_scope:
+              const: authorized_source_candidates
+            meeting_window_days:
+              const: 732
+    VoicemailMessage:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - call_id
+      - status
+      - duration_seconds
+      - retention_expires_at
+      - available_at
+      - inserted_at
+      - read_at
+      properties:
+        id: *uc_anchor_11
+        call_id: *uc_anchor_11
+        status:
+          type: string
+          enum:
+          - pending
+          - available
+          - failed
+          - deleting
+          - deleted
+        duration_seconds:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+          maximum: 120
+        retention_expires_at: *uc_anchor_13
+        available_at: *uc_anchor_10
+        inserted_at: *uc_anchor_13
+        read_at: *uc_anchor_10
+    VoicemailMailbox:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - user_id
+      - enabled
+      - retention_days
+      - notice_media
+      - version
+      properties:
+        id: *uc_anchor_11
+        user_id: *uc_anchor_11
+        enabled: *uc_anchor_4
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 90
+        notice_media:
+          type: string
+          minLength: 7
+          maxLength: 156
+          pattern: ^sound:[A-Za-z0-9_/-]{1,150}$
+        version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+    VoicemailMailboxRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - enabled
+      - retention_days
+      - notice_media
+      - reason
+      properties:
+        user_id: *uc_anchor_11
+        enabled: *uc_anchor_4
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 90
+        notice_media:
+          type: string
+          minLength: 7
+          maxLength: 156
+          pattern: ^sound:[A-Za-z0-9_/-]{1,150}$
+        version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    VoicemailPlayback:
+      type: object
+      additionalProperties: false
+      required:
+      - url
+      - approved_origin
+      - development_http
+      - expires_at
+      - expires_in
+      - content_type
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          format: uri
+        approved_origin:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          format: uri
+        development_http: *uc_anchor_4
+        expires_at: *uc_anchor_13
+        expires_in:
+          type: integer
+          minimum: 1
+          maximum: 3600
+        content_type:
+          const: audio/wav
+    IdentityUser:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - tenant_id
+      - display_name
+      - email
+      - avatar_url
+      - timezone
+      - account_type
+      - access_scope
+      - role
+      - status
+      - version
+      - platform_role
+      - platform_role_expires_at
+      properties:
+        id: *uc_anchor_11
+        tenant_id: *uc_anchor_11
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        email:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 320
+          format: email
+        avatar_url:
+          type:
+          - string
+          - 'null'
+          minLength: 0
+          maxLength: 131094
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 100
+        account_type:
+          type: string
+          enum:
+          - human
+          - service
+          - guest
+        access_scope:
+          type: string
+          enum:
+          - workspace
+          - conversation_only
+        role:
+          type: string
+          enum:
+          - member
+          - moderator
+          - admin
+          - compliance_admin
+          - security_admin
+          - owner
+        status:
+          type: string
+          enum:
+          - active
+          - suspended
+          - deleted
+        version:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        platform_role:
+          type:
+          - string
+          - 'null'
+          enum:
+          - platform_operator
+          - support_operator
+          - security_operator
+          - null
+        platform_role_expires_at: *uc_anchor_10
+    IdentityDevice:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - user_id
+      - name
+      - platform
+      - last_seen_at
+      - revoked_at
+      properties:
+        id: *uc_anchor_11
+        user_id: *uc_anchor_11
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        platform:
+          type: string
+          minLength: 1
+          maxLength: 120
+        last_seen_at: *uc_anchor_10
+        revoked_at: *uc_anchor_10
+    IdentityTenant:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - slug
+      - status
+      properties:
+        id: *uc_anchor_11
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 120
+        status:
+          type: string
+          enum:
+          - active
+          - suspended
+          - deleted

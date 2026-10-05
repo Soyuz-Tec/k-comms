@@ -3,7 +3,42 @@ defmodule CommsCore.Accounts.ReleaseInventory do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, User}
+  alias CommsCore.Accounts.{
+    AuthChallenge,
+    Device,
+    FederatedIdentity,
+    MfaFactor,
+    ScimResource,
+    Session,
+    User
+  }
+
+  @spec enterprise_identity_hazard_count(module()) :: non_neg_integer()
+  def enterprise_identity_hazard_count(repo) when is_atom(repo) do
+    timestamp = DateTime.utc_now()
+
+    # Retained pending enrollments and SCIM tombstones still depend on the
+    # enterprise owner. Count persisted state, independently of user status.
+    # A legacy refresh may ignore an enhanced session's absolute bound, so its
+    # live sliding deadline remains a hazard until expiry or revocation.
+    repo.aggregate(MfaFactor, :count) +
+      repo.aggregate(FederatedIdentity, :count) +
+      repo.aggregate(ScimResource, :count) +
+      repo.aggregate(
+        from(challenge in AuthChallenge,
+          where: is_nil(challenge.consumed_at) and challenge.expires_at > ^timestamp
+        ),
+        :count
+      ) +
+      repo.aggregate(
+        from(session in Session,
+          where:
+            is_nil(session.revoked_at) and session.expires_at > ^timestamp and
+              (session.authentication_method != "password" or not is_nil(session.mfa_verified_at))
+        ),
+        :count
+      )
+  end
 
   @spec tenant_fingerprint_fragment(module(), Ecto.UUID.t()) :: %{
           users: [Ecto.UUID.t()],

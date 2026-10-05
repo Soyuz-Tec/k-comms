@@ -11,6 +11,7 @@ defmodule CommsCore.Messaging.Message do
     field(:client_message_id, :string)
     field(:conversation_sequence, :integer)
     field(:body, :string)
+    field(:attachment_count, :integer, default: 0)
     field(:metadata, :map, default: %{})
     field(:status, Ecto.Enum, values: [:active, :deleted, :moderated], default: :active)
     field(:edited_at, :utc_datetime_usec)
@@ -34,6 +35,7 @@ defmodule CommsCore.Messaging.Message do
       :client_message_id,
       :conversation_sequence,
       :body,
+      :attachment_count,
       :metadata,
       :status,
       :edited_at,
@@ -72,7 +74,8 @@ defmodule CommsCore.Messaging.Message do
     status = get_field(changeset, :status)
     body = get_field(changeset, :body)
 
-    if status == :active and (not is_binary(body) or String.trim(body) == "") do
+    if status == :active and (not is_binary(body) or String.trim(body) == "") and
+         get_field(changeset, :attachment_count, 0) == 0 do
       add_error(changeset, :body, "must be present for an active message")
     else
       changeset

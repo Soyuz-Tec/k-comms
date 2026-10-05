@@ -14,6 +14,40 @@ defmodule CommsCore.Messaging.GovernanceQueries do
     RetentionScope
   }
 
+  @doc "Retains sorted owner message parents before an erasure plan scans any dependent content."
+  @spec lock_for_erasure(Ecto.UUID.t(), :user | :conversation | :message, Ecto.UUID.t()) ::
+          {:ok, GovernanceImpact.t()} | {:error, :invalid_erasure_scope | :transaction_required}
+  def lock_for_erasure(tenant_id, target_type, target_id)
+      when is_binary(tenant_id) and target_type in [:user, :conversation, :message] and
+             is_binary(target_id) do
+    if Repo.in_transaction?() do
+      if valid_uuid?(tenant_id) and valid_uuid?(target_id) do
+        rows =
+          Message
+          |> where([m], m.tenant_id == ^tenant_id)
+          |> governance_target(target_type, target_id)
+          |> order_by([m], asc: m.id)
+          |> lock("FOR UPDATE")
+          |> select([m], {m.id, m.conversation_id, m.sender_user_id})
+          |> Repo.all()
+
+        {:ok,
+         %GovernanceImpact{
+           found?: rows != [],
+           message_ids: sorted_unique(rows, 0),
+           conversation_ids: sorted_unique(rows, 1),
+           user_ids: sorted_unique(rows, 2)
+         }}
+      else
+        {:error, :invalid_erasure_scope}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_for_erasure(_, _, _), do: {:error, :invalid_erasure_scope}
+
   def governance_impact(tenant_id, target_type, target_id)
       when is_binary(tenant_id) and target_type in [:user, :conversation, :message] and
              is_binary(target_id) do
@@ -138,6 +172,17 @@ defmodule CommsCore.Messaging.GovernanceQueries do
       message_ids = Enum.uniq(message_ids)
 
       with :ok <- validate_erasure_scope(tenant_id, message_ids) do
+        # Caller already fenced its final plan. Keep this owner contribution
+        # independently safe for current revision/reaction writers as well.
+        Repo.all(
+          from(m in Message,
+            where: m.tenant_id == ^tenant_id and m.id in ^message_ids,
+            order_by: [asc: m.id],
+            lock: "FOR UPDATE",
+            select: m.id
+          )
+        )
+
         {revisions_deleted, _} =
           Repo.delete_all(
             from(revision in MessageRevision,

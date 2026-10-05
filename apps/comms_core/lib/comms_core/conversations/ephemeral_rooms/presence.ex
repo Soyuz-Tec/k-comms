@@ -41,50 +41,61 @@ defmodule CommsCore.Conversations.EphemeralRooms.Presence do
              tenant_id: grant.tenant_id,
              conversation_id: conversation_id
            ) do
-      Repo.transaction(fn ->
-        _policy = Authority.admission_policy!(snapshot.tenant_id)
-        {_conversation, _link, room} = Authority.lock_room_scope!(snapshot)
-        authorize!(room, grant)
+      Repo.transaction(
+        fn ->
+          {_conversation, _link, room} = Authority.lock_room_scope!(snapshot, grant.user_id, true)
+          _policy = Authority.admission_policy!(snapshot.tenant_id)
+          ensure_actor_current!(attrs, grant)
+          authorize!(room, grant)
 
-        lease =
-          Repo.one(
-            from(lease in EphemeralPresenceLease,
-              where:
-                lease.ephemeral_room_id == ^room.id and
-                  lease.connection_digest == ^Request.digest(connection_secret) and
-                  lease.user_id == ^grant.user_id and lease.session_id == ^grant.session_id,
-              lock: "FOR UPDATE"
-            )
-          ) || Repo.rollback(:ephemeral_presence_not_found)
+          lease =
+            Repo.one(
+              from(lease in EphemeralPresenceLease,
+                where:
+                  lease.ephemeral_room_id == ^room.id and
+                    lease.connection_digest == ^Request.digest(connection_secret) and
+                    lease.user_id == ^grant.user_id and lease.session_id == ^grant.session_id,
+                lock: "FOR UPDATE"
+              )
+            ) || Repo.rollback(:ephemeral_presence_not_found)
 
-        timestamp = Authority.now()
+          timestamp = Authority.now()
 
-        closed =
-          if lease.closed_at do
-            lease
-          else
-            lease
-            |> EphemeralPresenceLease.changeset(%{
-              last_seen_at: timestamp,
-              expires_at: DateTime.add(timestamp, 1, :second),
-              closed_at: timestamp
-            })
-            |> Ecto.Changeset.optimistic_lock(:lock_version)
-            |> update_or_rollback()
-          end
+          closed =
+            if lease.closed_at do
+              lease
+            else
+              lease
+              |> EphemeralPresenceLease.changeset(%{
+                last_seen_at: timestamp,
+                expires_at: DateTime.add(timestamp, 1, :second),
+                closed_at: timestamp
+              })
+              |> Ecto.Changeset.optimistic_lock(:lock_version)
+              |> update_or_rollback()
+            end
 
-        disconnect_at = closed.closed_at || timestamp
-        updated_room = advance_last_presence!(room, disconnect_at)
-        reconcile_at = DateTime.add(disconnect_at, updated_room.reconnect_grace_seconds, :second)
-        Scheduler.enqueue_reconcile!(updated_room, reconcile_at)
+          disconnect_at = closed.closed_at || timestamp
+          updated_room = advance_last_presence!(room, disconnect_at)
 
-        %{
-          room: Projection.room(updated_room),
-          generation: updated_room.generation,
-          reconcile_at: reconcile_at,
-          lease_id: closed.id
-        }
-      end)
+          reconcile_at =
+            DateTime.add(disconnect_at, updated_room.reconnect_grace_seconds, :second)
+
+          Scheduler.enqueue_reconcile!(updated_room, reconcile_at)
+
+          result = %{
+            room: Projection.room(updated_room),
+            generation: updated_room.generation,
+            reconcile_at: reconcile_at,
+            lease_id: closed.id
+          }
+
+          Authority.ensure_identity_budget!(snapshot.tenant_id, true)
+          ensure_actor_current!(attrs, grant)
+          result
+        end,
+        timeout: 20_000
+      )
       |> Authority.transaction_result()
     else
       _ -> {:error, :forbidden}
@@ -103,79 +114,101 @@ defmodule CommsCore.Conversations.EphemeralRooms.Presence do
              tenant_id: grant.tenant_id,
              conversation_id: conversation_id
            ) do
-      Repo.transaction(fn ->
-        _policy = Authority.admission_policy!(snapshot.tenant_id)
-        {conversation, link, room} = Authority.lock_room_scope!(snapshot)
-        timestamp = Authority.now()
-        Authority.available_room!(room, link, conversation, timestamp)
-        authorize!(room, grant)
-        room = Lifecycle.reactivate_room!(room, link, Request.value(attrs, :request_id))
-        {deadline, room} = Authority.ensure_rolling_authority!(room, false)
-        maybe_extend_present_guest!(room, grant, deadline)
+      Repo.transaction(
+        fn ->
+          {conversation, link, room} = Authority.lock_room_scope!(snapshot, grant.user_id, true)
+          _policy = Authority.admission_policy!(snapshot.tenant_id)
+          ensure_actor_current!(attrs, grant)
+          timestamp = Authority.now()
+          Authority.available_room!(room, link, conversation, timestamp)
+          authorize!(room, grant)
+          room = Lifecycle.reactivate_room!(room, link, Request.value(attrs, :request_id))
+          {deadline, room} = Authority.ensure_rolling_authority!(room, false)
+          maybe_extend_present_guest!(room, grant, deadline)
 
-        digest = Request.digest(connection_secret)
-        expires_at = DateTime.add(timestamp, Authority.presence_lease_seconds(), :second)
+          digest = Request.digest(connection_secret)
+          expires_at = DateTime.add(timestamp, Authority.presence_lease_seconds(), :second)
 
-        current =
-          Repo.one(
-            from(lease in EphemeralPresenceLease,
-              where: lease.ephemeral_room_id == ^room.id and lease.connection_digest == ^digest,
-              lock: "FOR UPDATE"
+          current =
+            Repo.one(
+              from(lease in EphemeralPresenceLease,
+                where: lease.ephemeral_room_id == ^room.id and lease.connection_digest == ^digest,
+                lock: "FOR UPDATE"
+              )
             )
-          )
 
-        lease =
-          case {mode, current} do
-            {:heartbeat, nil} ->
-              Repo.rollback(:ephemeral_presence_not_found)
+          lease =
+            case {mode, current} do
+              {:heartbeat, nil} ->
+                Repo.rollback(:ephemeral_presence_not_found)
 
-            {:open, nil} ->
-              enforce_lease_limit!(room.id, grant.user_id, timestamp)
+              {:open, nil} ->
+                enforce_lease_limit!(room.id, grant.user_id, timestamp)
 
-              %EphemeralPresenceLease{}
-              |> EphemeralPresenceLease.changeset(%{
-                tenant_id: room.tenant_id,
-                ephemeral_room_id: room.id,
-                conversation_id: room.conversation_id,
-                user_id: grant.user_id,
-                session_id: grant.session_id,
-                connection_digest: digest,
-                opened_at: timestamp,
-                last_seen_at: timestamp,
-                expires_at: expires_at
-              })
-              |> insert_or_rollback()
+                %EphemeralPresenceLease{}
+                |> EphemeralPresenceLease.changeset(%{
+                  tenant_id: room.tenant_id,
+                  ephemeral_room_id: room.id,
+                  conversation_id: room.conversation_id,
+                  user_id: grant.user_id,
+                  session_id: grant.session_id,
+                  connection_digest: digest,
+                  opened_at: timestamp,
+                  last_seen_at: timestamp,
+                  expires_at: expires_at
+                })
+                |> insert_or_rollback()
 
-            {_mode, %EphemeralPresenceLease{} = lease}
-            when lease.user_id == grant.user_id and lease.session_id == grant.session_id ->
-              lease
-              |> EphemeralPresenceLease.changeset(%{
-                last_seen_at: timestamp,
-                expires_at: expires_at,
-                closed_at: nil
-              })
-              |> Ecto.Changeset.optimistic_lock(:lock_version)
-              |> update_or_rollback()
+              {_mode, %EphemeralPresenceLease{} = lease}
+              when lease.user_id == grant.user_id and lease.session_id == grant.session_id ->
+                lease
+                |> EphemeralPresenceLease.changeset(%{
+                  last_seen_at: timestamp,
+                  expires_at: expires_at,
+                  closed_at: nil
+                })
+                |> Ecto.Changeset.optimistic_lock(:lock_version)
+                |> update_or_rollback()
 
-            _ ->
-              Repo.rollback(:forbidden)
-          end
+              _ ->
+                Repo.rollback(:forbidden)
+            end
 
-        updated_room =
-          room
-          |> EphemeralRoom.changeset(%{last_presence_at: timestamp})
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-          |> update_or_rollback()
+          updated_room =
+            room
+            |> EphemeralRoom.changeset(%{last_presence_at: timestamp})
+            |> Ecto.Changeset.optimistic_lock(:lock_version)
+            |> update_or_rollback()
 
-        %{
-          room: Projection.room(updated_room),
-          lease: %{id: lease.id, expires_at: lease.expires_at},
-          generation: updated_room.generation
-        }
-      end)
+          result = %{
+            room: Projection.room(updated_room),
+            lease: %{id: lease.id, expires_at: lease.expires_at},
+            generation: updated_room.generation
+          }
+
+          Authority.ensure_identity_budget!(snapshot.tenant_id, true)
+          ensure_actor_current!(attrs, grant)
+          result
+        end,
+        timeout: 20_000
+      )
       |> Authority.transaction_result()
     else
       _ -> {:error, :forbidden}
+    end
+  end
+
+  defp ensure_actor_current!(subject, expected) do
+    case Accounts.access_grant(subject) do
+      {:ok, current}
+      when current.tenant_id == expected.tenant_id and current.user_id == expected.user_id and
+             current.session_id == expected.session_id and current.device_id == expected.device_id and
+             current.account_type == expected.account_type and
+             current.access_scope == expected.access_scope ->
+        :ok
+
+      _ ->
+        Repo.rollback(:forbidden)
     end
   end
 

@@ -66,6 +66,9 @@ jobs:
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix deps.get --check-locked
+      # MIME embeds configured vendor types at compile time. Rebuild it when
+      # restoring a cache made before the SCIM content type was configured.
+      - run: mix deps.compile mime --force
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - name: Reject compile-connected comms_core cycles
@@ -99,6 +102,7 @@ jobs:
       - run: mix sobelow --root apps/comms_web --private --exit medium --threshold medium
       - run: mix hex.audit
       - run: MIX_ENV=prod mix deps.get --only prod --check-locked
+      - run: MIX_ENV=prod mix deps.compile mime --force
       - run: MIX_ENV=prod mix compile --warnings-as-errors
       - run: MIX_ENV=prod mix release k_comms
 
@@ -144,6 +148,7 @@ jobs:
       - run: python scripts/validate_contracts.py
       - run: python scripts/validate_docs.py
       - run: python scripts/test_validate_architecture.py
+      - run: python scripts/test_update_public_facade_api.py
       - run: python scripts/validate_architecture.py
       - name: Verify deterministic architecture report
         run: python scripts/validate_architecture.py --check-generated-report

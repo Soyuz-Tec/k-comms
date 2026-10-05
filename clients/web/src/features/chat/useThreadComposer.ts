@@ -8,6 +8,8 @@ import type {
   FormEvent,
   MutableRefObject
 } from "react";
+import type { ApiClient } from "../../api";
+import { useSynchronizedDraft } from "./useSynchronizedDraft";
 import type { SendMessageInput } from "../../api";
 import {
   loadThreadDraft,
@@ -30,6 +32,7 @@ interface AttachmentReservation {
 }
 
 export function useThreadComposer({
+  api,
   activeThreadKeyRef,
   attachmentsReady,
   clearPendingAttachments,
@@ -45,6 +48,7 @@ export function useThreadComposer({
   targetMessageId,
   tenantId
 }: {
+  api?: ApiClient;
   activeThreadKeyRef: MutableRefObject<string>;
   attachmentsReady: boolean;
   clearPendingAttachments: () => void;
@@ -68,6 +72,8 @@ export function useThreadComposer({
   const [composer, setComposer] = useState("");
   const composerRef = useRef("");
   const composerDirtyRef = useRef(false);
+  const draftSync = useSynchronizedDraft(api, root ? conversationId : null, root?.id || targetMessageId,
+    composer, value => { composerRef.current = value; setComposer(value); });
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [failedSend, setFailedSend] =
     useState<FailedThreadSend | null>(null);
@@ -150,6 +156,7 @@ export function useThreadComposer({
       return reply;
     }
     mergeReply(reply);
+    draftSync.edited();
     composerRef.current = "";
     composerDirtyRef.current = false;
     setComposer("");
@@ -162,7 +169,7 @@ export function useThreadComposer({
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = composer.trim();
-    if (!root || !body || sending) return;
+    if (!root || (!body && pendingAttachments.length === 0) || sending) return;
     if (!attachmentsReady) {
       setError(
         "Wait for every attachment safety scan to finish or remove the file."
@@ -231,6 +238,7 @@ export function useThreadComposer({
   }
 
   function composerChanged(value: string) {
+    draftSync.edited();
     composerDirtyRef.current = true;
     composerRef.current = value;
     setComposer(value);
@@ -239,6 +247,7 @@ export function useThreadComposer({
   return {
     composer,
     composerChanged,
+    draftSync,
     failedSend,
     initializeDraft,
     mentionedUserIds,

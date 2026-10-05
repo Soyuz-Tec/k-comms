@@ -2,6 +2,7 @@
   width: 100%;
   max-width: none;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   padding-bottom: calc(2rem + var(--safe-bottom));
   container: calls-page / inline-size;
@@ -573,7 +574,7 @@
 .call-session-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: .8rem;
   padding: 1rem .25rem;
@@ -608,6 +609,7 @@
 .call-session-title {
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: .5rem;
 }
@@ -623,6 +625,7 @@
   color: var(--text-secondary);
   font-size: var(--text-sm);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .calls-status {
@@ -652,9 +655,11 @@
 }
 
 .call-session-actions {
+  grid-column: 2;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: .35rem;
 }
 
@@ -662,6 +667,8 @@
 .call-session-actions button,
 .calls-load-more,
 .calls-state button {
+  max-width: 100%;
+  white-space: normal;
   padding: .55rem .75rem;
 }
 
@@ -782,6 +789,19 @@
 
 /* Reflow against the page's available width, including a pinned navigation. */
 @container calls-page (max-width: 44rem) {
+  .calls-destination-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .calls-destination-tabs a {
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: .25rem;
+    padding: .5rem .35rem;
+  }
+
   .calls-page-heading {
     align-items: stretch;
     flex-direction: column;
@@ -1124,7 +1144,7 @@
 
   .call-session-row {
     min-height: 66px;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-columns: 42px minmax(0, 1fr);
     gap: .65rem;
     padding: .62rem .1rem;
     border: 0;
@@ -1210,3 +1230,5 @@
     height: 14px;
   }
 }
+
+.call-session-artifacts { grid-column: 1 / -1; min-width: 0; }

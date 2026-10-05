@@ -57,15 +57,18 @@ defmodule CommsCore.Accounts.GuestIdentities.SessionReplay do
         {:error, :session_expired}
 
       %Session{} = active_session ->
-        resume_active_session(active_session, device_attrs, deadline, timestamp, effects)
+        resume_active_session(active_session, device_attrs, deadline, Persistence.now(), effects)
     end
   end
 
-  defp resume_active_session(active_session, device_attrs, deadline, timestamp, effects) do
+  defp resume_active_session(active_session, device_attrs, deadline, _timestamp, effects) do
     if DateTime.compare(deadline, active_session.user.guest_expires_at) == :lt do
       {:error, :invalid_ephemeral_guest_deadline}
     else
       with {:ok, tenant} <- effects.active_tenant.(active_session.tenant_id) do
+        unless ActiveSession.live?(active_session), do: Repo.rollback(:session_expired)
+        timestamp = Persistence.now()
+
         user_changeset =
           User.guest_expiration_changeset(active_session.user, deadline)
 
@@ -101,6 +104,9 @@ defmodule CommsCore.Accounts.GuestIdentities.SessionReplay do
           })
           |> Persistence.audit_or_rollback()
 
+          unless ActiveSession.live?(active_session), do: Repo.rollback(:session_expired)
+          CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
           {:ok,
            CommsCore.Accounts.Projector.authentication(%{
              tenant: tenant,
@@ -130,6 +136,8 @@ defmodule CommsCore.Accounts.GuestIdentities.SessionReplay do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp update_or_rollback(changeset) do
+    CommsCore.Accounts.GuestIdentities.ParentAuthority.ensure_budget()
+
     case Repo.update(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)

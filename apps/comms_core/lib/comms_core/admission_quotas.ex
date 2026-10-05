@@ -15,8 +15,7 @@ defmodule CommsCore.AdmissionQuotas do
 
   def lock_tenant(tenant_id) when is_binary(tenant_id) do
     if Repo.in_transaction?() do
-      Ecto.Adapters.SQL.query!(
-        Repo,
+      Repo.query!(
         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
         [@lock_prefix <> tenant_id]
       )

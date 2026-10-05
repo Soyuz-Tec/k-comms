@@ -56,6 +56,9 @@ vi.mock("./features/files/FilesPage", () => ({ FilesPage: () => <h1>Shared files
 vi.mock("./features/whiteboard/WhiteboardPage", () => ({ WhiteboardPage: () => <h1>Whiteboard route</h1> }));
 vi.mock("./features/directory/DirectoryPage", () => ({ DirectoryPage: () => <h1>Directory route</h1> }));
 vi.mock("./features/telephony/PhonePage", () => ({ PhonePage: () => <h1>Phone route</h1> }));
+vi.mock("./features/meetings/MeetingsPage", () => ({ MeetingsPage: () => <h1>Meetings route</h1> }));
+vi.mock("./features/chat/SavedItemsPage", () => ({ SavedItemsPage: () => <h1>Saved items route</h1> }));
+vi.mock("./features/you/YouPage", () => ({ YouPage: () => <h1>You route</h1> }));
 
 vi.mock("./features/instant-room/InstantRoomPage", () => ({
   InstantRoomPage: ({
@@ -117,6 +120,20 @@ describe("application route priority", () => {
     expect(
       screen.getByRole("heading", { name: "Instant front door" })
     ).toBeVisible();
+  });
+
+  it.each([["/app/meetings?meeting=meeting-1", "Meetings route"], ["/app/saved", "Saved items route"]])("opens the member destination %s", async (path, heading) => {
+    window.history.replaceState({}, "", path);
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: heading })).toBeVisible();
+    expect(window.location.pathname + window.location.search).toBe(path);
+  });
+
+  it("preserves the security section and fragment when a corporate callback returns to legacy settings", async () => {
+    window.history.replaceState({}, "", "/app/settings?section=security#account");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "You route" })).toBeVisible();
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/app/you?section=security#account");
   });
 
   it("redirects a signed-out /app visit to sign in", async () => {
