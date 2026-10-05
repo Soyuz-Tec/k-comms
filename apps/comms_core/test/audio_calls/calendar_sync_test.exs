@@ -375,6 +375,49 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
 
   test "cleanup reauthorization refuses a different external principal without replacing retained material",
        context do
+    assert_cleanup_principal_refusal(context, "different-principal", "different-sub")
+  end
+
+  for {label, external_subject, oidc_subject} <- [
+        {"same-length external", "else-principal", "same-sub"},
+        {"same-length OIDC", "same-principal", "fake-sub"},
+        {"missing external", nil, "same-sub"},
+        {"missing OIDC", "same-principal", nil},
+        {"empty", "", ""},
+        {"nonbinary", 123, 456}
+      ] do
+    test "cleanup reauthorization refuses #{label} principal without changing retained authority",
+         context do
+      assert_cleanup_principal_refusal(
+        context,
+        unquote(external_subject),
+        unquote(oidc_subject)
+      )
+    end
+  end
+
+  test "Microsoft unconfirmed grant revocation remains pending after local destruction",
+       context do
+    connection = connection(context.account, :microsoft)
+
+    {:ok, _} =
+      AudioCalls.unlink_calendar_connection(connection.id, %{version: 1}, context.subject)
+
+    revoke = Repo.get_by!(SyncCommand, connection_id: connection.id, operation: :revoke)
+    assert {:ok, :local_credentials_destroyed} = perform(revoke)
+    current = Repo.get!(Connection, connection.id)
+    assert is_nil(current.credentials_box)
+    assert current.provider_grant_revocation == :external_unconfirmed
+
+    assert {:ok, true} =
+             AudioCalls.calendar_governance_erasure_pending?(
+               context.account.tenant.id,
+               :user,
+               context.account.user.id
+             )
+  end
+
+  defp assert_cleanup_principal_refusal(context, external_subject, oidc_subject) do
     {export, _} = exported(context)
 
     {:ok, _} =
@@ -400,8 +443,8 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
          refresh_token: "different-refresh",
          identity: %ExternalIdentityReceipt{
            provider: :google,
-           external_subject: "different-principal",
-           oidc_subject: "different-sub"
+           external_subject: external_subject,
+           oidc_subject: oidc_subject
          },
          expires_at: DateTime.add(DateTime.utc_now(), 3600),
          scopes: []
@@ -421,7 +464,10 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
     current = Repo.get!(Connection, retained.id)
     assert current.credentials_box == retained.credentials_box
     assert current.external_identity_box == retained.external_identity_box
+    assert current.version == retained.version
+    assert current.credential_generation == retained.credential_generation
     assert current.consent_generation == retained.consent_generation
+    assert current.status == retained.status
     assert current.fenced_at == retained.fenced_at
     assert Repo.get!(Export, export.id).tombstoned_at
 
@@ -429,27 +475,6 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
              AudioCalls.complete_calendar_authorization(callback)
 
     refute_receive {:calendar_effect, _, _}
-  end
-
-  test "Microsoft unconfirmed grant revocation remains pending after local destruction",
-       context do
-    connection = connection(context.account, :microsoft)
-
-    {:ok, _} =
-      AudioCalls.unlink_calendar_connection(connection.id, %{version: 1}, context.subject)
-
-    revoke = Repo.get_by!(SyncCommand, connection_id: connection.id, operation: :revoke)
-    assert {:ok, :local_credentials_destroyed} = perform(revoke)
-    current = Repo.get!(Connection, connection.id)
-    assert is_nil(current.credentials_box)
-    assert current.provider_grant_revocation == :external_unconfirmed
-
-    assert {:ok, true} =
-             AudioCalls.calendar_governance_erasure_pending?(
-               context.account.tenant.id,
-               :user,
-               context.account.user.id
-             )
   end
 
   defp connection(account, provider \\ :google) do

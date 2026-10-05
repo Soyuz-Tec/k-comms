@@ -659,7 +659,7 @@ if config_env() == :prod do
   recovery_signing_key = System.fetch_env!("PASSWORD_RECOVERY_SIGNING_KEY")
 
   calendar_keys_encoded = optional_secret.("CALENDAR_SECRET_ENCRYPTION_KEYS")
-  calendar_current_key_id = System.get_env("CALENDAR_SECRET_ENCRYPTION_KEY_ID", "primary")
+  calendar_current_key_id = System.get_env("CALENDAR_ENCRYPTION_KEY_ID", "primary")
 
   if calendar_keys_encoded do
     entries = String.split(calendar_keys_encoded, ",", trim: false)

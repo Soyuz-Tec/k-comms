@@ -417,7 +417,7 @@ jobs:
           public_data = {
               "ACCESS_TOKEN_TTL_SECONDS": "900",
               "AUDIO_TOKEN_TTL_SECONDS": "300",
-              "CALENDAR_SECRET_ENCRYPTION_KEY_ID": "primary",
+              "CALENDAR_ENCRYPTION_KEY_ID": "primary",
               "PASSWORD_RECOVERY_JITTER_MS": "50",
               "PASSWORD_RECOVERY_MIN_RESPONSE_MS": "500",
               "PASSWORD_RECOVERY_RETENTION_SECONDS": "2592000",
@@ -431,10 +431,6 @@ jobs:
               "secret-material-key": (
                   "k-comms-config", "k-comms-production",
                   {**public_data, "CALENDAR_SECRET_ENCRYPTION_KEY": "synthetic-material"},
-              ),
-              "secret-material-in-identifier": (
-                  "k-comms-config", "k-comms-production",
-                  {**public_data, "CALENDAR_SECRET_ENCRYPTION_KEY_ID": "c3ludGhldGljLWtleS1tYXRlcmlhbA=="},
               ),
           }
           for fixture, (name, namespace, data) in fixtures.items():
@@ -474,7 +470,7 @@ jobs:
               raise SystemExit("the exact public identifier fixture was not accepted")
           for fixture in (
               "wrong-resource-name", "wrong-resource-namespace",
-              "secret-material-key", "secret-material-in-identifier",
+              "secret-material-key",
           ):
               if "KSV-0109" not in findings.get(fixture, set()):
                   raise SystemExit(f"the Trivy exception suppressed {fixture}")

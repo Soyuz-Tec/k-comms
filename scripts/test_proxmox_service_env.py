@@ -89,8 +89,21 @@ class ServiceEnvironmentTest(unittest.TestCase):
         application = (self.destination / "current/app.env").read_text()
         self.assertIn("CALENDAR_GOOGLE_CLIENT_SECRET=synthetic-calendar-client-secret\n", application)
         self.assertIn("CALENDAR_GOOGLE_ENABLED=false\n", application)
+        self.assertIn("CALENDAR_ENCRYPTION_KEY_ID=primary\n", application)
+        self.assertNotIn("CALENDAR_SECRET_ENCRYPTION_KEY_ID", application)
         for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
             self.assertNotIn("CALENDAR_", (self.destination / "current" / f"{service}.env").read_text())
+
+    def test_unreleased_legacy_calendar_key_identifier_refuses_publication(self):
+        self.generate()
+        previous = os.readlink(self.destination / "current")
+        with self.source.open("a") as stream:
+            stream.write("CALENDAR_SECRET_ENCRYPTION_KEY_ID=synthetic-retired-identifier\n")
+        with self.assertRaises(envs.EnvironmentError) as error:
+            self.generate()
+        self.assertIn("CALENDAR_SECRET_ENCRYPTION_KEY_ID", str(error.exception))
+        self.assertNotIn("synthetic-retired-identifier", str(error.exception))
+        self.assertEqual(os.readlink(self.destination / "current"), previous)
 
     def test_history_cursor_rejects_recovery_secret_without_publishing_or_logging(self):
         self.generate()

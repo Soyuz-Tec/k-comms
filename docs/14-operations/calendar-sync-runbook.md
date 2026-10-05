@@ -19,7 +19,7 @@ callback origins or redirect targets.
 
 Supply `CALENDAR_SECRET_ENCRYPTION_KEYS` as one to eight exact
 `key_id:Base64-of-32-random-bytes` entries, separated by commas. Select one entry
-with `CALENDAR_SECRET_ENCRYPTION_KEY_ID`. Keys must be distinct from Identity,
+with `CALENDAR_ENCRYPTION_KEY_ID`. Keys must be distinct from Identity,
 push, webhook, history-signing and provider credentials. Retain old keys until
 their encrypted credentials, challenges and remote mapping material have been
 removed or reencrypted under qualified owner operations. Removing an old key
