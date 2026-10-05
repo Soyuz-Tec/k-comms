@@ -415,7 +415,10 @@ defmodule CommsCore.AudioCalls.MeetingErasureTest do
       :rich_whiteboards,
       :member_workspaces,
       :governance_history_snapshots,
-      :active_history_purge_jobs
+      :active_history_purge_jobs,
+      :calendar_owner_state,
+      :active_calendar_jobs,
+      :calendar_erasure_state
     ]
 
     keys |> Map.new(&{&1, 0}) |> Map.put(:scheduled_meetings, count)
