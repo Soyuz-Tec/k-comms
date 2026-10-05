@@ -6,6 +6,8 @@ import { useWorkspaceData } from "../../app/workspace-data";
 import { errorText } from "../../lib/format";
 import { VoicemailAdminPanel } from "./VoicemailAdminPanel";
 import { PhoneRoutingPanel } from "./PhoneRoutingPanel";
+import { IvrAdminPanel } from "./IvrAdminPanel";
+import { QueueSupervisorPanel } from "./QueueSupervisorPanel";
 import { useTelephony } from "./TelephonyProvider";
 import type { PhoneConfiguration, PhoneNumberInput } from "./types";
 import { phoneNumberInputError, phoneReadiness } from "./types";
@@ -109,5 +111,7 @@ export function PhoneAdminPanel() {
     </form>}
     {configuration && <PhoneRoutingPanel />}
     {configuration && <VoicemailAdminPanel />}
+    {configuration && configuration.number && <IvrAdminPanel />}
+    {configuration && <QueueSupervisorPanel />}
   </section>;
 }

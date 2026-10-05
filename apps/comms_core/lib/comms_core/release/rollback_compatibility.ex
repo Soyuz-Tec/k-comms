@@ -35,7 +35,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
     {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
-    {"shared_documents_v1", [:shared_documents]}
+    {"shared_documents_v1", [:shared_documents]},
+    {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -204,6 +205,9 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_artifact_jobs: active_job_count(repo, :call_artifact),
       voicemail_media: Telephony.rollback_voicemail_hazard_count(),
       active_voicemail_jobs: active_job_count(repo, :telephony_voicemail),
+      ivr_state: Telephony.rollback_ivr_hazard_count(),
+      agent_queue_states: Telephony.rollback_agent_state_hazard_count(),
+      active_ivr_jobs: active_job_count(repo, :telephony_ivr),
       advanced_controls: Telephony.rollback_control_hazard_count(),
       active_control_jobs: active_job_count(repo, :telephony_control),
       active_routing_jobs: active_job_count(repo, :telephony_routing),

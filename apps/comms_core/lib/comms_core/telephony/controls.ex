@@ -9,6 +9,7 @@ defmodule CommsCore.Telephony.Controls do
     ControlCommand,
     ControlRequest,
     ControlView,
+    Ivr,
     ProviderControlPort
   }
 
@@ -366,6 +367,13 @@ defmodule CommsCore.Telephony.Controls do
         Repo.transaction(fn ->
           snapshot = Repo.get(Call, id)
           if is_nil(snapshot) or is_nil(snapshot.route_id), do: Repo.rollback(:not_found)
+          ivr_deadline = Ivr.original_deadline(id)
+
+          if ivr_deadline &&
+               (DateTime.compare(ivr_deadline, now()) != :gt or
+                  DateTime.compare(snapshot.expires_at, now()) != :gt),
+             do: Repo.rollback(:call_ended)
+
           CommsCore.Telephony.Mailboxes.lock_capture_effect_policy!(snapshot)
 
           case Administration.lock_call_policy(snapshot.tenant_id) do
@@ -380,6 +388,24 @@ defmodule CommsCore.Telephony.Controls do
           if call.status != :ringing or call.routing_status != "waiting",
             do: Repo.rollback(:call_ended)
 
+          if ivr_deadline &&
+               (DateTime.compare(ivr_deadline, now()) != :gt or
+                  DateTime.compare(call.expires_at, now()) != :gt),
+             do: Repo.rollback(:call_ended)
+
+          capture_deadline =
+            if ivr_deadline do
+              [message.recording_deadline, call.expires_at, ivr_deadline] |> Enum.min(DateTime)
+            else
+              message.recording_deadline
+            end
+
+          if ivr_deadline do
+            message
+            |> CommsCore.Telephony.Voicemail.changeset(%{recording_deadline: capture_deadline})
+            |> Repo.update!()
+          end
+
           key = "queue-voicemail:" <> call.id
           previous = Repo.get_by(ControlCommand, call_id: call.id, idempotency_key: key)
 
@@ -392,7 +418,7 @@ defmodule CommsCore.Telephony.Controls do
               control_state: "voicemail",
               user_id: message.user_id,
               offered_user_ids: [],
-              expires_at: message.recording_deadline
+              expires_at: capture_deadline
             })
             |> Repo.update!()
 
@@ -404,7 +430,12 @@ defmodule CommsCore.Telephony.Controls do
               status: :pending,
               idempotency_key: key,
               payload_hash: Base.encode16(:crypto.hash(:sha256, notice), case: :lower),
-              expires_at: DateTime.add(timestamp, 60, :second)
+              expires_at:
+                if(ivr_deadline,
+                  do:
+                    Enum.min([DateTime.add(timestamp, 60, :second), capture_deadline], DateTime),
+                  else: DateTime.add(timestamp, 60, :second)
+                )
             }
 
             command = %ControlCommand{} |> ControlCommand.changeset(attrs) |> insert_or_rollback()

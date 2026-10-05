@@ -458,6 +458,23 @@ if config_env() == :prod do
     end
   end
 
+  telephony_ivr_qualified? =
+    parse_boolean.(System.get_env("TELEPHONY_IVR_QUALIFIED", "false"), "TELEPHONY_IVR_QUALIFIED")
+
+  telephony_ivr_prompts = csv_values.("TELEPHONY_IVR_PROMPT_ALLOWLIST")
+
+  unless length(telephony_ivr_prompts) <= 20 and
+           Enum.all?(telephony_ivr_prompts, &Regex.match?(~r/^sound:[A-Za-z0-9_\/-]{1,150}$/, &1)) do
+    raise "TELEPHONY_IVR_PROMPT_ALLOWLIST requires at most 20 reviewed sound media names"
+  end
+
+  if telephony_ivr_qualified? and
+       not (telephony_pbx_enabled? and telephony_pbx_qualified? and telephony_ivr_prompts != [] and
+              is_binary(telephony_pbx_webhook_secret) and
+              byte_size(telephony_pbx_webhook_secret) >= 32) do
+    raise "TELEPHONY_IVR_QUALIFIED requires qualified ARI, approved prompts and signed event relay"
+  end
+
   voicemail_storage_qualified? =
     parse_boolean.(
       System.get_env("TELEPHONY_VOICEMAIL_STORAGE_QUALIFIED", "false"),
@@ -1101,6 +1118,7 @@ if config_env() == :prod do
 
   config :comms_core,
     telephony_control_adapter: telephony_control_adapter,
+    telephony_ivr_prompt_allowlist: telephony_ivr_prompts,
     telephony_control_fingerprint_key:
       :crypto.mac(:hmac, :sha256, secret_key_base, "k-comms-telephony-controls-v1"),
     direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
@@ -1303,6 +1321,8 @@ if config_env() == :prod do
     telephony_transfer_destination_prefixes: telephony_transfer_prefixes,
     telephony_pbx_enabled: telephony_pbx_enabled?,
     telephony_pbx_qualified: telephony_pbx_qualified?,
+    telephony_ivr_qualified: telephony_ivr_qualified?,
+    telephony_ivr_prompt_allowlist: telephony_ivr_prompts,
     telephony_pbx_api_url: telephony_pbx_origin,
     telephony_pbx_username: telephony_pbx_username,
     telephony_pbx_password: telephony_pbx_password,

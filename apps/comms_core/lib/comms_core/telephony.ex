@@ -22,6 +22,12 @@ defmodule CommsCore.Telephony do
   @spec rollback_control_hazard_count() :: non_neg_integer()
   defdelegate rollback_control_hazard_count(), to: CommsCore.Telephony.Controls
 
+  @doc false
+  @spec release_tenant_fingerprint_fragment(module(), String.t()) :: %{atom() => [String.t()]}
+  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id),
+    to: CommsCore.Telephony.ReleaseInventory,
+    as: :tenant_fingerprint_fragment
+
   @spec config(map()) :: response()
   defdelegate config(subject), to: Lifecycle
   @spec admin_config(map()) :: response()
@@ -221,4 +227,57 @@ defmodule CommsCore.Telephony do
           {:ok, CommsCore.Telephony.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
   defdelegate usage_projection(query, subject), to: CommsCore.Telephony.UsageReports, as: :project
+
+  @spec ivr_config(map()) ::
+          {:ok, CommsCore.Telephony.IvrConfigView.t()} | {:error, atom()}
+  defdelegate ivr_config(subject), to: CommsCore.Telephony.Ivr, as: :config
+
+  @spec save_ivr(map(), map()) ::
+          {:ok, CommsCore.Telephony.IvrMenuView.t()}
+          | {:error, atom() | CommsCore.ValidationError.t()}
+  defdelegate save_ivr(attrs, subject), to: CommsCore.Telephony.Ivr, as: :save
+  @spec handle_ivr_webhook(binary(), binary()) :: {:ok, atom()} | {:error, atom()}
+  defdelegate handle_ivr_webhook(body, authorization),
+    to: CommsCore.Telephony.Ivr,
+    as: :handle_webhook
+
+  @spec advance_ivr(String.t(), module()) ::
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
+  defdelegate advance_ivr(id, caller), to: CommsCore.Telephony.Ivr, as: :advance
+
+  @spec execute_ivr_claim(CommsCore.Telephony.IvrEffectClaim.t(), module()) ::
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
+  defdelegate execute_ivr_claim(claim, caller), to: CommsCore.Telephony.Ivr, as: :execute_claim
+  @spec rollback_ivr_hazard_count() :: non_neg_integer()
+  defdelegate rollback_ivr_hazard_count(), to: CommsCore.Telephony.Ivr, as: :rollback_hazard_count
+
+  @spec agent_queue_state(map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
+  defdelegate agent_queue_state(subject), to: CommsCore.Telephony.ContactCenter, as: :agent_state
+
+  @spec set_agent_queue_state(map(), map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
+  defdelegate set_agent_queue_state(attrs, subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :set_agent_state
+
+  @spec queue_supervisor_snapshot(map()) ::
+          {:ok, CommsCore.Telephony.QueueSupervisorSnapshot.t()} | {:error, atom()}
+  defdelegate queue_supervisor_snapshot(subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :queue_snapshot
+
+  @spec rollback_agent_state_hazard_count() :: non_neg_integer()
+  defdelegate rollback_agent_state_hazard_count(),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :rollback_hazard_count
+
+  @spec erase_agent_queue_state(String.t(), String.t()) :: {:ok, non_neg_integer()}
+  defdelegate erase_agent_queue_state(tenant_id, user_id),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :erase_user!
 end

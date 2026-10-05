@@ -19,7 +19,7 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
                                   "governance_history_v1",
-                                  "shared_documents_v1"
+                                  "shared_documents_v1,ivr_routing_v1"
                                 ],
                                 ","
                               )
@@ -92,7 +92,10 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       member_workspaces: 1,
       governance_history_snapshots: 1,
       active_history_purge_jobs: 1,
-      shared_documents: 1
+      shared_documents: 1,
+      ivr_state: 1,
+      agent_queue_states: 1,
+      active_ivr_jobs: 1
     }
 
     compatible = %{
@@ -200,7 +203,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
           {"member_workspace_v1", [:member_workspaces]},
           {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
-          {"shared_documents_v1", [:shared_documents]}
+          {"shared_documents_v1", [:shared_documents]},
+          {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)
@@ -219,7 +223,27 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       assert ^state = Release.assert_communication_rollback_hazards!(state, capable)
     end
 
+    # The actual Member/History source parent has fourteen capabilities.
+    # Even a completed IVR run or expired explicit agent row needs its owner.
+    member_history = %{
+      target_revision: "610b6a",
+      capabilities: MapSet.delete(compatible.capabilities, "ivr_routing_v1")
+    }
+
+    assert ^clean_hazards =
+             Release.assert_communication_rollback_hazards!(clean_hazards, member_history)
+
+    for key <- [:ivr_state, :agent_queue_states, :active_ivr_jobs] do
+      retained = Map.put(clean_hazards, key, 1)
+
+      assert_raise RuntimeError, ~r/target 610b6a lacks ivr_routing_v1.*#{key}=1/, fn ->
+        Release.assert_communication_rollback_hazards!(retained, member_history)
+      end
+    end
+
     for invalid <- [
+          Map.delete(clean_hazards, :ivr_state),
+          Map.put(clean_hazards, :active_ivr_jobs, -1),
           Map.delete(clean_hazards, :member_workspaces),
           Map.delete(clean_hazards, :governance_history_snapshots),
           Map.put(clean_hazards, :active_history_purge_jobs, -1),

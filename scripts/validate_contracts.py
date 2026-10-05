@@ -2457,6 +2457,70 @@ def validate_shared_document_contract(openapi: dict[str, Any], payloads: dict[st
                 raise ValueError("shared document socket payload diverged from the committed owner receipt")
 
 
+def validate_ivr_contract(
+    openapi: dict[str, Any], schemas: dict[str, dict[str, Any]]
+) -> None:
+    """Freeze the bounded caller protocol and minimal human projections."""
+    contract = schemas.get("telephony-ivr.v1.json")
+    if not isinstance(contract, dict):
+        raise ValueError("bounded IVR JSON Schema contract is required")
+    definitions = contract.get("$defs", {})
+    expected_names = {
+        "IvrTarget", "IvrMenu", "IvrMenuRequest", "IvrConfiguration",
+        "AgentQueueState", "AgentQueueStateRequest", "CurrentQueueRoute",
+        "CurrentQueueSnapshot", "IvrWebhookEvent",
+    }
+    if set(definitions) != expected_names:
+        raise ValueError("bounded IVR must retain its exact nine minimal contracts")
+
+    def openapi_refs(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (item.replace("#/$defs/", "#/components/schemas/")
+                      if key == "$ref" and isinstance(item, str)
+                      else openapi_refs(item))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [openapi_refs(item) for item in value]
+        return value
+
+    published = openapi.get("components", {}).get("schemas", {})
+    for name in sorted(expected_names):
+        if published.get(name) != openapi_refs(definitions[name]):
+            raise ValueError(f"IVR OpenAPI and JSON Schema differ for {name}")
+    for name in ("IvrMenu", "IvrMenuRequest"):
+        choices = definitions[name]["properties"]["choices"]
+        if (choices.get("propertyNames") != {"pattern": "^[1-9]$"}
+                or choices.get("minProperties") != 1
+                or choices.get("maxProperties") != 9):
+            raise ValueError("IVR menu choices must remain one to nine single digits")
+    operations = {
+        "/api/v1/admin/telephony/ivr": {"get", "put"},
+        "/api/v1/telephony/agent-state": {"get", "put"},
+        "/api/v1/admin/telephony/queues/current": {"get"},
+        "/api/v1/telephony/ivr/webhook": {"post"},
+    }
+    paths = openapi.get("paths", {})
+    for path, methods in operations.items():
+        resource = paths.get(path, {})
+        if set(resource) != methods:
+            raise ValueError(f"IVR route operation inventory differs for {path}")
+        for method in methods:
+            expected_security = (
+                [{"telephonyIvrHmac": []}] if path.endswith("/webhook")
+                else [{"bearerAuth": []}]
+            )
+            if resource[method].get("security") != expected_security:
+                raise ValueError(f"IVR caller/human authority differs for {path}")
+    signature = openapi["components"].get("securitySchemes", {}).get("telephonyIvrHmac")
+    if not isinstance(signature, dict) or any(
+        signature.get(key) != expected
+        for key, expected in {"type": "apiKey", "in": "header", "name": "Authorization"}.items()
+    ):
+        raise ValueError("IVR events require the separate exact-body Authorization HMAC")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2482,6 +2546,7 @@ def main() -> None:
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_ivr_contract(openapi, schemas)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

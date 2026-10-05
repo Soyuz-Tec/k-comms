@@ -26,7 +26,12 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :member_workspaces,
     :audit_history_snapshots,
     :shared_documents,
-    :shared_document_operations
+    :shared_document_operations,
+    :telephony_calls,
+    :telephony_ivr_menus,
+    :telephony_ivr_runs,
+    :telephony_ivr_event_receipts,
+    :telephony_agent_states
   ]
 
   defmodule ReadOnlyRepo do
@@ -54,7 +59,12 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "member_workspaces" => "private-workspace-internal-id",
             "audit_resource_history_snapshots" => "history-snapshot-internal-id",
             "shared_documents" => "shared-document-internal-id",
-            "shared_document_operations" => "shared-document-operation-internal-id"
+            "shared_document_operations" => "shared-document-operation-internal-id",
+            "telephony_calls" => "telephone-call-internal-id",
+            "telephony_ivr_menus" => "ivr-menu-internal-id",
+            "telephony_ivr_runs" => "ivr-run-internal-id",
+            "telephony_ivr_event_receipts" => "ivr-receipt-internal-id",
+            "telephony_agent_states" => "agent-state-internal-id"
           },
           table
         )
@@ -111,6 +121,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
 
     assert output =~ "ephemeral_join_receipts=1"
     assert output =~ "call_participants=1"
+    assert output =~ "telephony_ivr_runs=1"
+    assert output =~ "telephony_agent_states=1"
     assert output =~ ~r/ fingerprint_sha256=[0-9a-f]{64}\z/
 
     for forbidden <- [

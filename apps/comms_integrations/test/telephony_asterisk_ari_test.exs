@@ -342,6 +342,54 @@ defmodule CommsIntegrations.Telephony.AsteriskARITest do
     assert :ok = AsteriskARI.cleanup_call(provider_command(bindings), requester)
   end
 
+  test "cleanup retains and removes an exact empty IVR destination bridge after an uncertain connection",
+       %{state: state, requester: requester} do
+    bridge_id = "kc_ivr_mix_" <> String.replace(@call_id, "-", "")
+    bindings = Map.put(persisted_bindings(), "destination_bridge", bridge_id)
+
+    Agent.update(state, fn s ->
+      %{
+        s
+        | bridges:
+            Map.put(s.bridges, bridge_id, %{
+              "id" => bridge_id,
+              "bridge_type" => "mixing",
+              "channels" => []
+            })
+      }
+    end)
+
+    assert :ok = AsteriskARI.cleanup_call(provider_command(bindings), requester)
+    assert Agent.get(state, & &1.bridges) == %{}
+
+    assert Enum.any?(Agent.get(state, & &1.requests), fn {method, path, _} ->
+             method == :delete and path == "/bridges/" <> bridge_id
+           end)
+  end
+
+  test "system voicemail preserves frozen IVR bindings instead of substituting its holding bridge",
+       %{requester: requester} do
+    bindings =
+      Map.put(
+        persisted_bindings(),
+        "destination_bridge",
+        "kc_ivr_mix_" <> String.replace(@call_id, "-", "")
+      )
+
+    request = %{command(:voicemail) | system: true, pbx_state: bindings}
+    assert {:ok, ^bindings} = AsteriskARI.prepare_control(request, requester)
+  end
+
+  test "a substituted IVR destination bridge binding cannot confer cleanup authority",
+       %{state: state, requester: requester} do
+    bindings = Map.put(persisted_bindings(), "destination_bridge", "other-call-bridge")
+
+    assert {:error, :telephony_pbx_binding_invalid} =
+             AsteriskARI.cleanup_call(provider_command(bindings), requester)
+
+    refute Enum.any?(Agent.get(state, & &1.requests), fn {method, _, _} -> method != :get end)
+  end
+
   test "cleanup preflight rejects a substituted consult channel before deleting any original leg",
        %{state: state, requester: requester} do
     bindings = persisted_bindings()

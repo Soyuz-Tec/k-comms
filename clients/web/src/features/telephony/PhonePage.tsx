@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VoicemailPanel } from "./VoicemailPanel";
+import { AgentQueuePanel } from "./AgentQueuePanel";
 import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
@@ -90,6 +91,7 @@ export function PhonePage() {
         {cursor && <button className="button ghost" type="button" disabled={loading} onClick={() => void load(cursor)}>Load more phone calls</button>}
       </section>
       <VoicemailPanel />
+      <AgentQueuePanel />
     </div>
   </main>;
 }

@@ -161,8 +161,9 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
     saved = command.pbx_state || %{}
     holding = "kc_hold_" <> compact(command.call_id)
     consult = "kc_consult_" <> compact(command.call_id)
+    destination_bridge = "kc_ivr_mix_" <> compact(command.call_id)
 
-    with true <- valid_cleanup_bindings?(saved, holding, consult),
+    with true <- valid_cleanup_bindings?(saved, holding, consult, destination_bridge),
          {:ok, channels} when is_list(channels) <- call(:get, "/channels", %{}, config, requester),
          {:ok, bridges} when is_list(bridges) <- call(:get, "/bridges", %{}, config, requester),
          true <- length(channels) <= 2_000 and length(bridges) <= 2_000,
@@ -184,7 +185,7 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
          ids = Enum.map(owned, & &1["id"]),
          owned_bridges =
            Enum.filter(bridges, fn bridge ->
-             bridge["id"] in [holding, saved["mixing"]] or
+             bridge["id"] in [holding, saved["mixing"], saved["destination_bridge"]] or
                Enum.any?(bridge["channels"] || [], &(&1 in ids))
            end),
          true <-
@@ -207,15 +208,16 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
     end
   end
 
-  defp valid_cleanup_bindings?(saved, holding, consult) when is_map(saved) do
+  defp valid_cleanup_bindings?(saved, holding, consult, destination_bridge) when is_map(saved) do
     map_size(saved) == 0 or
       (safe_id?(saved["external"]) and
          (is_nil(saved["app"]) or safe_id?(saved["app"])) and
          (is_nil(saved["mixing"]) or safe_id?(saved["mixing"])) and
-         saved["holding"] == holding and saved["consult"] == consult)
+         saved["holding"] == holding and saved["consult"] == consult and
+         (is_nil(saved["destination_bridge"]) or saved["destination_bridge"] == destination_bridge))
   end
 
-  defp valid_cleanup_bindings?(_, _, _), do: false
+  defp valid_cleanup_bindings?(_, _, _, _), do: false
 
   defp safe_cleanup_channels?(owned, channels, command, saved, consult) do
     roles = %{"external" => saved["external"], "app" => saved["app"], "consult" => consult}
@@ -498,12 +500,15 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
       else: <<>>
   end
 
-  def prepare_control(%{action: :blind_transfer}), do: {:ok, nil}
+  def prepare_control(command),
+    do: prepare_control(command, &CommsIntegrations.PinnedHttp.request/5)
 
-  def prepare_control(command) do
+  def prepare_control(%{action: :blind_transfer}, _requester), do: {:ok, nil}
+
+  def prepare_control(command, requester) do
     with true <- get_in(capabilities(), [command.action, :supported]) == true,
          {:ok, config} <- configuration() do
-      bindings(command, config, &CommsIntegrations.PinnedHttp.request/5)
+      bindings(command, config, requester)
     else
       _ -> {:error, :telephony_control_unsupported}
     end
@@ -568,9 +573,28 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
           [] -> Map.get(command.pbx_state || %{}, "app")
         end
 
-      if not is_nil(app_id) and not safe_id?(app_id),
-        do: {:error, :telephony_pbx_binding_invalid},
-        else:
+      saved = command.pbx_state || %{}
+
+      cond do
+        not is_nil(app_id) and not safe_id?(app_id) ->
+          {:error, :telephony_pbx_binding_invalid}
+
+        not is_nil(saved["destination_bridge"]) ->
+          # IVR has already persisted exact caller/app/original bridge handles.
+          # Voicemail uses holding for its separate notice/capture, but must
+          # preserve those frozen handles for bind equality and final cleanup.
+          if map_size(saved) == 7 and saved["external"] == external["id"] and
+               saved["app"] == app_id and
+               safe_id?(saved["mixing"]) and
+               saved["recording"] == "kc_vm_" <> compact(command.call_id) and
+               valid_cleanup_bindings?(
+                 saved,
+                 holding,
+                 "kc_consult_" <> compact(command.call_id),
+                 "kc_ivr_mix_" <> compact(command.call_id)
+               ), do: {:ok, saved}, else: {:error, :telephony_pbx_binding_invalid}
+
+        true ->
           {:ok,
            %{
              "external" => external["id"],
@@ -580,6 +604,7 @@ defmodule CommsIntegrations.Telephony.AsteriskARI do
              "consult" => "kc_consult_" <> compact(command.call_id),
              "recording" => "kc_vm_" <> compact(command.call_id)
            }}
+      end
     else
       _ -> {:error, :telephony_pbx_binding_invalid}
     end

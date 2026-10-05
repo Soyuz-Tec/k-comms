@@ -11,7 +11,8 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     Outbox,
     Release.Environment,
     Repo,
-    SharedDocuments
+    SharedDocuments,
+    Telephony
   }
 
   @app :comms_core
@@ -34,7 +35,12 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :member_workspaces,
     :audit_history_snapshots,
     :shared_documents,
-    :shared_document_operations
+    :shared_document_operations,
+    :telephony_calls,
+    :telephony_ivr_menus,
+    :telephony_ivr_runs,
+    :telephony_ivr_event_receipts,
+    :telephony_agent_states
   ]
 
   def run do
@@ -70,7 +76,8 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
           Audit.release_tenant_fingerprint_fragment(repo, tenant_id),
           Outbox.release_tenant_fingerprint_fragment(repo, tenant_id),
           AudioCalls.release_tenant_fingerprint_fragment(repo, tenant_id),
-          SharedDocuments.release_tenant_fingerprint_fragment(repo, tenant_id)
+          SharedDocuments.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Telephony.release_tenant_fingerprint_fragment(repo, tenant_id)
         ]
 
         build(tenant_id, merge_fragments(fragments))
