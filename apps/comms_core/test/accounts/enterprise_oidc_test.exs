@@ -182,7 +182,9 @@ defmodule CommsCore.Accounts.EnterpriseOidcTest do
           %{"exp" => System.system_time(:second) - 1},
           %{"auth_time" => nil},
           %{"auth_time" => System.system_time(:second) - 301},
-          %{"auth_time" => System.system_time(:second) + 31},
+          # The list is built before several RSA operations; stay well beyond
+          # the allowed 30-second skew throughout real signature validation.
+          %{"auth_time" => System.system_time(:second) + 3600},
           %{"nonce" => "wrong-nonce"},
           %{"aud" => [config.client_id, "other"], "azp" => "other"}
         ] do
