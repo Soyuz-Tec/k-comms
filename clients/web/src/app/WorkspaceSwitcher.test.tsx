@@ -73,11 +73,19 @@ describe("workspace switcher", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("keeps role tools and a conversation reachable alongside all workspace areas", () => {
+    const owner: Session = { ...session, user: { ...session.user, role: "owner", platform_role: "platform_operator", platform_role_expires_at: new Date(Date.now() + 60_000).toISOString() } };
+    render(<MemoryRouter><WorkspaceSwitcher session={owner} conversations={[conversation]} onClose={() => {}} /></MemoryRouter>);
+    expect(screen.getByRole("option", { name: /Workspace administration/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Service operations/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Project Aurora Channel/ })).toBeInTheDocument();
+  });
+
   it("bounds the initial list but keeps every authorized conversation searchable", async () => {
     const user = userEvent.setup();
     const conversations = Array.from({ length: 40 }, (_, index) => ({ ...conversation, id: String(index), title: `Room ${index}` }));
     render(<MemoryRouter><WorkspaceSwitcher session={session} conversations={conversations} onClose={() => {}} /></MemoryRouter>);
-    expect(screen.getAllByRole("option")).toHaveLength(12);
+    expect(screen.getAllByRole("option")).toHaveLength(20);
     expect(screen.getByRole("status")).toHaveTextContent("keep typing");
     await user.type(screen.getByRole("combobox"), "Room 39");
     expect(screen.getAllByRole("option")).toHaveLength(1);

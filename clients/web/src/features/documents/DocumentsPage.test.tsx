@@ -49,6 +49,19 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("shared document library", () => {
+  it("shows a readable excerpt and last update, then resumes the selected document", async () => {
+    harness.request.mockResolvedValue({ data: [{ ...document("Launch notes"), excerpt: "Agenda and decisions from the launch review" }] });
+    render(<MemoryRouter initialEntries={["/app/documents?conversation=conversation"]}><DocumentsPage /><RouteLocation /></MemoryRouter>);
+    expect(await screen.findByRole("button", { name: /^Launch notes/ })).toHaveTextContent("Agenda and decisions from the launch review");
+    expect(screen.getByText(/Updated/)).toHaveAttribute("datetime", "2026-10-05T00:00:00Z");
+    expect(screen.getByRole("heading", { name: "Choose a document to continue" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Continue Launch notes" }));
+    expect(screen.getByLabelText("Document route")).toHaveTextContent("conversation=conversation&document=doc");
+    expect(screen.queryByRole("heading", { name: "Choose a document to continue" })).not.toBeInTheDocument();
+  });
+});
+
 describe("immutable document command retries", () => {
   it("recovers a committed copy with the original UUID and scalar-safe title", async () => {
     harness.view.document = document("a".repeat(149) + "😀");

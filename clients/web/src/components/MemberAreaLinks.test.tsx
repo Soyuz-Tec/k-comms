@@ -14,7 +14,7 @@ describe("MemberAreaLinks", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
-    expect(navigation.querySelectorAll("svg")).toHaveLength(9);
+    expect(navigation.querySelectorAll("svg")).toHaveLength(12);
     expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
     expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
     expect(screen.getByRole("link", { name: "Whiteboard" })).toHaveAttribute(
@@ -84,6 +84,14 @@ describe("MemberAreaLinks", () => {
     );
     expect(screen.getByRole("region", { name: "Communicate" })).toContainElement(screen.getByRole("link", { name: "Meetings" }));
     expect(screen.getByRole("region", { name: "Personal" })).toContainElement(screen.getByRole("link", { name: "Saved items" }));
-    expect(screen.getAllByRole("link")).toHaveLength(9);
+    expect(screen.getAllByRole("link")).toHaveLength(12);
+  });
+
+  it("makes phone and collaboration libraries discoverable and marks only the current calling destination", () => {
+    render(<MemoryRouter initialEntries={["/app/calls/phone"]}><MemberAreaLinks variant="grouped" /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Calls" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Shared documents" })).toHaveAttribute("href", "/app/documents");
+    expect(screen.getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
   });
 });

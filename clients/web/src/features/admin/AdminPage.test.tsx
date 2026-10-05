@@ -59,6 +59,11 @@ describe("AdminPage section routing", () => {
     render(<MemoryRouter initialEntries={["/admin?section=people"]}><AdminPage /></MemoryRouter>);
     const summary = screen.getByText("0 people · 0 conversations").closest("summary")!;
     expect(summary.parentElement).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { level: 1, name: "People" })).toBeVisible();
+    expect(screen.getByText("Administration · Workspace control center")).toBeVisible();
+    for (const name of ["Workspace and access", "Phone", "Trust and governance", "Reporting"]) {
+      expect(screen.getByRole("group", { name })).toBeVisible();
+    }
     expect(screen.getByRole("heading", { name: "People directory" })).toBeVisible();
     await user.click(summary);
     expect(summary.parentElement).toHaveAttribute("open");
@@ -75,11 +80,13 @@ describe("AdminPage section routing", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Audit evidence" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Audit" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Audit" })).toHaveAttribute("aria-current", "page");
 
     await user.click(screen.getByRole("button", { name: "People" }));
 
     expect(screen.getByRole("heading", { name: "People directory" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "People" })).toBeVisible();
     expect(screen.getByTestId("location-search")).toHaveTextContent("section=people");
     expect(screen.getByTestId("location-search")).toHaveTextContent("source=notification");
   });

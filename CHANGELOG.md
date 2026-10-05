@@ -14,6 +14,21 @@
 
 ### Changed
 
+- Standardized workspace page headings, controls, status meanings, and navigation.
+  Phone, recordings, and shared documents now have direct desktop destinations;
+  You exposes every destination outside the five-item mobile navigation.
+- Separated administration navigation from daily workspace navigation. The nine
+  admin pages have their own titles and grouped sections; Phone uses six tabs
+  that preserve unfinished forms, and resource inventories precede creation
+  forms. First-run invitations still open directly.
+- Added a bounded recent-call recording library, an agenda with the next scheduled
+  or in-progress meeting, clearer saved-message provenance with undo, document
+  resumption, and private-room recovery guidance. Consolidated profile name,
+  avatar, and timezone into one save action.
+- Clarified public room creation and authentication choices with consistent
+  branding, optional first messages, and compact accessible phone layouts.
+
+
 - Merged the inbox search field into the heading row, taking the phone inbox
   from three stacked control rows to two. Chrome falls from 249px to 193px at
   390x844, and the conversation list gains 56px. At 320px the field wraps to its

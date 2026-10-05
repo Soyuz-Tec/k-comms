@@ -47,7 +47,7 @@ async function expectContentToFit(page: Page, selector: string) {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         const screenReaderOnly = rect.width <= 1 && rect.height <= 1 && (style.clip !== "auto" || style.clipPath !== "none");
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && !screenReaderOnly;
+        return element.checkVisibility() && rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && !screenReaderOnly;
       });
     const overflow = visible
       // Screen-reader copy and filename ellipsis do not hide workflow controls.
@@ -105,6 +105,11 @@ for (const width of [761, 1024, 1280, 390]) {
     await expectControlToFit(page.getByRole("button", { name: "Share a file" }));
     if (width > 760) await expect(page.locator(".app-shell")).toHaveClass(/workspace-navigation-pinned/);
     await expectContentToFit(page, ".files-page");
+    await page.getByLabel("Advanced file filters", { exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Conversation", exact: true })).toBeVisible();
+    await expectContentToFit(page, ".files-page");
+    await expectControlToFit(page.getByRole("combobox", { name: "Conversation", exact: true }));
+    await page.getByLabel("Advanced file filters", { exact: true }).click();
 
     await page.goto("/app/calls");
     await expect(page.getByRole("button", { name: "Join video call for General" })).toBeVisible();

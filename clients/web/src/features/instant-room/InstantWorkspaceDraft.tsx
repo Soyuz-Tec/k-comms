@@ -276,18 +276,24 @@ export function InstantWorkspaceDraft({
 
         <aside className="instant-draft-chat" aria-label="Room setup">
           <div className="instant-draft-setup-scroll">
+            <div className="instant-draft-brand">
+              <span className="instant-draft-brand-mark"><AppIcon name="messages" /></span>
+              <div>
+                <strong>K-Comms</strong>
+                <span>Message, meet and create together</span>
+              </div>
+            </div>
             <div className="instant-draft-chat-heading">
               <span className="instant-draft-chat-icon"><AppIcon name="users" /></span>
               <div>
                 <h2>Create a room</h2>
-                <p>Confirm who you are, then open the collaboration controls.</p>
+                <p>Start with your name. Share your room when you’re ready.</p>
               </div>
             </div>
 
             <ol className="instant-draft-workflow" aria-label="Collaboration workflow">
-              <li className="current" aria-current="step"><span>1</span> Your name</li>
-              <li><span>2</span> Create room</li>
-              <li><span>3</span> Invite &amp; call</li>
+              <li className="current" aria-current="step"><span>1</span> Room details</li>
+              <li><span>2</span> Invite &amp; call</li>
             </ol>
 
             <div className="instant-draft-room-details">
@@ -350,44 +356,47 @@ export function InstantWorkspaceDraft({
               </div>
             </div>
 
-            <form className="instant-draft-composer" onSubmit={(event) => void sendMessage(event)}>
-              <label htmlFor="instant-draft-message">Optional first message</label>
-              <div className="composer-shell">
-                <textarea
-                  id="instant-draft-message"
-                  value={message}
-                  maxLength={10_000}
-                  rows={1}
-                  disabled={activating}
-                  placeholder="Add a message to send when the room opens…"
-                  onChange={(event) => setMessage(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <div className="composer-inline-actions">
-                  <button
-                    className="composer-icon-button composer-send send-button"
-                    type="submit"
-                    aria-label="Create & send"
-                    title="Create room and send message"
-                    disabled={!message.trim() || blocked}
-                  >
-                    <AppIcon name="send" />
-                  </button>
+            <details className="instant-draft-message-disclosure">
+              <summary>Add a first message <span>{message.trim() ? "Message added" : "Optional message"}</span></summary>
+              <form className="instant-draft-composer" onSubmit={(event) => void sendMessage(event)}>
+                <label htmlFor="instant-draft-message">Optional first message</label>
+                <div className="composer-shell">
+                  <textarea
+                    id="instant-draft-message"
+                    value={message}
+                    maxLength={10_000}
+                    rows={1}
+                    disabled={activating}
+                    placeholder="Add a message to send when the room opens…"
+                    onChange={(event) => setMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                  />
+                  <div className="composer-inline-actions">
+                    <button
+                      className="composer-icon-button composer-send send-button"
+                      type="submit"
+                      aria-label="Create & send"
+                      title="Create room and send message"
+                      disabled={!message.trim() || blocked}
+                    >
+                      <AppIcon name="send" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <p className="composer-footnote">
-                <span>Enter to send · Shift+Enter for a new line</span>
-              </p>
-            </form>
+                <p className="composer-footnote">
+                  <span>Enter to send · Shift+Enter for a new line</span>
+                </p>
+              </form>
+            </details>
 
             {hasDraftWork && (
               <button
@@ -408,7 +417,7 @@ export function InstantWorkspaceDraft({
               type="button"
               disabled={blocked}
               aria-disabled={blocked}
-              onClick={() => void activate("room")}
+              onClick={() => void activate("room", message)}
             >
               <AppIcon name="users" />
               {activating

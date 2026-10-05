@@ -6,6 +6,7 @@ import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { createPortal } from "react-dom";
 import { useModalDialog } from "../../components/useModalDialog";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { AppIcon } from "../../components/AppIcon";
 import { fileSourceMessagePath } from "../../lib/fileLinks";
 import {
@@ -163,11 +164,7 @@ export function FilesPage() {
 
   return (
     <main className="page-shell files-page" id="main-content">
-      <header className="page-heading files-page-heading">
-        <div>
-          <h1>Files</h1>
-        </div>
-        <div className="files-heading-actions">
+      <SurfaceHeader title="Files" description="Find and revisit files shared in your conversations." className="files-page-heading" actions={<div className="files-heading-actions">
           <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
             <AppIcon name="paperclip" />Share a file
           </button>
@@ -219,8 +216,7 @@ export function FilesPage() {
               </label>
             </div>
           </details>
-        </div>
-      </header>
+        </div>} />
 
       <form className="files-search" role="search" onSubmit={(event) => {
         event.preventDefault();
@@ -245,7 +241,7 @@ export function FilesPage() {
       <section className="files-surface" aria-labelledby="files-list-heading">
         <div className="files-toolbar">
           <div className="files-toolbar-heading">
-            <span className="eyebrow">Authorized index</span>
+            <span className="eyebrow">Conversation library</span>
             <h2 id="files-list-heading">Shared files</h2>
           </div>
           <fieldset className="files-category-tabs">
@@ -329,7 +325,7 @@ export function FilesPage() {
             <span>Conversation</span>
             <span>Size</span>
             <span>Added</span>
-            <span />
+            <span>Actions</span>
           </div>}
           <ol className="files-list" aria-busy={loadingMore}>
             {visibleFiles.map((file) => (
@@ -423,7 +419,7 @@ function FileRow({
           <span className="file-row-source" title={sourceTitle}>{sourceTitle}</span>
         </p>
         <p>
-          <span className="file-row-owner" title={ownerIdentifier}>Shared by {ownerIdentifier}</span>
+          <span className="file-row-owner" title={ownerIdentifier}><span className="file-owner-label">Shared by </span>{ownerIdentifier}</span>
           <span aria-hidden="true"> · </span>
           <time className="file-row-time" dateTime={sharedAt}>{formatDateTime(sharedAt)}</time>
         </p>

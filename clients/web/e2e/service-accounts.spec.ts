@@ -69,6 +69,11 @@ test("admin creates, rotates, and revokes a scoped bot with one-time credential 
   await page.evaluate(() => { window.history.pushState({}, "", "/admin"); window.dispatchEvent(new PopStateEvent("popstate")); });
   await page.getByRole("button", { name: "Integrations" }).click();
   await expect(page.getByRole("heading", { name: "Service accounts" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Bot name" })).toBeHidden();
+  const newAccount = page.getByText("New service account", { exact: true }).locator("..");
+  await newAccount.focus();
+  await newAccount.press("Enter");
+  await expect(page.getByRole("textbox", { name: "Bot name" })).toBeVisible();
   await page.getByRole("textbox", { name: "Bot name" }).fill("Release Bot");
   await page.getByRole("textbox", { name: "Creation reason" }).fill("Automate releases");
   await page.getByRole("button", { name: "Create service account" }).click();

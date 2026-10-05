@@ -136,7 +136,7 @@ export function TenantSettingsPanel({ api, onUpdated }: { api: ApiClient; onUpda
 
   if (!state || !draft || !original) return <section className="data-card"><div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading workspace settings…</div>{error && <div className="form-error" role="alert">{error}</div>}</section>;
   return <form className="data-card tenant-settings-form" onSubmit={(event) => void save(event)}>
-    <div className="card-heading"><div><span className="eyebrow">Workspace policy</span><h2>Workspace settings</h2></div><span className="status-pill neutral">Version {state.settings.version}</span></div>
+    <div className="card-heading"><div><h2>Workspace settings</h2><p>Review workspace-wide communication, retention and capacity policies before saving.</p></div><span className="status-pill neutral">Version {state.settings.version}</span></div>
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="inline-notice" role="status">{notice}</div>}
     <fieldset disabled={busy} className="workspace-policy-group">
       <legend>Communication</legend>

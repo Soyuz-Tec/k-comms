@@ -137,11 +137,15 @@ describe("AuditPanel server evidence", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const user = userEvent.setup();
     render(<StepUpProvider><AuditPanel api={{ auditEventsPage, exportAuditEvents } as unknown as ApiClient} users={[]} /></StepUpProvider>);
+    await user.click(screen.getByText("Advanced filters"));
     await user.type(screen.getByLabelText("Action"), "user.updated");
     await user.type(screen.getByLabelText("Resource type"), "user");
     await user.click(screen.getByRole("button", { name: "Apply filters" }));
     await waitFor(() => expect(auditEventsPage).toHaveBeenLastCalledWith({ action: "user.updated", resource_type: "user", limit: 100 }, undefined));
+    expect(screen.getByText("Action: user.updated")).toBeVisible();
+    expect(screen.getByText("Resource: user")).toBeVisible();
     await user.type(screen.getByLabelText("Search audit events"), "unapplied");
+    expect(screen.getByText(/Edited filters have not been applied/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Export audit CSV" }));
     expect(exportAuditEvents).toHaveBeenCalledWith({ action: "user.updated", resource_type: "user", limit: 5000 });
   });

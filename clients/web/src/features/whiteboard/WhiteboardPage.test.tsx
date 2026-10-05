@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,7 +79,10 @@ describe("WhiteboardPage workspace bar", () => {
     render(<MemoryRouter initialEntries={["/app/whiteboard?conversation=conversation-one&focus_elements=old-element"]}><WhiteboardPage /><CurrentLocation /></MemoryRouter>);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Board gallery" }));
-    await user.click(await screen.findByRole("button", { name: /Delivery roadmap/ }));
+    const board = await screen.findByRole("button", { name: /Delivery roadmap/ });
+    expect(within(board).getByText("Delivery team")).toBeVisible();
+    expect(within(board).getByText(/Updated/)).toHaveAttribute("datetime", "2026-10-04T12:00:00Z");
+    await user.click(board);
     expect(session.api.boardGallery).toHaveBeenCalledWith("");
     expect(screen.getByRole("region", { name: "Whiteboard for Delivery team" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Open conversation" })).toHaveAttribute("href", "/app/?conversation=conversation-two");

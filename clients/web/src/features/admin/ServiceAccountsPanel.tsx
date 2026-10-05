@@ -5,6 +5,7 @@ import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import type { ServiceAccount, ServiceAccountScope } from "../../types";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AdminCreateDisclosure } from "./AdminCreateDisclosure";
 import { AppIcon } from "../../components/AppIcon";
 
 export const serviceAccountScopes: ServiceAccountScope[] = [
@@ -19,6 +20,7 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
   const [credential, setCredential] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<{ kind: "rotate" | "revoke"; account: ServiceAccount } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
     setError(null);
     try {
       setAccounts(await runWithStepUp(() => api.serviceAccounts()));
+      setLoaded(true);
     } catch (reason: unknown) {
       if (!stepUpWasCancelled(reason)) setError(errorText(reason));
     } finally {
@@ -110,18 +113,18 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
       onCancel={() => { if (!busy) { setPendingAction(null); setActionError(null); } }}
       onConfirm={(reason) => void confirmAction(reason)}
     />}
-    <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div><span className="status-pill success">{loading ? "Loading" : `${accounts.length} configured`}</span></div>
+    <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div><span className="status-pill neutral">{loading ? "Loading…" : !loaded ? "Unavailable" : `${accounts.length} configured`}</span></div>
     <p className="support-note">Non-login bot identities can access only joined conversations and explicitly granted API scopes. After creation, add the bot from a conversation’s member controls. Credentials never work for browser sessions, administration, or sockets.</p>
     {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss service account error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
-    <form className="inline-admin-form service-account-form" onSubmit={(event) => void create(event)}>
+    <AdminCreateDisclosure label="New service account"><form className="inline-admin-form service-account-form" onSubmit={(event) => void create(event)}>
       <label className="field">Bot name<input name="name" required minLength={2} maxLength={120} /></label>
       <label className="field">Credential expires<input name="expires_at" type="datetime-local" defaultValue={defaultExpiry()} min={minimumExpiry()} max={maximumExpiry()} required /></label>
       <fieldset className="scope-fieldset"><legend>Scopes</legend><div className="scope-grid">{serviceAccountScopes.map((scope) => <label className="checkbox-field" key={scope}><input name="scopes" type="checkbox" value={scope} defaultChecked={scope !== "search:read"} />{scope}</label>)}</div></fieldset>
       <label className="field grow-field">Creation reason<input name="reason" required minLength={3} maxLength={1000} /></label>
       <button className="button primary" type="submit" disabled={busy === "create" || Boolean(credential)}>Create service account</button>
-    </form>
+    </form></AdminCreateDisclosure>
     {credential && <div className="secret-reveal" role="region" aria-label="One-time service credential"><strong>One-time service credential</strong><code>{credential}</code><small>Store it now. K-Comms keeps only a one-way secret digest and cannot show it again.</small><button className="button ghost compact" type="button" onClick={() => void navigator.clipboard.writeText(credential)}>Copy credential</button><button className="text-button" type="button" onClick={() => setCredential(null)}>I stored it</button></div>}
-    {!loading && accounts.length === 0 ? <p className="empty-copy">No service accounts configured.</p> : <ul className="security-list service-account-list">{accounts.map((account) => {
+    {!loading && loaded && accounts.length === 0 ? <p className="empty-copy">No service accounts configured.</p> : <ul className="security-list service-account-list">{accounts.map((account) => {
       const status = displayedStatus(account);
       return <li key={account.id}><div><strong>{account.name} <span className="role-chip">Bot</span></strong><small><code>{account.credential_prefix}.••••{account.secret_hint}</code> · Expires {formatDateTime(account.expires_at)} · Last used {account.last_used_at ? formatDateTime(account.last_used_at) : "never"}</small><span className="scope-list">{account.scopes.map((scope) => <span className="status-pill neutral" key={scope}>{scope}</span>)}</span></div><span className={`status-pill ${status === "active" ? "success" : "neutral"}`}>{status}</span>{status === "active" && <><button className="button ghost compact" type="button" disabled={Boolean(credential) || busy === `rotate-${account.id}`} onClick={() => { if (credential) { setError("Acknowledge the current one-time credential before rotating another service account."); return; } setActionError(null); setPendingAction({ kind: "rotate", account }); }}>Rotate credential</button><button className="button danger compact" type="button" disabled={busy === `revoke-${account.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "revoke", account }); }}>Revoke</button></>}</li>;
     })}</ul>}

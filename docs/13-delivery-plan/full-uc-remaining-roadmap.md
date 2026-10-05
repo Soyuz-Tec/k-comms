@@ -2,6 +2,8 @@
 
 Snapshot: 2026-10-05 11:27:41 UTC. Target: full unified communications including telephony. Qualified runtime source: `4974df42c4d54a72225187217199fa5f3cd2b6fc`; owner tracked-source manifest SHA256: `67b01aade64572080e73224d78daa210a8586632870ee047123c80f0b7784008` (2,718 paths/modes). Later protected CI, merge and immutable delivery are recorded in [PR #252](https://github.com/Soyuz-Tec/k-comms/pull/252); statuses below describe this snapshot.
 
+The subsequent [interface design refresh](uc-interface-design-refresh.md) addresses the public, member, and administration page review. Its browser and delivery evidence is recorded separately; synthetic UI previews do not replace the real-provider and protected runtime acceptance below.
+
 The twelve feature increments below have executed software evidence. Results belong to the named qualified feature source, or to descendants with recorded source preservation; shared composition changes require their own qualification. Counts describe separate suites and are not a new combined total. These links identify the original feature deliveries at their named source checkpoints; production acceptance is recorded separately.
 
 | Milestone | Available software | Executed feature-source evidence | Remaining acceptance |

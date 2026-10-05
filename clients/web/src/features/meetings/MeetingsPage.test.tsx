@@ -55,6 +55,33 @@ describe("MeetingsPage", () => {
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "video", null, { meetingId: "meeting-1", occurrenceId: "occurrence-1" });
   });
 
+  it("leads with the agenda and focuses the next eligible occurrence without launching it", async () => {
+    const user = userEvent.setup();
+    const cancelled = { ...meeting, id: "cancelled", title: "Cancelled planning", status: "cancelled" as const, occurrences: [{ ...meeting.occurrences[0]!, id: "cancelled-occurrence", starts_at: "2026-10-04T09:05:00Z" }] };
+    const ended = { ...meeting, id: "ended", title: "Earlier review", occurrences: [{ ...meeting.occurrences[0]!, id: "ended-occurrence", starts_at: "2026-10-03T09:10:00Z", ends_at: "2026-10-03T09:40:00Z" }] };
+    harness.api.meetings.mockResolvedValue([cancelled, ended, meeting]);
+    renderMeetings();
+    const next = await screen.findByRole("region", { name: "Up next" });
+    expect(next).toHaveTextContent("Design review");
+    expect(next).toHaveTextContent("1 upcoming this month");
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("region", { name: /meeting calendar/ })).not.toBeInTheDocument();
+    await user.click(within(next).getByRole("button", { name: "View next meeting" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Design review" }).closest("li")).toHaveFocus());
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
+  it("labels an ongoing scheduled occurrence as in progress while preserving its admission policy", async () => {
+    vi.setSystemTime(new Date("2026-10-04T09:20:00Z"));
+    renderMeetings();
+    const current = await screen.findByRole("region", { name: "In progress" });
+    expect(current).toHaveTextContent("1 in progress · 0 upcoming this month");
+    expect(current).toHaveTextContent("The scheduled meeting time is underway.");
+    expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start meeting" })).toBeEnabled();
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
   it("opens an authorized search result in its occurrence month without starting a call", async () => {
     const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const occurrenceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -186,7 +213,7 @@ describe("MeetingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Calendar$/ }));
     await user.click(screen.getByRole("button", { name: /2026-10-06, 0 meetings/ }));
     expect(screen.getByText("No meetings on this day.")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /^List$/ }));
+    await user.click(screen.getByRole("button", { name: /^Agenda$/ }));
     expect(screen.getByRole("heading", { name: "Design review" })).toBeVisible();
   });
 

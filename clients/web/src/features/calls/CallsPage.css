@@ -791,7 +791,7 @@
 @container calls-page (max-width: 44rem) {
   .calls-destination-tabs {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .calls-destination-tabs a {

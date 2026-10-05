@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
-import { RouteOrientation } from "./RouteOrientation";
+import { routeLabel, RouteOrientation } from "./RouteOrientation";
 
 function Harness() {
   return (
@@ -37,6 +37,13 @@ function DelayedNotificationSettings() {
 }
 
 describe("RouteOrientation", () => {
+  it("names content destinations and all administration deep links", () => {
+    expect(routeLabel("/app/meetings", "")).toBe("Meetings");
+    expect(routeLabel("/app/artifacts", "")).toBe("Recordings and transcripts");
+    expect(routeLabel("/app/saved", "")).toBe("Saved items");
+    expect(routeLabel("/admin", "?section=domains")).toBe("Domains · Workspace administration");
+    expect(routeLabel("/admin", "?section=usage")).toBe("Usage · Workspace administration");
+  });
   it("labels signed-out app routes as sign-in and prioritizes the task heading", async () => {
     render(
       <MemoryRouter initialEntries={["/admin?section=people"]}>
@@ -52,6 +59,16 @@ describe("RouteOrientation", () => {
     await waitFor(() => expect(signIn).toHaveFocus());
     expect(document.title).toBe("Sign in | K-Comms");
     expect(screen.getByText("Sign in view")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("ignores an inert canvas main and focuses the visible authentication task", async () => {
+    render(<MemoryRouter initialEntries={["/sign-in"]}>
+      <RouteOrientation authenticated={false} />
+      <div inert aria-hidden="true"><main><h1>Drawing canvas</h1></main></div>
+      <section><h1 data-route-focus>Sign in to your workspace</h1></section>
+    </MemoryRouter>);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Sign in to your workspace" })).toHaveFocus());
+    expect(screen.getByText("Drawing canvas")).not.toHaveAttribute("tabindex");
   });
 
   it("orients the guest entry as a join task instead of a sign-in task", async () => {

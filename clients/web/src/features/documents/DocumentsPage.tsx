@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
+import { AppIcon } from "../../components/AppIcon";
+import { formatDateTime } from "../../lib/format";
 import { useWorkspaceData } from "../../app/workspace-data";
 import type { DocumentEdit, DocumentSummary, SharedDocument } from "../../types/sharedDocuments";
 import { SharedDocumentEditor } from "./SharedDocumentEditor";
@@ -68,21 +71,22 @@ function DocumentsForIdentity() {
     setRevision(value => value + 1);
   }, []);
   if (loading) return <main id="main-content" className="centered-page" aria-busy="true"><p>Opening documents…</p></main>;
-  return <main className="documents-page" id="main-content">
-    <header className="documents-heading"><div><span className="eyebrow">Conversation collaboration</span><h1>Shared documents</h1><p>Write plaintext and Markdown together. Changes sync with current conversation members.</p></div>
-      <label>Conversation<select value={conversation?.id || ""} onChange={event => setParams({ conversation: event.target.value })}>
+  return <main className="page-shell documents-page" id="main-content">
+    <SurfaceHeader title="Shared documents" description="Write notes and plans together with your conversation members." className="documents-heading" actions={
+      <label className="field">Conversation<select value={conversation?.id || ""} onChange={event => setParams({ conversation: event.target.value })}>
         {!conversation && <option value="">Choose a conversation</option>}
         {conversations.map(value => <option key={value.id} value={value.id}>{value.title || "Untitled conversation"}</option>)}
-      </select></label></header>
+      </select></label>} />
     {error && <p role="alert">{error}</p>}
     {!conversation ? <section className="empty-state"><h2>Choose a conversation first</h2><Link to="/app/">Open Inbox</Link></section> : <div className="documents-workspace">
       <aside className="documents-library" aria-label="Conversation documents">
-        <label>Find a document<input type="search" value={query} maxLength={160} onChange={event => setQuery(event.target.value)} placeholder="Search title or content" /></label>
-        <form onSubmit={event => { event.preventDefault(); void create(); }}><label>New document title<input value={title} maxLength={160} onChange={event => setTitle(event.target.value)} /></label><button type="submit" className="button primary" disabled={busy || !title.trim()}>Create document</button></form>
-        <div aria-busy={busy}>{documents.map(document => <button className={`document-library-item ${document.id === documentId ? "selected" : ""}`} key={document.id} onClick={() => open(document)} type="button" aria-current={document.id === documentId ? "page" : undefined}><strong>{document.title}</strong><small>Version {document.version} · {document.readonly ? "Read only" : "Shared"}</small></button>)}
-          {!busy && documents.length === 0 && <p>No accessible documents match this conversation.</p>}</div>
+        <div className="documents-library-heading"><h2>Conversation documents</h2><p>Shared with current members of {conversation.title || "this conversation"}.</p></div>
+        <label className="field">Find a document<input type="search" value={query} maxLength={160} onChange={event => setQuery(event.target.value)} placeholder="Search title or content" /></label>
+        <form onSubmit={event => { event.preventDefault(); void create(); }}><label className="field">New document title<input value={title} maxLength={160} onChange={event => setTitle(event.target.value)} /></label><button type="submit" className="button primary" disabled={busy || !title.trim()}>Create document</button></form>
+        <div aria-busy={busy}>{documents.map(document => <button className={`document-library-item ${document.id === documentId ? "selected" : ""}`} key={document.id} onClick={() => open(document)} type="button" aria-current={document.id === documentId ? "page" : undefined}><strong>{document.title}</strong><span className="document-library-excerpt">{document.excerpt || "No text yet"}</span><small><time dateTime={document.updated_at}>Updated {formatDateTime(document.updated_at)}</time></small><small>Version {document.version} · {document.readonly ? "Read only" : "Shared"}</small></button>)}
+          {!busy && documents.length === 0 && <p>{query ? "No documents match this search. Try another title or phrase." : "No documents here yet. Create one to start writing together."}</p>}</div>
       </aside>
-      {documentId ? <DocumentWorkspace key={`${identity}:${documentId}`} id={documentId} onCopy={open} onAccessChanged={accessChanged} onChanged={() => setRevision(value => value + 1)} /> : <section className="document-welcome"><h2>Write together</h2><p>Create meeting notes, an agenda or a shared plan, then edit with your conversation members.</p><p>Documents support up to 16,000 characters. Unsent changes stay in this tab; keep it open until syncing completes.</p></section>}
+      {documentId ? <DocumentWorkspace key={`${identity}:${documentId}`} id={documentId} onCopy={open} onAccessChanged={accessChanged} onChanged={() => setRevision(value => value + 1)} /> : <section className="document-welcome surface-empty"><AppIcon name="file" /><h2>{documents.length ? "Choose a document to continue" : "Write together"}</h2><p>{documents.length ? "Open a document from the library to read it and resume editing." : "Create meeting notes, an agenda or a shared plan, then edit with your conversation members."}</p>{documents[0] && <button type="button" className="button primary" onClick={() => open(documents[0]!)}>Continue {documents[0].title}</button>}<p className="document-sync-note">Unsent changes stay in this tab. Keep it open until syncing completes.</p></section>}
     </div>}
   </main>;
 }
@@ -176,13 +180,13 @@ function DocumentWorkspace({ id, onCopy, onChanged, onAccessChanged }: { id: str
   }
   return <section className="document-workspace" aria-label={document.title}>
     <header className="document-toolbar"><div><h2>{document.title}</h2><p role="status" aria-live="polite">{pendingCount ? `${pendingCount} unsent ${pendingCount === 1 ? "edit" : "edits"}` : status === "live" ? "All changes synced" : "Connection interrupted"} · Version {document.version}</p></div>
-      <div className="document-actions"><button type="button" disabled={!actionsAllowed || document.readonly} onClick={() => setTitleDraft(document.title)}>Rename</button><button type="button" disabled={!actionsAllowed} onClick={copy}>Make a copy</button><button type="button" disabled={!actionsAllowed} onClick={download}>Export text</button></div></header>
-    {pendingAction && <p role="status">{busy ? `Confirming ${pendingAction.kind === "copy" ? "the copy" : "the title change"}…` : `A ${pendingAction.kind === "copy" ? "copy" : "title change"} is awaiting confirmation.`} <button type="button" disabled={!connectionReady || busy} onClick={() => { if (intent.current) void submitAction(intent.current); }}>Retry pending action</button></p>}
-    {titleDraft !== null && <form className="document-title-form" onSubmit={event => { event.preventDefault(); void rename(); }}><label>Document title<input value={titleDraft} onChange={event => setTitleDraft(event.target.value)} disabled={!!pendingAction || busy} maxLength={160} autoFocus /></label><button disabled={!actionsAllowed || !titleDraft.trim()}>Save title</button><button type="button" disabled={!!pendingAction || busy} onClick={() => setTitleDraft(null)}>Cancel</button></form>}
+      <div className="document-actions"><button className="button ghost" type="button" disabled={!actionsAllowed || document.readonly} onClick={() => setTitleDraft(document.title)}>Rename</button><button className="button ghost" type="button" disabled={!actionsAllowed} onClick={copy}>Make a copy</button><button className="button ghost" type="button" disabled={!actionsAllowed} onClick={download}>Export text</button></div></header>
+    {pendingAction && <p role="status">{busy ? `Confirming ${pendingAction.kind === "copy" ? "the copy" : "the title change"}…` : `A ${pendingAction.kind === "copy" ? "copy" : "title change"} is awaiting confirmation.`} <button className="button ghost" type="button" disabled={!connectionReady || busy} onClick={() => { if (intent.current) void submitAction(intent.current); }}>Retry pending action</button></p>}
+    {titleDraft !== null && <form className="document-title-form" onSubmit={event => { event.preventDefault(); void rename(); }}><label className="field">Document title<input value={titleDraft} onChange={event => setTitleDraft(event.target.value)} disabled={!!pendingAction || busy} maxLength={160} autoFocus /></label><button className="button primary" disabled={!actionsAllowed || !titleDraft.trim()}>Save title</button><button className="button ghost" type="button" disabled={!!pendingAction || busy} onClick={() => setTitleDraft(null)}>Cancel</button></form>}
     {(error || actionError) && <p role="alert">{actionError || error}</p>}
     <p className="document-presence" aria-live="polite">{peers.length ? `${peers.length} other ${peers.length === 1 ? "device is" : "devices are"} editing here. Highlighted text shows their selections.` : "You are editing this document."}</p>
     {document.readonly && <p role="status">This document reached its retained edit limit. Export it or make a lineage-preserving copy to continue.</p>}
     <SharedDocumentEditor content={document.content} atoms={document.atoms} readonly={document.readonly || status === "unavailable"} peers={peers} onEdit={edit} onSelection={presence} onError={setActionError} />
-    <footer className="document-disclosure"><p>Plaintext and Markdown · {Array.from(document.content).length.toLocaleString()} / 16,000 characters. Paste up to 2,048 characters per edit.</p><p>Governed deletion of any original author removes this entire document and its copies. Legal holds preserve the content and its edit history.</p><p>Unsent text and pending action confirmations clear when this tab closes or your sign-in or permissions change.</p></footer>
+    <footer className="document-disclosure"><p>Plaintext and Markdown · {Array.from(document.content).length.toLocaleString()} / 16,000 characters.</p><details><summary>Document limits and retention</summary><p>Paste up to 2,048 characters per edit.</p><p>Governed deletion of any original author removes this entire document and its copies. Legal holds preserve the content and its edit history.</p><p>Unsent text and pending action confirmations clear when this tab closes or your sign-in or permissions change.</p></details></footer>
   </section>;
 }

@@ -2,7 +2,7 @@ import { NavLink } from "react-router";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
 type MemberDestination = {
-  label: "Inbox" | "Calls" | "Meetings" | "Saved items" | "Whiteboard" | "Directory" | "Files" | "You" | "Private rooms";
+  label: "Inbox" | "Calls" | "Meetings" | "Phone" | "Recordings" | "Shared documents" | "Saved items" | "Whiteboard" | "Directory" | "Files" | "You" | "Private rooms";
   path: string;
   icon: AppIconName;
   group: "Communicate" | "Collaborate" | "Personal";
@@ -44,6 +44,9 @@ export const memberDestinations: MemberDestination[] = [
     group: "Communicate",
     mobilePrimary: false
   },
+  { label: "Phone", path: "/app/calls/phone", icon: "phone", group: "Communicate", mobilePrimary: false },
+  { label: "Recordings", path: "/app/artifacts", icon: "video", group: "Collaborate", mobilePrimary: false },
+  { label: "Shared documents", path: "/app/documents", icon: "file", group: "Collaborate", mobilePrimary: false },
   {
     label: "Saved items",
     path: "/app/saved",
@@ -127,7 +130,7 @@ function MemberAreaLink({
   return (
     <NavLink
       to={path}
-      end={path === "/app/"}
+      end={path === "/app/" || path === "/app/calls"}
       aria-label={compact ? label : undefined}
       title={compact ? label : undefined}
     >

@@ -30,8 +30,8 @@ export function VoicemailAdminPanel() {
     catch (reason) { if (!stepUpWasCancelled(reason)) setError(errorText(reason)); }
     finally { setBusy(false); }
   }
-  return <section aria-labelledby="voicemail-admin-heading">
-    <h2 id="voicemail-admin-heading">Voicemail mailbox</h2>
+  return <section className="phone-voicemail-admin" aria-labelledby="voicemail-admin-heading">
+    <h3 id="voicemail-admin-heading">Voicemail mailbox</h3>
     <p>Voicemail requires verified PBX recording, encrypted versioned storage, and an installed caller recording notice. The mailbox can remain off while those checks are completed.</p>
     {loading && <p role="status">Loading voicemail mailbox…</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -43,9 +43,9 @@ export function VoicemailAdminPanel() {
         <p>A longer workspace retention policy and active legal holds take precedence.</p>
         <label className="field">Caller recording notice<input name="notice_media" required maxLength={156} pattern="sound:[A-Za-z0-9_/-]{1,150}" placeholder="sound:custom/k-comms-recording-notice" defaultValue={box?.notice_media ?? ""} /></label>
         <p>Use the approved notice installed by your phone operator.</p>
-        <label><input name="enabled" type="checkbox" defaultChecked={box?.enabled ?? false} /> Enable voicemail</label>
+        <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked={box?.enabled ?? false} /> Enable voicemail</label>
         <label className="field">Reason<textarea name="reason" required minLength={3} maxLength={500} /></label>
-        <button className="button primary" type="submit">{busy ? "Saving mailbox…" : "Save voicemail mailbox"}</button>
+        <div className="form-actions"><button className="button primary" type="submit">{busy ? "Saving mailbox…" : "Save voicemail mailbox"}</button></div>
       </fieldset>
     </form>}
   </section>;

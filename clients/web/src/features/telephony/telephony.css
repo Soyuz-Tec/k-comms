@@ -18,10 +18,21 @@
 .phone-history-list li > div { display: grid; gap: .35rem; overflow-wrap: anywhere; }
 .phone-call-dock { position: fixed; z-index: 170; inset-block-end: 1rem; inset-inline-end: 1rem; width: min(380px, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--border-default); border-radius: 1rem; background: var(--surface-raised); box-shadow: 0 12px 40px #0003; max-height: 65vh; overflow-y: auto; }
 .phone-call-dock p > strong, .phone-call-dock p > span { display: block; overflow-wrap: anywhere; }
-.phone-setup-note { margin-block: 1rem; }
+.phone-setup-note { margin-block: 1rem; padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-inline-start: 3px solid var(--warning-border); }
+.phone-setup-note h2 { font-size: var(--text-base); margin: 0 0 .35rem; }
+.phone-setup-note p { margin: 0 0 .35rem; }
+.phone-setup-note small, .phone-keypad-help { color: var(--text-muted); }
+.phone-setup-note > .button { flex-shrink: 0; }
+.phone-keypad-help { font-size: var(--text-sm); }
+.phone-keypad-help summary { cursor: pointer; padding-block: .3rem; }
+.phone-keypad-help p { margin-top: .5rem; }
+.phone-dialer h2, .phone-history h2 { font-size: var(--text-base); margin-block: 0 .75rem; }
+.phone-history-list time, .phone-history-list li > div > span { color: var(--text-muted); font-size: var(--text-sm); }
+.phone-page .phone-setup-note { background: var(--surface-raised); }
 .phone-admin-panel { max-width: 680px; }
 @container phone-page (max-width: 44rem) {
   .phone-workspace { grid-template-columns: minmax(0, 1fr); }
+  .phone-setup-note { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 720px) { .phone-workspace { grid-template-columns: minmax(0, 1fr); } .phone-call-dock { inset-block-end: calc(5rem + env(safe-area-inset-bottom)); } }
 .ivr-choices { display: grid; gap: 1rem; }

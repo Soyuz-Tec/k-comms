@@ -10,3 +10,9 @@
 .board-library-controls { position: relative; min-width: 0; flex: 0 0 auto; padding: .5rem .75rem; border-bottom: 1px solid var(--border-default); background: var(--surface-raised); }
 .board-library-controls > .button { min-height: 44px; }
 .board-library-controls .board-library { max-height: min(45vh,25rem); overflow: auto; margin-top: .5rem; }
+
+.board-gallery { overflow: auto; border-radius: 0; border-width: 0 0 1px; }
+.board-gallery-help, .board-gallery-grid time, .board-gallery-grid small { color: var(--text-muted); font-size: var(--text-sm); }
+.board-gallery-help { margin: 0 0 .75rem; line-height: 1.5; max-width: 70rem; }
+.board-gallery-grid button { overflow-wrap: anywhere; border-radius: var(--radius-md); }
+.board-gallery-grid button:hover { border-color: var(--accent-border); background: var(--surface-canvas); }

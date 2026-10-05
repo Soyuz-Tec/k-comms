@@ -28,3 +28,32 @@
   flex-basis: 100%;
   width: 100%;
 }
+.artifacts-page { display: grid; align-content: start; gap: 1.25rem; }
+.artifacts-context, .artifacts-library-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.artifacts-context h2, .artifacts-library h2, .artifacts-call-list h3 { margin: 0; font-size: var(--text-base); }
+.artifacts-context p, .artifacts-library-heading p, .artifacts-call-list p { color: var(--text-muted); font-size: var(--text-sm); margin: .5rem 0 0; }
+.artifacts-eyebrow, .artifacts-coverage { color: var(--text-muted); font-size: var(--text-xs); }
+.artifacts-eyebrow { display: block; margin-bottom: .4rem; }
+.artifacts-context > .button, .artifacts-library-heading > .button { flex-shrink: 0; }
+.artifacts-library { display: grid; gap: 1rem; }
+.artifacts-filters { display: flex; flex-wrap: wrap; gap: 1rem; }
+.artifacts-filters .field { margin: 0; min-width: 12rem; }
+.artifacts-filters .field:first-child { flex: 1; }
+.artifacts-call-list { display: grid; gap: .75rem; list-style: none; margin: 0; padding: 0; }
+.artifacts-call-list > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.artifacts-call-list .status-pill { margin-top: .5rem; }
+.artifacts-coverage { margin: 0; }
+.meeting-artifacts { border-color: var(--border-default); background: var(--surface-raised); gap: 1rem; padding: 1.25rem; }
+.meeting-artifacts h3 { font-size: var(--text-base); }
+.meeting-artifacts h4 { font-size: var(--text-sm); }
+.meeting-artifacts > p, .meeting-artifacts small { font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; }
+.meeting-saved-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; border-top: 1px solid var(--border-default); padding-top: 1rem; }
+.meeting-saved-heading .field { margin: 0; }
+.meeting-saved-list > li { padding: 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-canvas); }
+.meeting-artifact-title { margin-inline-end: auto; }
+.meeting-recording-consent { border: 1px solid var(--warning-border); border-radius: var(--radius-md); background: var(--warning-quiet); padding: 1rem; }
+.meeting-artifacts .inline-notice.error { color: var(--danger-text); }
+@media (max-width: 720px) {
+  .artifacts-context, .artifacts-library-heading, .artifacts-call-list > li { flex-direction: column; align-items: stretch; }
+  .artifacts-filters .field { min-width: 0; width: 100%; }
+}

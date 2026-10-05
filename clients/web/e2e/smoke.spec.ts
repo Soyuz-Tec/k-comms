@@ -65,7 +65,7 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
    */
   const onPhone = await page.getByRole("navigation", { name: "Primary navigation" }).isVisible();
   if (onPhone) {
-    const workspaceTools = page.getByRole("navigation", { name: "Workspace", exact: true });
+    const workspaceTools = page.getByRole("navigation", { name: "Administration and operations", exact: true });
     await expect(workspaceTools).toBeVisible();
     await workspaceTools
       .getByRole("link", { name: "Workspace administration", exact: true })
@@ -76,7 +76,7 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
       .getByRole("link", { name: "Workspace administration", exact: true })
       .click();
   }
-  await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People, roles and sessions" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Ada Lovelace ada@example.test" })).toBeVisible();

@@ -7,5 +7,5 @@
     { "name": "whiteboard", "entries": ["index.html", "src/features/whiteboard/WhiteboardPage.tsx"], "raw": 2300000, "gzip": 645000 },
     { "name": "inbox with active call", "entries": ["index.html", "src/features/chat/ChatPage.tsx", "src/features/calls/CallPanel.tsx"], "raw": 3050000, "gzip": 845000 }
   ],
-  "total": { "raw": 10300000, "gzip": 3250000 }
+  "total": { "raw": 10400000, "gzip": 3250000 }
 }

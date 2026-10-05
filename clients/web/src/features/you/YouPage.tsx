@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
+import { memberDestinations } from "../../components/MemberAreaLinks";
 import {
   canAccessWorkspaceAdmin,
   canManageUsers,
@@ -13,15 +14,6 @@ import { clearMemberInstantRoomContinuity } from "../instant-room/memberContinui
 import { CalendarConnectionsPanel } from "../calendar-sync/CalendarConnectionsPanel";
 import { SettingsPage } from "../settings/SettingsPage";
 
-/*
- * This screen absorbed the phone overflow drawer. That drawer was a full-height
- * modal holding five items — one of them under a "Collaboration" label that
- * headed a list of one — and it cost a control in the top bar of every screen
- * to reach. Administration and operations already lived here; the drawer was
- * duplicating them. Whiteboard, the instant room and signing out are the three
- * that had nowhere else to go, and they belong on the screen that already
- * exists to hold everything about you, your workspace and your role.
- */
 export function YouPage() {
   const { session, logout } = useSession();
   const callSession = useOptionalCallSession();
@@ -49,11 +41,9 @@ export function YouPage() {
         roleTools={(
           <>
             <nav className="you-role-shortcuts" aria-label="Workspace">
-              <span>Workspace</span>
+              <h2>Workspace shortcuts</h2>
               <div className="you-role-card-grid">
-                <Link to="/app/whiteboard"><AppIcon name="whiteboard" /><span>Whiteboard</span><AppIcon name="arrowUpRight" /></Link>
-                <Link to="/app/meetings"><AppIcon name="clock" /><span>Meetings</span><AppIcon name="arrowUpRight" /></Link>
-                <Link to="/app/saved"><AppIcon name="bookmark" /><span>Saved items</span><AppIcon name="arrowUpRight" /></Link>
+                {memberDestinations.filter(({ mobilePrimary }) => !mobilePrimary).map(({ path, icon, label }) => <Link key={path} to={path}><AppIcon name={icon} /><span>{label}</span><AppIcon name="arrowUpRight" /></Link>)}
                 <button
                   className="you-shortcut-button"
                   type="button"
@@ -64,13 +54,19 @@ export function YouPage() {
                 >
                   <AppIcon name="plus" /><span>Start instant room</span><AppIcon name="arrowUpRight" />
                 </button>
+              </div>
+            </nav>
+            <CalendarConnectionsPanel />
+            {(showAdmin || showOperations) && <nav className="you-role-shortcuts you-administration-shortcuts" aria-label="Administration and operations">
+              <h2>Administration and operations</h2>
+              <p>Tools available for your workspace and service responsibilities.</p>
+              <div className="you-role-card-grid">
                 {showPeople && <Link to="/admin?section=people"><AppIcon name="userPlus" /><span>People &amp; invitations</span><AppIcon name="arrowUpRight" /></Link>}
                 {showSafety && <Link to="/admin?section=safety"><AppIcon name="flag" /><span>Safety review</span><AppIcon name="arrowUpRight" /></Link>}
                 {showAdmin && <Link to="/admin"><AppIcon name="settings" /><span>Workspace administration</span><AppIcon name="arrowUpRight" /></Link>}
                 {showOperations && <Link to="/ops"><AppIcon name="activity" /><span>Service operations</span><AppIcon name="arrowUpRight" /></Link>}
               </div>
-            </nav>
-            <CalendarConnectionsPanel />
+            </nav>}
             <section className="you-account-actions" aria-label="Signed-in account">
               <dl>
                 <div><dt>User</dt><dd>{session.user.display_name}</dd></div>

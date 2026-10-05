@@ -43,6 +43,40 @@ transfer, parse/execute time, rendering, interaction latency, or memory. A small
 route chunk can still import a large shared dependency set. The present shared
 entry footprint deserves a separate profile before changing chunk boundaries.
 
+## Reviewed interface increment (2026-10-05)
+
+The interface refresh deliberately allocates 100,000 additional raw bytes to
+all emitted JavaScript/CSS (10,300,000 → 10,400,000, +0.971%). All five named
+route ceilings and the 3,250,000-byte aggregate gzip ceiling remain unchanged.
+The aggregate assertion continues to include every emitted dynamic chunk; the
+checker and its failure-case tests are unchanged.
+
+The retained pre-change production build, whose web source is unchanged through
+protected base `ad49eb6`, measured 10,296,074 raw / 3,128,288 gzip bytes. The first
+refresh build measured 10,348,800 raw / 3,140,926 gzip bytes and correctly failed
+the former raw ceiling by 48,800 bytes. The measured increment is 52,726 raw
+(+0.512%) and 12,638 gzip (+0.404%): 31,696 bytes of JavaScript and 21,030 of CSS.
+
+| Static import closure | Before raw / gzip | First refresh raw / gzip |
+|---|---:|---:|
+| Shared entry/sign-in | 2,147,515 / 603,123 | 2,156,760 / 605,011 |
+| Inbox | 2,311,982 / 649,328 | 2,321,475 / 651,250 |
+| Files | 2,180,027 / 611,245 | 2,190,265 / 613,525 |
+| Whiteboard | 2,194,285 / 617,826 | 2,204,767 / 620,011 |
+| Inbox with call panel | 2,937,402 / 814,210 | 2,950,759 / 816,928 |
+| All emitted JS/CSS | 10,296,074 / 3,128,288 | 10,348,800 / 3,140,926 |
+
+Independent review considered this bounded allocation appropriate for the
+requested cross-page navigation, resource disclosures, recording library,
+profile consolidation, recovery guidance, and consistent controls. There are no
+new dependencies or lockfile changes. The shared entry grew by only 9,245 raw /
+1,888 gzip bytes; the remainder is feature-local. Removing 48,800 bytes would
+consume 92.6% of the measured requested increment, while a CSS cleanup large
+enough to recover that space would require a separate cascade audit. This is a
+specific reviewed UI allocation, not an automatic baseline update or a
+responsiveness claim. The final official build must still pass every ceiling;
+its exact measurements and verification belong in the pull request.
+
 ## Browser regression scope
 
 CI installs Chromium and WebKit. The existing desktop WebKit matrix remains;

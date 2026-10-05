@@ -13,6 +13,7 @@ const emptyFilters = { q: "", action: "", resource_type: "", actor_user_id: "", 
 export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [draft, setDraft] = useState(emptyFilters);
+  const [appliedDraft, setAppliedDraft] = useState(emptyFilters);
   const [applied, setApplied] = useState<AuditExportInput>({});
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -63,6 +64,7 @@ export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
     setEvents([]);
     setNextCursor(null);
     setExportNotice(null);
+    setAppliedDraft({ ...draft });
     setApplied(filters);
   }
 
@@ -91,6 +93,8 @@ export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
     } finally { exportInFlight.current = false; setExporting(false); }
   }
 
+  const draftChanged = Object.keys(draft).some((key) => draft[key as keyof typeof draft].trim() !== appliedDraft[key as keyof typeof draft].trim());
+
   return <section className="data-card">
     <div className="card-heading"><div><span className="eyebrow">Privileged evidence</span><h2>Audit explorer</h2></div><button className="button secondary compact" type="button" disabled={exporting || loading} onClick={() => void exportCsv()}>{exporting ? "Exporting…" : "Export audit CSV"}</button></div>
     {error && <div className="form-error" role="alert">{error}<button className="button ghost compact" type="button" disabled={loading || exporting} onClick={() => void load()}>Retry audit load</button></div>}
@@ -98,11 +102,15 @@ export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
     <form className="evidence-filter-grid" onSubmit={applyFilters}>
       <label className="field">Search audit events<input type="search" maxLength={200} value={draft.q} onChange={(event) => setDraft({ ...draft, q: event.target.value })} placeholder="Action, resource or identifier" /></label>
       <label className="field">Actor<select value={draft.actor_user_id} onChange={(event) => setDraft({ ...draft, actor_user_id: event.target.value })}><option value="">All actors</option>{users.map((user) => <option key={user.id} value={user.id}>{participantIdentifier(user, duplicateUserNames)}</option>)}</select></label>
+      <details className="audit-advanced-filters"><summary tabIndex={0}>Advanced filters</summary><div className="evidence-filter-grid">
       {([ ["action", "Action"], ["resource_type", "Resource type"], ["request_id", "Request ID"] ] as const).map(([key, label]) => <label key={key} className="field">{label}<input value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.value })} maxLength={200} /></label>)}
       <label className="field">From<input type="datetime-local" value={draft.after} onChange={(event) => setDraft({ ...draft, after: event.target.value })} /></label>
       <label className="field">Before<input type="datetime-local" value={draft.before} onChange={(event) => setDraft({ ...draft, before: event.target.value })} /></label>
-      <div className="form-actions"><button className="button primary compact" type="submit" disabled={loading || exporting}>Apply filters</button><button className="button ghost compact" type="button" disabled={loading || exporting} onClick={() => { if (exportInFlight.current || loading) return; setDraft(emptyFilters); setEvents([]); setNextCursor(null); setExportNotice(null); setApplied({}); }}>Reset filters</button></div>
+      </div></details>
+      <div className="form-actions"><button className="button primary compact" type="submit" disabled={loading || exporting}>Apply filters</button><button className="button ghost compact" type="button" disabled={loading || exporting} onClick={() => { if (exportInFlight.current || loading) return; setDraft(emptyFilters); setAppliedDraft(emptyFilters); setEvents([]); setNextCursor(null); setExportNotice(null); setApplied({}); }}>Reset filters</button></div>
     </form>
+    <div className="audit-applied-filters" role="group" aria-label="Applied audit filters">{Object.keys(applied).length === 0 ? <span className="status-pill neutral">All audit events</span> : Object.entries(applied).map(([key, value]) => <span className="status-pill neutral" key={key}>{({ q: "Search", action: "Action", resource_type: "Resource", actor_user_id: "Actor", request_id: "Request", after: "From", before: "Before" } as Record<string, string>)[key] || key}: {key === "actor_user_id" && usersById.has(String(value)) ? participantIdentifier(usersById.get(String(value))!, duplicateUserNames) : String(value)}</span>)}</div>
+    {draftChanged && <p className="support-note">Edited filters have not been applied. Results and export use the applied filters shown above.</p>}
     <p className="support-note">{events.length} matching events loaded{nextCursor ? " · More results available" : ""}. CSV uses the applied server filters across all matching events, up to 5,000 rows. Apply edited filters before exporting.</p>
     <div className="responsive-table" role="region" aria-label="Audit events" tabIndex={0}><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Details</th></tr></thead><tbody>{events.map((event) => {
       const actor = event.actor_user_id ? usersById.get(event.actor_user_id) : undefined;

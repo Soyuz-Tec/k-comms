@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ConfirmDialog } from "../../components/ActionDialog";
+import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { useModalDialog } from "../../components/useModalDialog";
 import { conversationTitle, errorText } from "../../lib/format";
 import type { Conversation } from "../../types";
@@ -102,6 +103,10 @@ export function MeetingsPage() {
   const visibleRows = selectedDay
     ? rows.filter(({ occurrence }) => dateInTimezone(occurrence.starts_at, timezone) === selectedDay)
     : rows;
+  const upcomingRows = rows.filter(({ meeting, occurrence }) => meeting.status !== "cancelled" && occurrence.status !== "cancelled" && Date.parse(occurrence.ends_at) > Date.now());
+  const nextMeeting = upcomingRows[0];
+  const inProgressCount = upcomingRows.filter(({ occurrence }) => Date.parse(occurrence.starts_at) <= Date.now()).length;
+  const nextInProgress = Boolean(nextMeeting && Date.parse(nextMeeting.occurrence.starts_at) <= Date.now());
 
   if (!session) return null;
 
@@ -167,15 +172,12 @@ export function MeetingsPage() {
   }
 
   return <main className="meetings-page member-page" id="main-content">
-    <header className="member-page-heading">
-      <div><h1>Meetings</h1><p>Schedule conversations and keep invitations in your calendar.</p></div>
-      <button className="button primary" type="button" disabled={workspaceLoading || activeConversations.length === 0} onClick={() => { setEditor("new"); setActionError(null); }}>Schedule meeting</button>
-    </header>
+    <SurfaceHeader title="Meetings" description="See what is next and schedule time with your conversations." actions={<button className="button primary" type="button" disabled={workspaceLoading || activeConversations.length === 0} onClick={() => { setEditor("new"); setActionError(null); }}>Schedule meeting</button>} />
     {!workspaceLoading && activeConversations.length === 0 && <p role="note">Create or join a conversation in <Link to="/app/">Inbox</Link> to schedule a meeting.</p>}
     <div className="meetings-toolbar">
       <label className="field">Month<input type="month" value={month} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setMonth(event.target.value); setSelectedDay(null); } }} /></label>
       <div className="member-segmented-control" role="group" aria-label="Meeting view">
-        <button type="button" aria-pressed={view === "list"} onClick={() => { setView("list"); setSelectedDay(null); }}>List</button>
+        <button type="button" aria-pressed={view === "list"} onClick={() => { setView("list"); setSelectedDay(null); }}>Agenda</button>
         <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Calendar</button>
       </div>
       <span>Calendar time zone: {timezone}</span>
@@ -188,9 +190,13 @@ export function MeetingsPage() {
     {actionError && !editor && !cancelling && <p className="inline-notice error" role="alert">{actionError}</p>}
     {loadError && <div className="inline-notice error" role="alert"><span>{loadError}</span><button type="button" onClick={() => setRefresh((value) => value + 1)}>Try again</button></div>}
     {loading ? <p className="member-status-view" role="status">Loading meetings…</p> : !loadError && <>
+      {!selectedDay && nextMeeting && <section className="meetings-next surface-card" aria-labelledby="meetings-next-heading">
+        <div><h2 id="meetings-next-heading">{nextInProgress ? "In progress" : "Up next"}</h2><strong>{nextMeeting.meeting.title}</strong><p><time dateTime={nextMeeting.occurrence.starts_at}>{formatMeetingTime(nextMeeting.occurrence.starts_at, timezone)}</time> · {nextMeeting.meeting.duration_minutes} minutes</p>{nextInProgress && <p>The scheduled meeting time is underway.</p>}</div>
+        <div className="meetings-next-actions"><span className="status-pill neutral">{inProgressCount > 0 && `${inProgressCount} in progress · `}{upcomingRows.length - inProgressCount} upcoming this month</span><button className="button ghost" type="button" onClick={() => { setView("list"); window.requestAnimationFrame(() => document.getElementById(`meeting-${nextMeeting.occurrence.id}`)?.focus()); }}>{nextInProgress ? "View current meeting" : "View next meeting"}</button></div>
+      </section>}
       {view === "calendar" && <MeetingCalendar month={month} timezone={timezone} rows={rows} selectedDay={selectedDay} onSelect={setSelectedDay} />}
       {selectedDay && <div className="meetings-day-heading"><h2>Meetings on {selectedDay}</h2><button className="button ghost" type="button" onClick={() => setSelectedDay(null)}>Show all days</button></div>}
-      {visibleRows.length === 0 ? <p className="member-status-view">{selectedDay ? "No meetings on this day." : "No meetings scheduled this month."}</p> : <ol className="meetings-list" aria-label="Scheduled meetings">
+      {visibleRows.length === 0 ? <div className="surface-empty"><strong>{selectedDay ? "No meetings on this day." : "No meetings scheduled this month."}</strong><p>Schedule a meeting with an existing conversation or choose another month.</p></div> : <ol className="meetings-list" aria-label="Scheduled meetings">
         {visibleRows.map(({ meeting, occurrence }) => {
           const conversation = conversationById.get(meeting.conversation_id);
           const cancelled = meeting.status === "cancelled" || occurrence.status === "cancelled";
@@ -198,9 +204,10 @@ export function MeetingsPage() {
           const joinWindowOpen = Date.parse(occurrence.starts_at) <= Date.now() + 15 * 60_000;
           const waitingForHost = meeting.host_user_id !== session.user.id && !meeting.host_policy.join_before_host && !occurrence.call_id;
           const canJoin = !cancelled && !ended && joinWindowOpen && !waitingForHost && (videoEnabled || audioEnabled) && Boolean(conversation);
-          return <li className={`meeting-row${cancelled ? " cancelled" : ""}`} aria-current={linkedMeeting?.id === meeting.id && linkedOccurrence === occurrence.id ? "true" : undefined} key={occurrence.id}>
+          return <li id={`meeting-${occurrence.id}`} tabIndex={-1} className={`meeting-row${cancelled ? " cancelled" : ""}${nextMeeting?.occurrence.id === occurrence.id ? " is-next" : ""}`} aria-current={linkedMeeting?.id === meeting.id && linkedOccurrence === occurrence.id ? "true" : undefined} key={occurrence.id}>
             <div className="meeting-row-copy">
               <h2>{meeting.title}</h2>
+              {nextMeeting?.occurrence.id === occurrence.id && <span className="status-pill neutral">{nextInProgress ? "In progress" : "Next meeting"}</span>}
               <p><time dateTime={occurrence.starts_at}>{formatMeetingTime(occurrence.starts_at, meeting.timezone)}</time><span> · {meeting.duration_minutes} minutes</span></p>
               <p>{conversation ? conversationTitle(conversation) : "Conversation unavailable"} · {meeting.timezone}</p>
               {meeting.recurrence.frequency !== "none" && <p>Repeats every {meeting.recurrence.interval} {meeting.recurrence.frequency === "daily" ? "day(s)" : "week(s)"}, {meeting.recurrence.count} times</p>}

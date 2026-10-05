@@ -1,14 +1,37 @@
-.private-rooms-page { padding: 24px; overflow: auto; width: 100%; }
-.private-rooms-page h1,.private-rooms-page h2 { margin: 0 0 12px; }
-.private-rooms-page section,.private-rooms-page aside { padding: 16px; border: 1px solid var(--border-color, #ccd3db); border-radius: 12px; margin: 16px 0; }
-.private-rooms-page label { display: block; margin: 10px 0; }
-.private-rooms-page input:not([type=checkbox]),.private-rooms-page textarea,.private-rooms-page select { display: block; width: 100%; max-width: 42rem; padding: 10px; }
-.private-rooms-page button { margin: 6px 8px 6px 0; padding: 8px 12px; }
-.private-room-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; }
-.private-room-layout aside > button { display: block; width: 100%; text-align: left; }
+.private-rooms-page { min-width: 0; display: grid; gap: var(--space-4); }
+.private-rooms-page h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
+.private-rooms-page .card-heading h2 { margin: 0; }
+.private-rooms-page form { display: grid; gap: var(--space-3); }
+.private-rooms-page .field { margin: 0; }
+.private-rooms-page code { overflow-wrap: anywhere; }
+.private-privacy-note { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--accent-border); border-radius: var(--radius-md); background: var(--accent-quiet); font-size: var(--text-sm); }
+.private-privacy-note > .app-icon { flex: 0 0 20px; color: var(--accent-text); }
+.private-privacy-note p { margin: var(--space-2) 0 0; color: var(--text-secondary); }
+.private-privacy-note summary, .private-disclosure > summary { cursor: pointer; min-height: 44px; align-content: center; font-size: var(--text-sm); font-weight: 600; }
+.private-setup-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+.private-setup-steps > div { display: flex; align-items: flex-start; gap: var(--space-2); }
+.private-setup-steps > div > span { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border-radius: 50%; color: var(--accent-text); background: var(--accent-quiet); font-size: var(--text-sm); font-weight: 600; }
+.private-setup-steps strong, .private-setup-steps small { display: block; font-size: var(--text-sm); }
+.private-setup-steps small { margin-top: var(--space-1); color: var(--text-muted); }
+.private-unlock-form { max-width: 42rem; }
+.private-disclosure { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
+.private-disclosure p { font-size: var(--text-sm); color: var(--text-secondary); }
+.private-disclosure > .button { margin: var(--space-2) var(--space-2) var(--space-2) 0; }
+.private-recovery-key { display: grid; gap: var(--space-3); margin: var(--space-4) 0; padding: var(--space-4); border: 1px solid var(--accent-border); border-radius: var(--radius-md); }
+.private-recovery-key textarea { min-height: 90px; }
+.private-room-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+.private-room-layout > * { min-width: 0; }
+.private-room-layout .private-room-choice { display: flex; flex-direction: column; align-items: flex-start; width: 100%; white-space: normal; text-align: left; }
+.private-room-choice[aria-pressed="true"] { color: var(--accent-text); background: var(--accent-quiet); }
+.private-room-choice small { color: var(--text-muted); font-weight: 400; }
+.private-person-choice { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; font-size: var(--text-sm); }
+.private-room-empty { display: grid; place-items: center; gap: var(--space-3); min-height: 180px; text-align: center; color: var(--text-secondary); }
+.private-room-empty > .app-icon { width: 32px; height: 32px; color: var(--text-muted); }
+.private-room-empty p { max-width: 32rem; margin: 0; }
 .private-message-list { padding: 0; list-style: none; max-height: 50vh; overflow: auto; }
+.private-message-list li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
 .private-message-list p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.private-mode-notice { padding: 12px; border-left: 4px solid #637be9; }
-.private-verification { position: fixed; z-index: 1000; inset: 12% 15%; background: var(--surface-color, white); overflow: auto; box-shadow: 0 0 0 100vmax #0008; }
-.private-sas { font-size: 1.5rem; }
-@media (max-width: 760px) { .private-room-layout { grid-template-columns: 1fr; } .private-rooms-page { padding: 12px; } .private-verification { inset: 10% 4%; } }
+.private-verification { display: grid; gap: var(--space-3); }
+.private-verification .form-actions { flex-wrap: wrap; }
+.private-sas { font-size: 1.5rem; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .private-room-layout, .private-setup-steps { grid-template-columns: 1fr; } }

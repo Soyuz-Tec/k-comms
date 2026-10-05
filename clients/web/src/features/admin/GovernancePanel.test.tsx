@@ -108,11 +108,25 @@ function deletionFixture(overrides: Partial<DeletionRequest> = {}): DeletionRequ
 }
 
 describe("GovernancePanel consequence review", () => {
+  it("opens only the requested creation workflow while keeping resource inventories visible", async () => {
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture()} users={[]} conversations={[]} /></StepUpProvider>);
+    expect(await screen.findByText("No legal holds.")).toBeVisible();
+    expect(screen.getByText("No deletion requests.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review policy" })).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Request deletion" })).not.toBeVisible();
+    await user.click(screen.getByText("New legal hold"));
+    expect(screen.getByRole("button", { name: "Create legal hold" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review policy" })).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Request deletion" })).not.toBeVisible();
+  });
+
   it("requires review with attachment deletion off and preserves the policy draft on cancel", async () => {
     const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture());
     const api = apiFixture({ createRetentionPolicy });
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+    await user.click(screen.getByText("New retention policy"));
 
     expect(screen.getByRole("checkbox", { name: "Delete attachments" })).not.toBeChecked();
     await user.type(screen.getByLabelText("Policy name"), "Release archive");
@@ -141,6 +155,7 @@ describe("GovernancePanel consequence review", () => {
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
 
+    await user.click(screen.getByText("New retention policy"));
     await user.type(screen.getByLabelText("Policy name"), "Release archive");
     await user.type(screen.getByLabelText("Retention days"), "90");
     if (deleteAttachments) await user.click(screen.getByRole("checkbox", { name: "Delete attachments" }));
@@ -161,6 +176,7 @@ describe("GovernancePanel consequence review", () => {
     const api = apiFixture({ createRetentionPolicy });
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+    await user.click(screen.getByText("New retention policy"));
 
     await user.type(screen.getByLabelText("Policy name"), "Release archive");
     await user.type(screen.getByLabelText("Retention days"), "90");
@@ -287,6 +303,7 @@ describe("GovernancePanel target selection", () => {
     const api = apiFixture({ createLegalHold } as Partial<ApiClient>);
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={api} users={[activeUser, deletedUser]} conversations={[activeConversation, archivedConversation]} /></StepUpProvider>);
+    await user.click(screen.getByText("New legal hold"));
 
     const section = screen.getByRole("heading", { name: "Legal holds" }).closest("section");
     expect(section).not.toBeNull();
@@ -363,6 +380,7 @@ describe("GovernancePanel target selection", () => {
     const api = apiFixture({ messages, createDeletionRequest } as Partial<ApiClient>);
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={api} users={[activeUser, deletedUser]} conversations={[activeConversation, archivedConversation]} /></StepUpProvider>);
+    await user.click(screen.getByText("New deletion request"));
 
     const section = screen.getByRole("heading", { name: "Deletion requests" }).closest("section");
     expect(section).not.toBeNull();
@@ -401,6 +419,7 @@ describe("GovernancePanel scoped lifecycle evidence", () => {
     const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ scope_type: "conversation", conversation_id: activeConversation.id }));
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={apiFixture({ createRetentionPolicy })} users={[]} conversations={[activeConversation, archivedConversation]} /></StepUpProvider>);
+    await user.click(screen.getByText("New retention policy"));
     const controls = within(screen.getByRole("heading", { name: "Retention policies" }).closest("section")!);
     await user.selectOptions(controls.getByLabelText("Policy scope"), "conversation");
     expect(controls.queryByRole("option", { name: "Archived project" })).not.toBeInTheDocument();
@@ -449,6 +468,7 @@ describe("GovernancePanel scoped lifecycle evidence", () => {
     const request = deletionFixture({ status: "approved", execution_attempts: 2, execution_error: "verification_pending", execution_started_at: "2026-07-12T10:01:00Z", evidence: { messages_tombstoned: 3 } });
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={apiFixture({ messages, deletionRequests: vi.fn().mockResolvedValue([request]), deletionHistory: vi.fn().mockResolvedValue(historyPage({ request })) })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+    await user.click(screen.getByText("New deletion request"));
     const controls = within(screen.getByRole("heading", { name: "Deletion requests" }).closest("section")!);
     await user.selectOptions(controls.getByLabelText("Target type"), "message");
     await user.selectOptions(controls.getByLabelText("Message conversation"), activeConversation.id);
@@ -481,6 +501,9 @@ describe("GovernancePanel inventory concurrency", () => {
     const createDeletionRequest = vi.fn();
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={apiFixture({ retentionPolicies: vi.fn().mockReturnValue(pendingInventory), createRetentionPolicy, createLegalHold, createDeletionRequest })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+    await user.click(screen.getByText("New retention policy"));
+    await user.click(screen.getByText("New legal hold"));
+    await user.click(screen.getByText("New deletion request"));
     await user.type(screen.getByLabelText("Policy name"), "New records");
     await user.type(screen.getByLabelText("Retention days"), "90");
     expect(screen.getByRole("button", { name: "Review policy" })).toBeDisabled();
@@ -506,6 +529,7 @@ describe("GovernancePanel inventory concurrency", () => {
     const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ name: "Preserved draft" }));
     const user = userEvent.setup();
     render(<StepUpProvider><GovernancePanel api={apiFixture({ retentionPolicies, createRetentionPolicy })} users={[]} conversations={[]} /></StepUpProvider>);
+    await user.click(screen.getByText("New retention policy"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Inventory temporarily unavailable");
     await user.type(screen.getByLabelText("Policy name"), "Preserved draft");
     await user.type(screen.getByLabelText("Retention days"), "45");

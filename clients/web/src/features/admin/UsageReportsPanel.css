@@ -6,12 +6,12 @@
 .usage-window-form input { width: 100%; min-width: 0; }
 .usage-report-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .usage-report-actions .button.secondary { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-strong); }
-.usage-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; min-width: 0; }
+.usage-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; min-width: 0; }
 .usage-source { display: grid; align-content: start; gap: 12px; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; min-width: 0; }
 .usage-current-metrics { display: grid; gap: 8px; margin: 0; }
-.usage-current-metrics > div { display: flex; justify-content: space-between; gap: 12px; }
-.usage-current-metrics dt { min-width: 0; overflow-wrap: anywhere; }
-.usage-current-metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
+.usage-current-metrics > div { display: grid; gap: 4px; padding-block: 8px; }
+.usage-current-metrics dt { grid-row: 2; min-width: 0; overflow-wrap: anywhere; color: var(--text-secondary); font-size: var(--text-sm); }
+.usage-current-metrics dd { grid-row: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: var(--text-2xl); font-weight: 700; font-variant-numeric: tabular-nums; }
 .usage-daily summary { cursor: pointer; align-content: center; overflow-wrap: anywhere; }
 .usage-daily .field { margin-block: 8px; }
 /* WebKit otherwise paints a long native selected value outside its field. */

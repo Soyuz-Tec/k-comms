@@ -43,6 +43,8 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
 
     await page.goto("/app/meetings");
     await expect(page.getByRole("heading", { name: "Meetings", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Agenda", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("region", { name: /meeting calendar/ })).toHaveCount(0);
     await page.getByRole("button", { name: "Schedule meeting", exact: true }).click();
     const editor = page.getByRole("dialog", { name: "Schedule meeting" });
     await editor.getByLabel("Title", { exact: true }).fill("Planning review");
@@ -54,6 +56,11 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     await editor.getByRole("button", { name: "Schedule meeting", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Planning review", exact: true })).toBeVisible();
     expect(createInput).toMatchObject({ timezone: "America/New_York", local_start: "2026-10-07T10:00", recurrence: { frequency: "weekly", interval: 1, count: 3 }, reminder_minutes: 15 });
+    const next = page.getByRole("region", { name: "Up next" });
+    await expect(next).toContainText("Planning review");
+    await next.getByRole("button", { name: "View next meeting" }).click();
+    await expect(page.locator("#meeting-synthetic-occurrence")).toBeFocused();
+    await expect(page.getByRole("button", { name: "Start meeting", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "Calendar", exact: true }).click();
     await expect(page.getByRole("region", { name: "2026-10 meeting calendar" })).toBeVisible();
     await page.getByRole("button", { name: "2026-10-07, 1 meetings", exact: true }).click();
@@ -70,6 +77,8 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     await page.getByRole("alertdialog", { name: "Cancel meeting?" }).getByRole("button", { name: "Cancel meeting", exact: true }).click();
     await expect(page.getByText("Cancelled", { exact: true })).toBeVisible();
     expect(cancelledVersion).toBe(1);
+    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download invitation", exact: true }).click();
     expect((await download).suggestedFilename()).toBe("meeting-synthetic-meeting.ics");

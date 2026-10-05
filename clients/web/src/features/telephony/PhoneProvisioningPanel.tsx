@@ -134,7 +134,7 @@ function PhoneProvisioningContent({ onApplied, onManagementMode, isCurrent }: Pa
     } finally { if (isCurrent() && mounted.current && epoch === ownerEpoch.current) setBusy(false); }
   }
 
-  return <section aria-labelledby="phone-provider-management-heading">
+  return <section className="phone-provisioning-panel" aria-labelledby="phone-provider-management-heading">
     <h3 id="phone-provider-management-heading">Inspect and manage provider bindings</h3>
     <p>Use trunks and a number already supplied by your operator. This app does not purchase or port numbers, edit SIP passwords, or enable calling.</p>
     {error && <p role="alert" className="form-error">{error}</p>}
