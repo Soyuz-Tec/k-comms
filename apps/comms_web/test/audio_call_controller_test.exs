@@ -90,28 +90,83 @@ defmodule CommsWeb.AudioCallControllerTest do
     {:ok, account: account, authorization: {"authorization", "Bearer #{token}"}}
   end
 
-  test "current-admission participant reads reject another device's admission and exact revocation", %{account: account} do
+  test "current-admission participant reads reject another device's admission and exact revocation",
+       %{account: account} do
     owner = Fixtures.subject(account)
     {:ok, call, :created} = CommsCore.AudioCalls.start(account.conversation.id, owner)
-    assert {:ok, _, _} = CommsCore.AudioCalls.with_join_authorized(account.conversation.id, call.id, owner,
-      fn _ -> {:ok, %{synthetic: true}} end)
+
+    assert {:ok, _, _} =
+             CommsCore.AudioCalls.with_join_authorized(
+               account.conversation.id,
+               call.id,
+               owner,
+               fn _ -> {:ok, %{synthetic: true}} end
+             )
+
     suffix = account.tenant.slug |> String.split("-") |> List.last()
-    {:ok, authentication} = CommsCore.Accounts.authenticate_view(account.tenant.slug, account.user.email,
-      "correct-horse-battery-#{suffix}", %{name: "Synthetic second native device", platform: "ios"})
+
+    {:ok, authentication} =
+      CommsCore.Accounts.authenticate_view(
+        account.tenant.slug,
+        account.user.email,
+        "correct-horse-battery-#{suffix}",
+        %{name: "Synthetic second native device", platform: "ios"}
+      )
+
     {:ok, context} = CommsCore.Accounts.access_context(authentication.session_id)
     authorization = "Bearer " <> CommsWeb.Token.issue(authentication).access_token
     path = "/api/v1/conversations/#{account.conversation.id}/calls/#{call.id}/participants"
-    legacy = build_conn() |> put_req_header("authorization", authorization) |> get(path) |> json_response(200)
+
+    legacy =
+      build_conn()
+      |> put_req_header("authorization", authorization)
+      |> get(path)
+      |> json_response(200)
+
     assert Enum.any?(legacy["data"], &(&1["user_id"] == account.user.id))
-    denied = build_conn() |> put_req_header("authorization", authorization) |> get(path <> "?current_admission=true") |> json_response(403)
+
+    denied =
+      build_conn()
+      |> put_req_header("authorization", authorization)
+      |> get(path <> "?current_admission=true")
+      |> json_response(403)
+
     assert denied["error"]["code"] == "forbidden"
-    assert {:ok, _, _} = CommsCore.AudioCalls.with_join_authorized(account.conversation.id, call.id, context.subject,
-      fn _ -> {:ok, %{synthetic: true}} end)
-    assert build_conn() |> put_req_header("authorization", authorization) |> get(path <> "?current_admission=true") |> json_response(200)
-    assert {:ok, _} = CommsCore.AudioCalls.revoke_for_sessions(account.tenant.id, [authentication.session_id], "owner_removed")
-    assert build_conn() |> put_req_header("authorization", authorization) |> get(path <> "?current_admission=true") |> json_response(403)
-    assert build_conn() |> put_req_header("authorization", authorization) |> get(path <> "?current_admission=arbitrary") |> json_response(400)
-    assert build_conn() |> put_req_header("authorization", authorization) |> get(path) |> json_response(200)
+
+    assert {:ok, _, _} =
+             CommsCore.AudioCalls.with_join_authorized(
+               account.conversation.id,
+               call.id,
+               context.subject,
+               fn _ -> {:ok, %{synthetic: true}} end
+             )
+
+    assert build_conn()
+           |> put_req_header("authorization", authorization)
+           |> get(path <> "?current_admission=true")
+           |> json_response(200)
+
+    assert {:ok, _} =
+             CommsCore.AudioCalls.revoke_for_sessions(
+               account.tenant.id,
+               [authentication.session_id],
+               "owner_removed"
+             )
+
+    assert build_conn()
+           |> put_req_header("authorization", authorization)
+           |> get(path <> "?current_admission=true")
+           |> json_response(403)
+
+    assert build_conn()
+           |> put_req_header("authorization", authorization)
+           |> get(path <> "?current_admission=arbitrary")
+           |> json_response(422)
+
+    assert build_conn()
+           |> put_req_header("authorization", authorization)
+           |> get(path)
+           |> json_response(200)
   end
 
   test "provider outage rejects call admission before any durable lifecycle state is written", %{

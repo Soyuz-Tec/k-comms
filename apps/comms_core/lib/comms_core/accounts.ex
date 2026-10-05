@@ -499,7 +499,9 @@ defmodule CommsCore.Accounts do
   @doc "Retain exact current human/device/session authority after the caller's governance and quota fences."
   @spec lock_native_push_authority(map(), integer()) ::
           {:ok, CommsCore.Accounts.NativePushAuthority.t()} | {:error, atom()}
-  defdelegate lock_native_push_authority(subject, deadline), to: CommsCore.Accounts.NativePushAuthority, as: :lock
+  defdelegate lock_native_push_authority(subject, deadline),
+    to: CommsCore.Accounts.NativePushAuthority,
+    as: :lock
 
   @doc false
   @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::

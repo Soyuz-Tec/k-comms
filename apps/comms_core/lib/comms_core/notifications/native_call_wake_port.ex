@@ -10,6 +10,7 @@ defmodule CommsCore.Notifications.NativeCallWakePort do
       {:error, :transaction_required}
     end
   end
+
   @spec authorize(NativeCallRequest.t()) :: {:ok, DateTime.t()} | {:error, atom()}
   def authorize(%NativeCallRequest{} = request) do
     if Repo.in_transaction?() do
@@ -18,6 +19,7 @@ defmodule CommsCore.Notifications.NativeCallWakePort do
       {:error, :transaction_required}
     end
   end
+
   @spec admit(NativeCallRequest.t(), map(), function()) :: {:ok, map()} | {:error, atom()}
   def admit(%NativeCallRequest{} = request, subject, issuer) do
     if Repo.in_transaction?() do
@@ -26,6 +28,7 @@ defmodule CommsCore.Notifications.NativeCallWakePort do
       {:error, :transaction_required}
     end
   end
+
   defp invoke(method, args) do
     with {:ok, adapter} <- Application.fetch_env(:comms_core, :native_call_wake_adapter),
          true <- is_atom(adapter) and Code.ensure_loaded?(adapter),

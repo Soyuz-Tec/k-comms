@@ -13,8 +13,16 @@ defmodule CommsIntegrations.PinnedHttpTest do
 
   test "APNs HTTP2 selection retains pinned address, hostname, CA trust and bounded deadline" do
     for options <- [[], [protocols: [:http2]]] do
-      assert {:ok, %{status: 204}} = PinnedHttp.MintTransport.request(Support.destination(), :post, [], "opaque",
-        [timeout_ms: 200, connect_timeout_ms: 50, mint_http: Support.ProtocolCaptureMint] ++ options)
+      assert {:ok, %{status: 204}} =
+               PinnedHttp.MintTransport.request(
+                 Support.destination(),
+                 :post,
+                 [],
+                 "opaque",
+                 [timeout_ms: 200, connect_timeout_ms: 50, mint_http: Support.ProtocolCaptureMint] ++
+                   options
+               )
+
       assert_received {:pinned_protocol_connect, {93, 184, 216, 34}, 443, actual}
       assert actual[:protocols] == Keyword.get(options, :protocols, [:http1])
       assert actual[:hostname] == "hooks.example.test"

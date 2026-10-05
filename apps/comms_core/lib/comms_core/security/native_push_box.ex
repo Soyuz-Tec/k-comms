@@ -143,7 +143,20 @@ defmodule CommsCore.Security.NativePushBox do
 
     if is_binary(tenant_id) and is_binary(registration_id) and is_integer(version) and version > 0 and
          is_binary(channel) and is_binary(application_id) and is_binary(environment) do
-      {:ok, Enum.join([@aad_prefix, key_id, tenant_id, registration_id, version, channel, application_id, environment], ":")}
+      {:ok,
+       Enum.join(
+         [
+           @aad_prefix,
+           key_id,
+           tenant_id,
+           registration_id,
+           version,
+           channel,
+           application_id,
+           environment
+         ],
+         ":"
+       )}
     else
       {:error, :invalid_native_push_secret_context}
     end

@@ -7,5 +7,6 @@ defmodule CommsWorkers.NativeCallWakeWorker do
       _ -> {:discard, :native_push_unavailable}
     end
   end
+
   def perform(_), do: {:discard, :native_push_unavailable}
 end

@@ -35,7 +35,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
     {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
-    {"native_call_wake_v1", [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
+    {"native_call_wake_v1",
+     [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -217,7 +218,9 @@ defmodule CommsCore.Release.RollbackCompatibility do
         repo.active_continuation_oban_job_count!(
           RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
         ),
-      active_native_call_wake_jobs: active_job_count(repo, :native_call_wake) + active_job_count(repo, :native_push_reconciler)
+      active_native_call_wake_jobs:
+        active_job_count(repo, :native_call_wake) +
+          active_job_count(repo, :native_push_reconciler)
     })
     |> Map.merge(Notifications.rollback_native_wake_hazards())
   end

@@ -154,6 +154,7 @@ defmodule CommsWeb.AudioCallController do
 
   defp current_admission(%{"current_admission" => "true"}, conversation, call, subject),
     do: AudioCalls.authorize_participant(conversation, call, subject)
+
   defp current_admission(%{"current_admission" => "false"}, _, _, _), do: :ok
   defp current_admission(%{"current_admission" => _}, _, _, _), do: {:error, :invalid_call_signal}
   defp current_admission(_, _, _, _), do: :ok

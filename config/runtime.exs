@@ -724,34 +724,75 @@ if config_env() == :prod do
       "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"
     )
 
-  native_push_enabled = parse_boolean.(System.get_env("NATIVE_PUSH_ENABLED", "false"), "NATIVE_PUSH_ENABLED")
-  native_push_provider_enabled = parse_boolean.(System.get_env("NATIVE_PUSH_PROVIDER_ENABLED", "false"), "NATIVE_PUSH_PROVIDER_ENABLED")
-  native_push_keys = parse_keyring.(optional_secret.("NATIVE_PUSH_ENCRYPTION_KEYS"), "NATIVE_PUSH_ENCRYPTION_KEYS")
+  native_push_enabled =
+    parse_boolean.(System.get_env("NATIVE_PUSH_ENABLED", "false"), "NATIVE_PUSH_ENABLED")
+
+  native_push_provider_enabled =
+    parse_boolean.(
+      System.get_env("NATIVE_PUSH_PROVIDER_ENABLED", "false"),
+      "NATIVE_PUSH_PROVIDER_ENABLED"
+    )
+
+  native_push_keys =
+    parse_keyring.(optional_secret.("NATIVE_PUSH_ENCRYPTION_KEYS"), "NATIVE_PUSH_ENCRYPTION_KEYS")
+
   native_push_key = optional_secret.("NATIVE_PUSH_ENCRYPTION_KEY")
-  native_push_platforms = case System.get_env("NATIVE_PUSH_PLATFORM_CONFIGS_JSON", "[]") |> Jason.decode() do
-    {:ok, platforms} when is_list(platforms) and length(platforms) <= 8 ->
-      Enum.map(platforms, fn platform ->
-        unless is_map(platform) and MapSet.new(Map.keys(platform)) == MapSet.new(~w(platform channel application_id environment device_qualified)) and
-          platform["platform"] in ["ios", "android"] and platform["channel"] in ~w(apns_alert apns_voip fcm) and
-          is_binary(platform["application_id"]) and Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/, platform["application_id"]) and
-          platform["environment"] in ~w(sandbox production) and is_boolean(platform["device_qualified"]) and
-          ((platform["platform"] == "ios" and platform["channel"] in ~w(apns_alert apns_voip)) or
-           (platform["platform"] == "android" and platform["channel"] == "fcm" and platform["environment"] == "production")),
-          do: raise("NATIVE_PUSH_PLATFORM_CONFIGS_JSON has an invalid approved application configuration")
-        platform
-      end)
-    _ -> raise "NATIVE_PUSH_PLATFORM_CONFIGS_JSON must be a bounded approved application list"
-  end
-  native_push_channels = native_push_platforms |> Enum.filter(&(&1["device_qualified"] == true)) |> Enum.map(& &1["channel"]) |> Enum.uniq()
-  native_transport_names = ~w(NATIVE_PUSH_APNS_KEY_ID NATIVE_PUSH_APNS_TEAM_ID NATIVE_PUSH_APNS_PRIVATE_KEY_FILE NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE)
+
+  native_push_platforms =
+    case System.get_env("NATIVE_PUSH_PLATFORM_CONFIGS_JSON", "[]") |> Jason.decode() do
+      {:ok, platforms} when is_list(platforms) and length(platforms) <= 8 ->
+        Enum.map(platforms, fn platform ->
+          unless is_map(platform) and
+                   MapSet.new(Map.keys(platform)) ==
+                     MapSet.new(~w(platform channel application_id environment device_qualified)) and
+                   platform["platform"] in ["ios", "android"] and
+                   platform["channel"] in ~w(apns_alert apns_voip fcm) and
+                   is_binary(platform["application_id"]) and
+                   Regex.match?(
+                     ~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/,
+                     platform["application_id"]
+                   ) and
+                   platform["environment"] in ~w(sandbox production) and
+                   is_boolean(platform["device_qualified"]) and
+                   ((platform["platform"] == "ios" and
+                       platform["channel"] in ~w(apns_alert apns_voip)) or
+                      (platform["platform"] == "android" and platform["channel"] == "fcm" and
+                         platform["environment"] == "production")),
+                 do:
+                   raise(
+                     "NATIVE_PUSH_PLATFORM_CONFIGS_JSON has an invalid approved application configuration"
+                   )
+
+          platform
+        end)
+
+      _ ->
+        raise "NATIVE_PUSH_PLATFORM_CONFIGS_JSON must be a bounded approved application list"
+    end
+
+  native_push_channels =
+    native_push_platforms
+    |> Enum.filter(&(&1["device_qualified"] == true))
+    |> Enum.map(& &1["channel"])
+    |> Enum.uniq()
+
+  native_transport_names =
+    ~w(NATIVE_PUSH_APNS_KEY_ID NATIVE_PUSH_APNS_TEAM_ID NATIVE_PUSH_APNS_PRIVATE_KEY_FILE NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE)
+
   if role == "edge" && Enum.any?(native_transport_names, &(System.get_env(&1) not in [nil, ""])),
     do: raise("Native transport credential bindings belong to Worker only")
+
   config :comms_integrations,
     native_push_provider_enabled: native_push_provider_enabled,
     native_push_channels: native_push_channels,
-    native_push_apns: [key_id: System.get_env("NATIVE_PUSH_APNS_KEY_ID"), team_id: System.get_env("NATIVE_PUSH_APNS_TEAM_ID"),
-                      private_key_file: System.get_env("NATIVE_PUSH_APNS_PRIVATE_KEY_FILE")],
-    native_push_fcm: [service_account_file: System.get_env("NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE")]
+    native_push_apns: [
+      key_id: System.get_env("NATIVE_PUSH_APNS_KEY_ID"),
+      team_id: System.get_env("NATIVE_PUSH_APNS_TEAM_ID"),
+      private_key_file: System.get_env("NATIVE_PUSH_APNS_PRIVATE_KEY_FILE")
+    ],
+    native_push_fcm: [
+      service_account_file: System.get_env("NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE")
+    ]
 
   identity_secret_encryption_key = optional_secret.("IDENTITY_SECRET_ENCRYPTION_KEY")
 
@@ -807,7 +848,8 @@ if config_env() == :prod do
         },
         {"IDENTITY_SECRET_ENCRYPTION_KEYS", identity_secret_encryption_key_id,
          identity_secret_encryption_keys},
-        {"NATIVE_PUSH_ENCRYPTION_KEYS", System.get_env("NATIVE_PUSH_ENCRYPTION_KEY_ID", "primary"), native_push_keys}
+        {"NATIVE_PUSH_ENCRYPTION_KEYS",
+         System.get_env("NATIVE_PUSH_ENCRYPTION_KEY_ID", "primary"), native_push_keys}
       ] do
     unless Regex.match?(~r/^[A-Za-z0-9_.-]{1,64}$/, current_key_id) do
       raise "#{environment_name} active key identifier is invalid"
@@ -846,7 +888,8 @@ if config_env() == :prod do
       push_subscription_encryption_keys
     )
 
-  native_push_materials = encryption_materials.(native_push_key, "NATIVE_PUSH_ENCRYPTION_KEY", native_push_keys)
+  native_push_materials =
+    encryption_materials.(native_push_key, "NATIVE_PUSH_ENCRYPTION_KEY", native_push_keys)
 
   identity_materials =
     encryption_materials.(
@@ -916,8 +959,11 @@ if config_env() == :prod do
         )
   end
 
-  unless Enum.all?([identity_materials, webhook_materials, push_materials], &MapSet.disjoint?(native_push_materials, &1)),
-    do: raise("Native push encryption keys must use dedicated secret material")
+  unless Enum.all?(
+           [identity_materials, webhook_materials, push_materials],
+           &MapSet.disjoint?(native_push_materials, &1)
+         ),
+         do: raise("Native push encryption keys must use dedicated secret material")
 
   unless MapSet.disjoint?(identity_materials, webhook_materials) and
            MapSet.disjoint?(identity_materials, push_materials),

@@ -20,7 +20,12 @@ defmodule CommsCore.Accounts.NotificationCommand do
     :reason
   ]
 
-  @type operation :: :password_recovery | :device_revoked | :user_access_revoked | :sessions_revoked | :user_erased
+  @type operation ::
+          :password_recovery
+          | :device_revoked
+          | :user_access_revoked
+          | :sessions_revoked
+          | :user_erased
 
   @type t :: %__MODULE__{
           operation: operation(),
@@ -67,11 +72,22 @@ defmodule CommsCore.Accounts.NotificationCommand do
 
   @spec sessions_revoked(binary(), [binary()], binary()) :: t()
   def sessions_revoked(tenant_id, session_ids, reason) do
-    %__MODULE__{operation: :sessions_revoked, tenant_id: tenant_id, user_id: nil, session_ids: session_ids, reason: reason}
+    %__MODULE__{
+      operation: :sessions_revoked,
+      tenant_id: tenant_id,
+      user_id: nil,
+      session_ids: session_ids,
+      reason: reason
+    }
   end
 
   @spec user_erased(binary(), binary()) :: t()
   def user_erased(tenant_id, user_id) do
-    %__MODULE__{operation: :user_erased, tenant_id: tenant_id, user_id: user_id, reason: "governance_user_erasure"}
+    %__MODULE__{
+      operation: :user_erased,
+      tenant_id: tenant_id,
+      user_id: user_id,
+      reason: "governance_user_erasure"
+    }
   end
 end

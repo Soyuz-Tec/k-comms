@@ -1,5 +1,6 @@
 defmodule CommsCore.Notifications.NativePushRegistration do
   use CommsCore.Schema
+
   schema "native_push_registrations" do
     field(:tenant_id, Ecto.UUID)
     field(:user_id, Ecto.UUID)
@@ -22,16 +23,34 @@ defmodule CommsCore.Notifications.NativePushRegistration do
     field(:disabled_at, :utc_datetime_usec)
     timestamps()
   end
+
   def changeset(row, attrs) do
-    row |> cast(attrs, __schema__(:fields) -- [:id, :inserted_at, :updated_at])
-    |> validate_required([:tenant_id, :user_id, :device_id, :session_id, :installation_id,
-                          :user_version, :platform, :channel, :application_id, :environment,
-                          :version, :token_hash, :status, :expires_at])
+    row
+    |> cast(attrs, __schema__(:fields) -- [:id, :inserted_at, :updated_at])
+    |> validate_required([
+      :tenant_id,
+      :user_id,
+      :device_id,
+      :session_id,
+      :installation_id,
+      :user_version,
+      :platform,
+      :channel,
+      :application_id,
+      :environment,
+      :version,
+      :token_hash,
+      :status,
+      :expires_at
+    ])
     |> validate_number(:version, greater_than: 0)
     |> validate_number(:user_version, greater_than: 0)
     |> validate_inclusion(:status, ["active", "revoked", "expired", "stale"])
     |> unique_constraint([:platform, :channel, :application_id, :environment, :token_hash],
-                         name: :native_push_token_unique)
-    |> unique_constraint([:tenant_id, :user_id, :device_id, :channel], name: :native_push_device_channel_unique)
+      name: :native_push_token_unique
+    )
+    |> unique_constraint([:tenant_id, :user_id, :device_id, :channel],
+      name: :native_push_device_channel_unique
+    )
   end
 end

@@ -1,5 +1,6 @@
 defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
   use Ecto.Migration
+
   def up do
     create table(:native_push_registrations, primary_key: false) do
       add(:id, :binary_id, primary_key: true)
@@ -24,11 +25,26 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
       add(:disabled_at, :utc_datetime_usec)
       timestamps(type: :utc_datetime_usec)
     end
-    create unique_index(:native_push_registrations, [:tenant_id, :id])
-    create unique_index(:native_push_registrations, [:platform, :channel, :application_id, :environment, :token_hash], name: :native_push_token_unique)
-    create unique_index(:native_push_registrations, [:tenant_id, :user_id, :device_id, :channel], name: :native_push_device_channel_unique)
-    create index(:native_push_registrations, [:tenant_id, :session_id, :status])
-    create index(:native_push_registrations, [:status, :expires_at])
+
+    create(unique_index(:native_push_registrations, [:tenant_id, :id]))
+
+    create(
+      unique_index(
+        :native_push_registrations,
+        [:platform, :channel, :application_id, :environment, :token_hash],
+        name: :native_push_token_unique
+      )
+    )
+
+    create(
+      unique_index(:native_push_registrations, [:tenant_id, :user_id, :device_id, :channel],
+        name: :native_push_device_channel_unique
+      )
+    )
+
+    create(index(:native_push_registrations, [:tenant_id, :session_id, :status]))
+    create(index(:native_push_registrations, [:status, :expires_at]))
+
     execute("""
     ALTER TABLE native_push_registrations
     ADD CONSTRAINT native_push_session_tenant_fk FOREIGN KEY (tenant_id, session_id) REFERENCES sessions (tenant_id, id),
@@ -40,13 +56,20 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
     ADD CONSTRAINT native_push_status CHECK (status IN ('active','revoked','expired','stale')),
     ADD CONSTRAINT native_push_channel CHECK ((platform = 'ios' AND channel IN ('apns_alert','apns_voip') AND environment IN ('sandbox','production')) OR (platform = 'android' AND channel = 'fcm' AND environment = 'production'))
     """)
+
     create table(:native_call_wakes, primary_key: false) do
       add(:id, :binary_id, primary_key: true)
       add(:tenant_id, references(:tenants, type: :binary_id, on_delete: :delete_all), null: false)
       add(:user_id, :binary_id, null: false)
       add(:device_id, :binary_id, null: false)
       add(:session_id, :binary_id, null: false)
-      add(:registration_id, references(:native_push_registrations, type: :binary_id, on_delete: :delete_all), null: false)
+
+      add(
+        :registration_id,
+        references(:native_push_registrations, type: :binary_id, on_delete: :delete_all),
+        null: false
+      )
+
       add(:registration_version, :integer, null: false)
       add(:user_version, :integer, null: false)
       add(:owner, :text, null: false)
@@ -61,9 +84,16 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
       add(:disabled_at, :utc_datetime_usec)
       timestamps(type: :utc_datetime_usec)
     end
-    create unique_index(:native_call_wakes, [:registration_id, :registration_version, :call_id], name: :native_call_wake_generation_unique)
-    create index(:native_call_wakes, [:tenant_id, :session_id, :status])
-    create index(:native_call_wakes, [:status, :expires_at])
+
+    create(
+      unique_index(:native_call_wakes, [:registration_id, :registration_version, :call_id],
+        name: :native_call_wake_generation_unique
+      )
+    )
+
+    create(index(:native_call_wakes, [:tenant_id, :session_id, :status]))
+    create(index(:native_call_wakes, [:status, :expires_at]))
+
     execute("""
     ALTER TABLE native_call_wakes
     ADD CONSTRAINT native_wake_registration_tenant_fk FOREIGN KEY (tenant_id, registration_id) REFERENCES native_push_registrations (tenant_id, id),
@@ -73,6 +103,7 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
     ADD CONSTRAINT native_wake_horizon CHECK (expires_at <= inserted_at + interval '30 seconds')
     """)
   end
+
   def down do
     # Refuse before any DDL, including when jobs outlive or never referenced a
     # retained intent. Quiesced rollback counts exact workers and active states.
@@ -85,7 +116,8 @@ defmodule CommsCore.Repo.Migrations.AddNativeCallWakeProtocol do
       END IF;
     END $$
     """)
-    drop table(:native_call_wakes)
-    drop table(:native_push_registrations)
+
+    drop(table(:native_call_wakes))
+    drop(table(:native_push_registrations))
   end
 end

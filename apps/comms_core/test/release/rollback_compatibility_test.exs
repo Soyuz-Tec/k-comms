@@ -70,19 +70,53 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
     names = String.split(@communication_capabilities, ",")
     # Reuse the actual complete current hazard vocabulary, independently of
     # unrelated owners' clean-state assumptions.
-    keys = [:guest_users, :active_guest_expiry_jobs, :ephemeral_rooms, :ephemeral_join_receipts,
-      :ephemeral_presence_leases, :active_ephemeral_room_lifecycle_jobs, :active_ephemeral_room_reconciler_jobs,
-      :conversation_only_humans, :enterprise_identities, :scim_credentials, :retained_call_artifacts,
-      :active_artifact_jobs, :voicemail_media, :active_voicemail_jobs, :advanced_controls, :active_control_jobs,
-      :active_routing_jobs, :scheduled_meetings, :active_meeting_reminder_jobs, :rich_messages, :rich_whiteboards,
-      :member_workspaces, :governance_history_snapshots, :active_history_purge_jobs,
-      :native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]
+    keys = [
+      :guest_users,
+      :active_guest_expiry_jobs,
+      :ephemeral_rooms,
+      :ephemeral_join_receipts,
+      :ephemeral_presence_leases,
+      :active_ephemeral_room_lifecycle_jobs,
+      :active_ephemeral_room_reconciler_jobs,
+      :conversation_only_humans,
+      :enterprise_identities,
+      :scim_credentials,
+      :retained_call_artifacts,
+      :active_artifact_jobs,
+      :voicemail_media,
+      :active_voicemail_jobs,
+      :advanced_controls,
+      :active_control_jobs,
+      :active_routing_jobs,
+      :scheduled_meetings,
+      :active_meeting_reminder_jobs,
+      :rich_messages,
+      :rich_whiteboards,
+      :member_workspaces,
+      :governance_history_snapshots,
+      :active_history_purge_jobs,
+      :native_push_registrations,
+      :native_call_wake_intents,
+      :active_native_call_wake_jobs
+    ]
+
     clean = Map.new(keys, &{&1, 0})
+
     for count <- [6, 12, 14, 15] do
-      target = %{target_revision: "synthetic-receipt-#{count}", capabilities: names |> Enum.take(count) |> MapSet.new()}
+      target = %{
+        target_revision: "synthetic-receipt-#{count}",
+        capabilities: names |> Enum.take(count) |> MapSet.new()
+      }
+
       assert ^clean = Release.assert_communication_rollback_hazards!(clean, target)
-      for key <- [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs] do
+
+      for key <- [
+            :native_push_registrations,
+            :native_call_wake_intents,
+            :active_native_call_wake_jobs
+          ] do
         retained = Map.put(clean, key, 1)
+
         if count == 15 do
           assert ^retained = Release.assert_communication_rollback_hazards!(retained, target)
         else
@@ -120,7 +154,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       member_workspaces: 1,
       governance_history_snapshots: 1,
       active_history_purge_jobs: 1,
-      native_push_registrations: 1, native_call_wake_intents: 1, active_native_call_wake_jobs: 1
+      native_push_registrations: 1,
+      native_call_wake_intents: 1,
+      active_native_call_wake_jobs: 1
     }
 
     compatible = %{
@@ -228,7 +264,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
           {"member_workspace_v1", [:member_workspaces]},
           {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
-          {"native_call_wake_v1", [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
+          {"native_call_wake_v1",
+           [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

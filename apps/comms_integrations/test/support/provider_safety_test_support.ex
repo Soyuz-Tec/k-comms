@@ -146,7 +146,11 @@ defmodule CommsIntegrations.ProviderSafetyTestSupport.ProtocolCaptureMint do
     send(self(), {:pinned_protocol_connect, address, port, opts})
     {:ok, %{}}
   end
+
   def request(conn, _method, _target, _headers, _body), do: {:ok, conn, :request}
-  def recv(conn, 0, _timeout), do: {:ok, conn, [{:status, :request, 204}, {:headers, :request, []}, {:done, :request}]}
+
+  def recv(conn, 0, _timeout),
+    do: {:ok, conn, [{:status, :request, 204}, {:headers, :request, []}, {:done, :request}]}
+
   def close(_), do: :ok
 end

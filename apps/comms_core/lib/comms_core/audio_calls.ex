@@ -314,7 +314,9 @@ defmodule CommsCore.AudioCalls do
   @doc "Retain current conversation/call membership and media policy without admitting a participant."
   @spec native_wake_authority(binary(), binary(), map()) :: {:ok, DateTime.t()} | {:error, atom()}
   defdelegate native_wake_authority(conversation_id, call_id, subject), to: Lifecycle
-  @spec native_wake_recipients(binary(), binary(), binary()) :: {:ok, [binary()]} | {:error, atom()}
+
+  @spec native_wake_recipients(binary(), binary(), binary()) ::
+          {:ok, [binary()]} | {:error, atom()}
   defdelegate native_wake_recipients(tenant, call, conversation), to: Lifecycle
 
   def with_join_authorized(conversation_id, call_id, subject, expected_kind, issuer),
