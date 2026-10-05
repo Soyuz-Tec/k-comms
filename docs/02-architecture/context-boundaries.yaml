@@ -15,6 +15,8 @@ enforcement:
     previous_manifest_sha256: f126eb431fe46e01fb91e26cc7e0f74bda3236d69186f526e9d633352cb5746b
     approved_changes:
     - context:identity_access:public_contracts:add:CommsCore.Accounts.NativePushAuthority
+    - context:notification_delivery:consumes:add:call.started.v1
+    - context:notification_delivery:consumes:add:telephony.call.updated
     - context:notification_delivery:owned_modules:add:CommsCore.Security.NativePushBox
     - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallRequest
     - context:notification_delivery:public_contracts:add:CommsCore.Notifications.NativeCallTarget
@@ -515,7 +517,7 @@ contexts:
     internal_namespaces: [CommsCore.Notifications]
     allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
     publishes: []
-    consumes: [message.created.v1, mention.created.v1, meeting.scheduled.v1, meeting.updated.v1, meeting.cancelled.v1, meeting.reminder.v1]
+    consumes: [message.created.v1, mention.created.v1, meeting.scheduled.v1, meeting.updated.v1, meeting.cancelled.v1, meeting.reminder.v1, call.started.v1, telephony.call.updated]
   webhook_management:
     kind: business
     responsibility: Webhook endpoints, subscriptions, secrets, delivery policy, and delivery state.

@@ -144,7 +144,7 @@ class KCommsApiTest {
             assertEquals(f.userId, f.api.participants(f.conversationId, f.callId, f.lease).single().userId)
             val request = f.request()
             assertEquals("GET", request.method)
-            assertEquals("/api/v1/conversations/${f.conversationId}/calls/${f.callId}/participants", request.path)
+            assertEquals("/api/v1/conversations/${f.conversationId}/calls/${f.callId}/participants?current_admission=true", request.path)
             assertEquals("Bearer ${f.authentication.accessToken}", request.getHeader("Authorization"))
         }
     }
