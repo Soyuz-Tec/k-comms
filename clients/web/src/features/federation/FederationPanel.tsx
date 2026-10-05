@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../api";
 import type { FormEvent } from "react";
 import type { ApiClient } from "../../api";
@@ -12,7 +12,7 @@ export function FederationPanel(props: FederationPanelProps) {
 }
 function FederationPanelScope({ api, conversationId, canManage }: FederationPanelProps) {
   const current = useRef(true);
-  useEffect(() => { current.current = true; return () => { current.current = false; }; }, []);
+  useLayoutEffect(() => { current.current = true; return () => { current.current = false; }; }, []);
   const [loaded, setLoaded] = useState(false);
   const [room, setRoom] = useState<FederationRoom | null>(null);
   const [timeline, setTimeline] = useState<FederationTimeline | null>(null);
