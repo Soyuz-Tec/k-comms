@@ -1,6 +1,6 @@
 defmodule CommsCore.PrivateRooms.OwnerAuthorityTest do
   use CommsCore.DataCase, async: false
-  alias CommsCore.{Accounts, Conversations, Messaging, Repo}
+  alias CommsCore.{Accounts, Conversations, Messaging, Repo, ServiceAccounts}
 
   alias CommsCore.Accounts.{
     MatrixIdentity,
@@ -14,6 +14,16 @@ defmodule CommsCore.PrivateRooms.OwnerAuthorityTest do
   alias CommsCore.Messaging.{PrivateEvent, PrivateEventReceipt}
   alias CommsTestSupport.Fixtures
   @moduletag :integration
+
+  defmodule WithdrawalRefusal do
+    @behaviour CommsCore.Accounts.MatrixEligibilityPort
+    def withdraw_user(_command) do
+      case Process.get(:matrix_withdrawal_fixture) do
+        :error -> {:error, :fixture_withdrawal_unavailable}
+        :malformed -> {:ok, %CommsCore.Accounts.MatrixEligibilityReceipt{fenced_rooms: -1}}
+      end
+    end
+  end
 
   # These adapters isolate application authority/receipts, not cryptography.
   # Actual maintained SDK encryption/SAS is exercised by the separate live gate.
@@ -151,6 +161,151 @@ defmodule CommsCore.PrivateRooms.OwnerAuthorityTest do
     {:ok, _} = Accounts.matrix_client_session(owner)
     {:ok, _} = Accounts.matrix_client_session(peer_subject)
     %{account: account, peer: peer, owner: owner, peer_subject: peer_subject}
+  end
+
+  for operation <- [:replace, :patch, :delete] do
+    @operation operation
+    @tag :scim_matrix_lifecycle
+    test "SCIM #{@operation} withdrawal survives re-enable and fresh native enrollment", c do
+      room = create!(c)
+      original = Repo.get_by!(PrivateRoom, conversation_id: room.id)
+      {resource, service} = scim_binding!(c)
+      native = Repo.get_by!(MatrixClientSession, session_id: c.peer_subject.session_id)
+      assert native.state == :ready
+
+      assert {:ok, _} = scim_suspend(@operation, resource, service)
+      assert Repo.get!(CommsCore.Accounts.User, c.peer.id).status == :suspended
+      assert Repo.get!(Session, c.peer_subject.session_id).revoked_at
+
+      {:ok, suspended_resource} = Accounts.scim_get("User", resource.id, service)
+
+      assert {:ok, _} =
+               Accounts.scim_replace(
+                 "User",
+                 resource.id,
+                 %{"active" => true},
+                 suspended_resource.meta.version,
+                 service
+               )
+
+      assert Repo.get!(CommsCore.Accounts.User, c.peer.id).status == :active
+      assert Repo.get!(MatrixClientSession, native.id).state == :cleanup_pending
+      retained = Repo.get_by!(PrivateRoom, conversation_id: room.id)
+      assert retained.state == :rekey_pending
+      assert retained.generation == room.generation + 1
+      assert retained.membership_epoch == room.membership_epoch + 1
+
+      assert retained.matrix_members[c.peer.id]["matrix_user_id"] in retained.pending_removed_matrix_user_ids
+
+      assert Repo.get_by!(CommsCore.Conversations.Membership,
+               conversation_id: room.id,
+               user_id: c.peer.id
+             ).left_at
+
+      fresh =
+        CommsCore.TrustGovernanceTestSupport.authenticated_subject(
+          c.account,
+          c.peer,
+          "SCIM re-enabled device"
+        )
+
+      assert {:ok, _} = Accounts.matrix_client_session(fresh)
+      assert {:error, :forbidden} = Conversations.private_room(room.id, fresh)
+      assert {:error, :forbidden} = Accounts.matrix_client_session(c.peer_subject)
+
+      assert {:error, :forbidden} =
+               Messaging.send_private_event(room.id, event(room, "reenrolled-before-ban"), fresh)
+
+      assert {:error, :private_room_rekey_pending} =
+               Messaging.send_private_event(room.id, event(room, "after-scim-reenable"), c.owner)
+
+      refute_receive {:native_encrypted_send, "after-scim-reenable"}
+      refute Repo.get!(Session, c.owner.session_id).revoked_at
+      assert Repo.get_by!(MatrixClientSession, session_id: c.owner.session_id).state == :ready
+
+      lineage = [
+        :historical_user_ids,
+        :matrix_members,
+        :provider_issuer,
+        :server_name,
+        :control_matrix_user_id,
+        :room_alias
+      ]
+
+      assert Map.take(retained, lineage) == Map.take(original, lineage)
+
+      worker = CommsCore.RuntimePorts.job_worker!(:private_room_purge_reconciler)
+      assert {:ok, %{provider_purged: 0}} = Conversations.reconcile_private_room_purges(worker)
+      assert {:ok, active} = Conversations.private_room(room.id, c.owner)
+      assert active.state == :active
+      refute Enum.any?(active.members, &(&1.user_id == c.peer.id))
+      assert {:error, :forbidden} = Conversations.private_room(room.id, fresh)
+
+      assert {:error, :forbidden} =
+               Messaging.send_private_event(room.id, event(active, "reenrolled-after-ban"), fresh)
+
+      refute_receive {:native_encrypted_send, "reenrolled-before-ban"}
+      refute_receive {:native_encrypted_send, "reenrolled-after-ban"}
+      assert Map.take(Repo.get!(PrivateRoom, original.id), lineage) == Map.take(original, lineage)
+    end
+  end
+
+  @tag :scim_matrix_lifecycle
+  test "SCIM withdrawal with no live K sessions fences an ambiguous native room", c do
+    room = create!(c)
+    retained = Repo.get_by!(PrivateRoom, conversation_id: room.id)
+    Repo.update!(PrivateRoom.retained_changeset(retained, state: :provisioning))
+    assert :ok = Accounts.revoke_own_session_command(c.peer_subject.session_id, c.peer_subject)
+    {resource, service} = scim_binding!(c)
+    assert {:ok, %{revoked_session_ids: []}} = scim_suspend(:replace, resource, service)
+    fenced = Repo.get!(PrivateRoom, retained.id)
+    assert fenced.state == :purge_pending
+    assert fenced.generation == retained.generation + 1
+    assert fenced.membership_epoch == retained.membership_epoch + 1
+    assert fenced.provider_issuer == retained.provider_issuer
+    assert fenced.historical_user_ids == retained.historical_user_ids
+
+    assert Repo.get_by!(MatrixClientSession, session_id: c.peer_subject.session_id).state ==
+             :cleanup_pending
+  end
+
+  for failure <- [:error, :malformed] do
+    @failure failure
+    @tag :scim_matrix_lifecycle
+    test "SCIM #{@failure} withdrawal proof rolls back the entire local lifecycle contribution",
+         c do
+      room = create!(c)
+      {resource, service} = scim_binding!(c)
+      before_user = Repo.get!(CommsCore.Accounts.User, c.peer.id)
+      native = Repo.get_by!(MatrixClientSession, session_id: c.peer_subject.session_id)
+
+      membership =
+        Repo.get_by!(CommsCore.Conversations.Membership,
+          conversation_id: room.id,
+          user_id: c.peer.id
+        )
+
+      retained = Repo.get_by!(PrivateRoom, conversation_id: room.id)
+      audit_before = Repo.aggregate(CommsCore.Audit.AuditEvent, :count)
+      jobs_before = Repo.aggregate(Oban.Job, :count)
+      previous = Application.fetch_env!(:comms_core, :matrix_eligibility_adapter)
+      Application.put_env(:comms_core, :matrix_eligibility_adapter, WithdrawalRefusal)
+      Process.put(:matrix_withdrawal_fixture, @failure)
+      on_exit(fn -> Application.put_env(:comms_core, :matrix_eligibility_adapter, previous) end)
+
+      assert {:error, :matrix_eligibility_withdrawal_failed} =
+               scim_suspend(:replace, resource, service)
+
+      assert Repo.get!(CommsCore.Accounts.User, c.peer.id) == before_user
+      refute Repo.get!(Session, c.peer_subject.session_id).revoked_at
+      assert Repo.get!(MatrixClientSession, native.id) == native
+      assert Repo.get!(CommsCore.Conversations.Membership, membership.id) == membership
+      assert Repo.get!(PrivateRoom, retained.id) == retained
+      {:ok, unchanged} = Accounts.scim_get("User", resource.id, service)
+      assert unchanged.meta.version == resource.meta.version
+      assert Repo.aggregate(CommsCore.Audit.AuditEvent, :count) == audit_before
+      assert Repo.aggregate(Oban.Job, :count) == jobs_before
+    end
   end
 
   test "enrollment lookup is ready-only and token-free; client credential envelope is tuple-bound",
@@ -535,6 +690,60 @@ defmodule CommsCore.PrivateRooms.OwnerAuthorityTest do
 
     room
   end
+
+  defp scim_binding!(c) do
+    {:ok, _} = Accounts.step_up_view(%{current_password: "private-test-owner-password"}, c.owner)
+
+    {:ok, credential} =
+      ServiceAccounts.create_view(
+        %{
+          name: "Private SCIM directory",
+          scopes: ["scim:read", "scim:write"],
+          reason: "Exercise current private participant withdrawal"
+        },
+        c.owner
+      )
+
+    {:ok, service} = ServiceAccounts.authenticate(credential.credential)
+
+    record =
+      Repo.insert!(%CommsCore.Accounts.ScimResource{
+        tenant_id: c.account.tenant.id,
+        user_id: c.peer.id,
+        kind: "User",
+        external_id: "private-scim:" <> c.peer.id,
+        display_name: c.peer.display_name
+      })
+
+    {:ok, resource} = Accounts.scim_get("User", record.id, service)
+    {resource, service}
+  end
+
+  defp scim_suspend(:replace, resource, service),
+    do:
+      Accounts.scim_replace(
+        "User",
+        resource.id,
+        %{"active" => false},
+        resource.meta.version,
+        service
+      )
+
+  defp scim_suspend(:patch, resource, service),
+    do:
+      Accounts.scim_patch(
+        "User",
+        resource.id,
+        %{
+          "schemas" => ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+          "Operations" => [%{"op" => "replace", "path" => "active", "value" => false}]
+        },
+        resource.meta.version,
+        service
+      )
+
+  defp scim_suspend(:delete, resource, service),
+    do: Accounts.scim_delete("User", resource.id, resource.meta.version, service)
 
   defp query(room),
     do: %{membership_epoch: room.membership_epoch, generation: room.generation, after_sequence: 0}

@@ -169,6 +169,18 @@ defmodule CommsCore.Repo.Migrations.AddFederation do
   end
 
   def down do
+    execute("""
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1 FROM oban_jobs
+        WHERE worker IN ('CommsWorkers.FederationCommandWorker', 'CommsWorkers.FederationReconcilerWorker')
+          AND state::text IN ('available', 'scheduled', 'executing', 'retryable', 'suspended')
+      ) THEN
+        RAISE EXCEPTION 'Federation rollback refused: active bridge jobs';
+      END IF;
+    END $$
+    """)
+
     execute(
       "DO $$ BEGIN IF EXISTS (SELECT 1 FROM federation_trusts) OR EXISTS (SELECT 1 FROM federation_rooms) OR EXISTS (SELECT 1 FROM federation_participants) OR EXISTS (SELECT 1 FROM federation_commands) OR EXISTS (SELECT 1 FROM federation_event_receipts) THEN RAISE EXCEPTION 'Federation rollback refused: retained consent, mappings, commands or deletion uncertainty'; END IF; END $$"
     )

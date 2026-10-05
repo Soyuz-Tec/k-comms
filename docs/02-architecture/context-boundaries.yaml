@@ -150,7 +150,7 @@ enforcement:
       permits only this exact consumer-owned DTO/operation on the retained caller transaction, with current Governance/identity
       and generation proof. No foreign schema access, additional operation, cleanup confirmation or provider activation
       is authorized.","consumer":"identity_access","graph_semantics":{"compile_dependency":"trust_governance_to_identity_access","control_flow":"identity_access_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"matrix-identity-governance-fence","implementation":"CommsCore.Governance.MatrixAccessProtection","operations":[{"arity":2,"name":"protection"}],"port":"CommsCore.Accounts.MatrixAccessProtectionPort","provider":"trust_governance","result_contract":"CommsCore.Accounts.MatrixAccessProtection","transaction":"required"}
-    - runtime_collaborations:matrix-participant-eligibility-withdrawal:add:{"binding":{"application":"comms_core","key":"matrix_eligibility_adapter","module":"CommsCore.Conversations.PrivateRoomEligibility"},"callers":["CommsCore.Accounts.UserLifecycle","CommsCore.Accounts.GovernanceErasure"],"condition":"ADR-0104
+    - runtime_collaborations:matrix-participant-eligibility-withdrawal:add:{"binding":{"application":"comms_core","key":"matrix_eligibility_adapter","module":"CommsCore.Conversations.PrivateRoomEligibility"},"callers":["CommsCore.Accounts.UserLifecycle","CommsCore.Accounts.GovernanceErasure","CommsCore.Accounts.Scim"],"condition":"ADR-0104
       permits only local eligibility withdrawal after retained canonical sorted User locks, no Governance reentry
       or provider effects. Durable membership/epoch fencing and queued native bans preserve unknown client-key cleanup
       obligations.","consumer":"identity_access","graph_semantics":{"compile_dependency":"conversations_to_identity_access","control_flow":"identity_access_to_conversations","static_cycle_policy":"dependency_inversion"},"id":"matrix-participant-eligibility-withdrawal","implementation":"CommsCore.Conversations.PrivateRoomEligibility","operations":[{"arity":1,"name":"withdraw_user"}],"port":"CommsCore.Accounts.MatrixEligibilityPort","provider":"conversations","result_contract":"CommsCore.Accounts.MatrixEligibilityReceipt","transaction":"required"}
@@ -1706,6 +1706,7 @@ runtime_collaborations:
   callers:
   - CommsCore.Accounts.UserLifecycle
   - CommsCore.Accounts.GovernanceErasure
+  - CommsCore.Accounts.Scim
   operations:
   - name: withdraw_user
     arity: 1

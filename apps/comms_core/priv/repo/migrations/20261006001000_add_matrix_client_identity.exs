@@ -85,7 +85,7 @@ defmodule CommsCore.Repo.Migrations.AddMatrixClientIdentity do
 
   def down do
     execute(
-      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM matrix_identities) OR EXISTS (SELECT 1 FROM matrix_client_sessions) THEN RAISE EXCEPTION 'refusing retained Matrix identities, credentials and revocation proof rollback'; END IF; END $$"
+      "DO $$ BEGIN IF EXISTS (SELECT 1 FROM matrix_identities) OR EXISTS (SELECT 1 FROM matrix_client_sessions) OR EXISTS (SELECT 1 FROM oban_jobs WHERE worker = 'CommsWorkers.MatrixDeviceReconcilerWorker' AND state::text IN ('available','scheduled','executing','retryable','suspended')) THEN RAISE EXCEPTION 'refusing retained Matrix identities, credentials, revocation proof or pending device worker rollback'; END IF; END $$"
     )
 
     drop(table(:matrix_client_sessions))

@@ -6,6 +6,9 @@ import unittest
 from pathlib import Path
 
 import yaml
+from test_instant_room_deployment_contracts import (
+    ROLLBACK_CAPABILITIES as EXPECTED_ROLLBACK_CAPABILITIES,
+)
 from validate_production_bundle import (
     COMMUNICATION_ROLLBACK_CAPABILITIES,
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS,
@@ -41,7 +44,7 @@ CA_PEM = (
 
 class ValidateProductionBundleTest(unittest.TestCase):
     def test_preserves_exact_preceding_receipts_without_granting_discovery_support(self) -> None:
-        self.assertEqual(len(COMMUNICATION_ROLLBACK_CAPABILITIES.split(",")), 15)
+        self.assertEqual(COMMUNICATION_ROLLBACK_CAPABILITIES, EXPECTED_ROLLBACK_CAPABILITIES)
         self.assertEqual(len(KNOWN_M1_ROLLBACK_CAPABILITIES.split(",")), 12)
         self.assertEqual(len(KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES.split(",")), 14)
         self.assertNotIn("workspace_domain_discovery_v1", KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES)
@@ -309,6 +312,13 @@ class ValidateProductionBundleTest(unittest.TestCase):
         self.assertIn("conversation_ephemeral_rooms", lifecycle_hazards)
         self.assertIn("conversation_ephemeral_join_receipts", lifecycle_hazards)
 
+    def test_federation_capability_covers_both_registered_job_workers(self) -> None:
+        hazards = COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS["workspace_federation_v1"]
+        self.assertEqual(
+            {hazard for hazard in hazards if hazard.startswith("CommsWorkers.")},
+            {"CommsWorkers.FederationCommandWorker", "CommsWorkers.FederationReconcilerWorker"},
+        )
+
     def test_accepts_rendered_guest_rollback_preflight_operation(self) -> None:
         documents = valid_documents()
         documents.append(guest_rollback_operation())
@@ -373,7 +383,7 @@ class ValidateProductionBundleTest(unittest.TestCase):
             item["name"]: item
             for item in operation["spec"]["template"]["spec"]["containers"][0]["env"]
         }
-        capabilities = COMMUNICATION_ROLLBACK_CAPABILITIES.removesuffix(",ivr_routing_v1")
+        capabilities = KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES
         self.assertEqual(len(capabilities.split(",")), 14)
         environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = capabilities
         documents.append(operation)
