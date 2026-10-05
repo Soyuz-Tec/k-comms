@@ -313,7 +313,7 @@ defmodule CommsCore.AudioCalls.RecognitionSummariesTest do
              )
 
     assert {:ok, _} = consent_summary(c, recording.id, false)
-    assert {:error, :artifact_legal_hold} = process_summary(view.id)
+    assert {:ok, :held} = process_summary(view.id)
     assert Repo.exists?(from(s in Summary, where: s.artifact_id == ^view.id))
 
     assert {:error, :summary_consent_required} =

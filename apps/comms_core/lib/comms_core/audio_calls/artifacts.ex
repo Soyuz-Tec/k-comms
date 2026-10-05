@@ -593,7 +593,14 @@ defmodule CommsCore.AudioCalls.Artifacts do
                 a.tenant_id == ^artifact.tenant_id and
                   (a.source_artifact_id == ^artifact.id or a.source_artifact_id in ^direct_ids) and
                   a.status != :deleted,
-              order_by: [asc: a.inserted_at, asc: a.id],
+              order_by: [
+                asc:
+                  fragment(
+                    "CASE ? WHEN 'recording' THEN 0 WHEN 'transcript' THEN 1 ELSE 2 END",
+                    a.kind
+                  ),
+                asc: a.id
+              ],
               lock: "FOR UPDATE"
             )
           )
@@ -712,6 +719,8 @@ defmodule CommsCore.AudioCalls.Artifacts do
 
   def reconcile(caller) do
     if RuntimePorts.authorized_job_worker?(:call_artifact_reconciler, caller) do
+      deadline = System.monotonic_time(:millisecond) + 15_000
+
       ids =
         Repo.all(
           from(a in Artifact,
@@ -732,14 +741,27 @@ defmodule CommsCore.AudioCalls.Artifacts do
           )
         )
 
-      transaction(fn ->
-        Enum.each(ids, fn id ->
-          artifact = lock_id!(id)
-          enqueue!(artifact)
-          update!(Artifact.changeset(artifact, %{last_reconciled_at: now()}))
-        end)
+      # Metadata reconciliation holds exactly one artifact lock at a time. A
+      # batch ordered by last_reconciled_at/id could otherwise retain a derived
+      # row and then wait on its source while an effect holds source -> derived.
+      Enum.reduce_while(ids, {:ok, 0}, fn id, {:ok, count} ->
+        remaining = deadline - System.monotonic_time(:millisecond)
 
-        length(ids)
+        if remaining <= 0 do
+          {:halt, {:ok, count}}
+        else
+          case transaction(
+                 fn ->
+                   artifact = lock_id!(id)
+                   enqueue!(artifact)
+                   update!(Artifact.changeset(artifact, %{last_reconciled_at: now()}))
+                 end,
+                 timeout: remaining
+               ) do
+            {:ok, _} -> {:cont, {:ok, count + 1}}
+            {:error, _} = error -> {:halt, error}
+          end
+        end
       end)
     else
       {:error, :forbidden}
@@ -1600,6 +1622,16 @@ defmodule CommsCore.AudioCalls.Artifacts do
       can_withdraw_summary_consent:
         a.kind == :recording and a.summary_requested and
           Enum.any?(consents, &(&1.user_id == value(subject, :user_id) and &1.summary_accepted)),
+      summary_request_available:
+        a.kind == :transcript and a.status == :available and a.summary_requested and
+          not is_nil(call) and call.status == :ended and source_summary_consented?(a) and
+          not Repo.exists?(
+            from(child in Artifact,
+              where:
+                child.tenant_id == ^a.tenant_id and
+                  child.source_artifact_id == ^a.id and child.kind == :summary
+            )
+          ),
       recognition_mode: if(a.kind == :transcript, do: "post_recording", else: nil),
       recognition_model_sha256: a.recognition_model_sha256,
       kind: a.kind,
@@ -1624,6 +1656,35 @@ defmodule CommsCore.AudioCalls.Artifacts do
       byte_size: a.byte_size,
       content_type: a.content_type
     }
+  end
+
+  defp source_summary_consented?(transcript) do
+    source =
+      Repo.get_by(Artifact,
+        id: transcript.source_artifact_id,
+        tenant_id: transcript.tenant_id,
+        call_id: transcript.call_id,
+        kind: :recording
+      )
+
+    if source && source.summary_requested && source.status == :available &&
+         is_nil(source.erasure_requested_at) && DateTime.compare(source.expires_at, now()) == :gt do
+      decisions =
+        Repo.all(
+          from(c in Consent,
+            where: c.tenant_id == ^source.tenant_id and c.artifact_id == ^source.id
+          )
+        )
+
+      decisions != [] and
+        Enum.all?(
+          decisions,
+          &(&1.accepted and &1.summary_accepted and
+              &1.summary_policy_version == "meeting-summary-v1")
+        )
+    else
+      false
+    end
   end
 
   defp root_artifact_for_summary(%Artifact{kind: :recording} = a), do: a

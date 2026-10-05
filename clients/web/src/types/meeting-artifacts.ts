@@ -15,6 +15,7 @@ export interface MeetingArtifact {
   summary_consent_accepted_count?: number;
   my_summary_consent?: boolean | null;
   can_withdraw_summary_consent?: boolean;
+  summary_request_available?: boolean;
   recognition_mode?: "post_recording" | null;
   recognition_model_sha256?: string | null;
   status: MeetingArtifactStatus;

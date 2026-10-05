@@ -8,10 +8,29 @@
     },
     {
       "$ref": "#/$defs/SummaryConsent"
+    },
+    {
+      "$ref": "#/$defs/SummaryRequest"
     }
   ],
   "$defs": {
-    "ArtifactSummary": {
+    "SummaryConsent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "policy_version"
+      ],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "policy_version": {
+          "const": "meeting-summary-v1"
+        }
+      }
+    },
+    "ArtifactSummaryView": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -49,19 +68,42 @@
         }
       }
     },
-    "SummaryConsent": {
+    "ArtifactSummary": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "accepted",
-        "policy_version"
+        "data",
+        "summary"
       ],
       "properties": {
-        "accepted": {
-          "type": "boolean"
+        "data": {
+          "$ref": "meeting-artifact.v1.json#/$defs/MeetingArtifact"
         },
-        "policy_version": {
-          "const": "meeting-summary-v1"
+        "summary": {
+          "$ref": "#/$defs/ArtifactSummaryView"
+        }
+      }
+    },
+    "SummaryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_artifact_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "kind": {
+          "const": "summary"
+        },
+        "source_artifact_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 120
         }
       }
     }

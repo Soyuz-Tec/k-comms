@@ -10848,6 +10848,8 @@ components:
           pattern: ^[a-f0-9]{64}$
         can_withdraw_summary_consent:
           type: boolean
+        summary_request_available:
+          type: boolean
     ArtifactCapabilities:
       type: object
       additionalProperties: false

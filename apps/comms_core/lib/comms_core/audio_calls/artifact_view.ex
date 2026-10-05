@@ -14,6 +14,7 @@ defmodule CommsCore.AudioCalls.ArtifactView do
     :summary_consent_accepted_count,
     :my_summary_consent,
     :can_withdraw_summary_consent,
+    :summary_request_available,
     :recognition_mode,
     :recognition_model_sha256,
     :kind,
