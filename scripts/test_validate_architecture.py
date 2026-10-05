@@ -1951,6 +1951,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "shared-document-governance-protection",
             },
         )
         expected_call_collaborations = {
@@ -2187,6 +2188,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "shared-document-governance-protection",
             },
         )
         self.assertEqual(
