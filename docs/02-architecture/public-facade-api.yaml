@@ -351,6 +351,7 @@ contexts:
       - ensure_governance_erasure_allowed/3
       - ensure_invitation_identity_available/2
       - finalize_user_for_governance_erasure/1
+      - lock_access/2
       - lock_access_grant/1
       - lock_active_directory_users/1
       - lock_active_human_directory_users/2

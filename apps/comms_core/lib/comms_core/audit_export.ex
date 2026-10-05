@@ -1,8 +1,10 @@
 defmodule CommsCore.AuditExport do
   alias CommsCore.{Administration, Audit, Repo}
+  alias CommsCore.Administration.{AccessPolicy, IdentityAccessPort, IdentityGrant}
 
   @default_limit 1_000
   @maximum_limit 5_000
+  @read_budget_ms 15_000
   @filter_keys [:q, :action, :resource_type, :actor_user_id, :request_id, :after, :before]
 
   @typedoc "Scalar values allowed across this facade boundary."
@@ -43,8 +45,9 @@ defmodule CommsCore.AuditExport do
 
   def export(params, subject) when is_map(params) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
+    deadline = System.monotonic_time(:millisecond) + @read_budget_ms
 
-    with :ok <- Administration.authorize_audit_tenant(subject),
+    with :ok <- preflight(subject, deadline),
          {:ok, after_timestamp} <- optional_datetime(value(params, :after)),
          {:ok, before_timestamp} <- optional_datetime(value(params, :before)),
          {:ok, actor_user_id} <- optional_uuid(value(params, :actor_user_id)),
@@ -64,43 +67,114 @@ defmodule CommsCore.AuditExport do
         before: before_timestamp
       }
 
-      Repo.transaction(fn ->
+      bounded_transaction(deadline, fn ->
+        current_authority!(subject, deadline)
+
         results =
-          filters
-          |> Map.merge(%{tenant_id: tenant_id, limit: limit + 1})
-          |> Audit.list()
+          budgeted(deadline, fn ->
+            filters
+            |> Map.merge(%{tenant_id: tenant_id, limit: limit + 1})
+            |> Audit.list()
+          end)
 
         truncated = length(results) > limit
         events = Enum.take(results, limit)
 
-        Audit.record(%{
-          tenant_id: tenant_id,
-          actor_user_id: value(subject, :user_id),
-          action: "audit.export",
-          resource_type: "tenant",
-          resource_id: tenant_id,
-          request_id: value(subject, :request_id),
-          metadata: %{
-            filters: safe_filters(filters),
-            returned_count: length(events),
-            truncated: truncated,
-            maximum_rows: @maximum_limit
-          }
-        })
-        |> audit_or_rollback()
+        budgeted(deadline, fn ->
+          Audit.record(%{
+            tenant_id: tenant_id,
+            actor_user_id: value(subject, :user_id),
+            action: "audit.export",
+            resource_type: "tenant",
+            resource_id: tenant_id,
+            request_id: value(subject, :request_id),
+            metadata: %{
+              filters: safe_filters(filters),
+              returned_count: length(events),
+              truncated: truncated,
+              maximum_rows: @maximum_limit
+            }
+          })
+          |> audit_or_rollback()
+        end)
 
-        %{
-          csv: encode_csv(events),
+        export = %{
+          csv: budgeted(deadline, fn -> encode_csv(events) end),
           count: length(events),
           truncated: truncated,
           filename: filename()
         }
+
+        # Expiration continues during read-audit writes and CSV encoding even
+        # while row locks retain the initiating identity. Recheck at disclosure.
+        current_authority!(subject, deadline)
+        export
       end)
       |> transaction_result()
     end
   end
 
   def export(_, _), do: {:error, :forbidden}
+
+  defp preflight(subject, deadline) do
+    # Keep the existing denial audit durable; use the same deadline rather than
+    # refilling the budget when the disclosure transaction begins.
+    bounded_transaction(deadline, fn ->
+      budgeted(deadline, fn -> Administration.authorize_audit_tenant(subject) end)
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp current_authority!(subject, deadline) do
+    budgeted(deadline, fn ->
+      with {:ok, %IdentityGrant{} = grant} <- IdentityAccessPort.lock_access(subject, deadline),
+           :ok <- AccessPolicy.authorize(:audit_tenant, grant) do
+        :ok
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp bounded_transaction(deadline, operation) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining > 0,
+      do: Repo.transaction(operation, timeout: remaining),
+      else: {:error, :forbidden}
+  rescue
+    error in Postgrex.Error ->
+      if error.postgres[:code] in [:lock_not_available, :query_canceled],
+        do: {:error, :forbidden},
+        else: reraise(error, __STACKTRACE__)
+
+    _error in DBConnection.ConnectionError ->
+      {:error, :forbidden}
+  end
+
+  defp budgeted(deadline, operation) do
+    budget!(deadline)
+    result = operation.()
+    budget!(deadline)
+    result
+  end
+
+  defp budget!(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    if remaining <= 0, do: Repo.rollback(:forbidden)
+    timeout = Integer.to_string(remaining) <> "ms"
+
+    Repo.query!(
+      "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $1, true)",
+      [timeout]
+    )
+
+    if System.monotonic_time(:millisecond) >= deadline, do: Repo.rollback(:forbidden)
+    :ok
+  end
 
   defp encode_csv(events) do
     header = [

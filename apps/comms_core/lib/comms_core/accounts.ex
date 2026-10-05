@@ -278,6 +278,26 @@ defmodule CommsCore.Accounts do
   @impl CommsCore.Administration.IdentityAccessPort
   def resolve_access(subject), do: AccessControl.resolve_access(subject)
 
+  @impl CommsCore.Administration.IdentityAccessPort
+  def lock_access(subject, deadline) do
+    case CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline) do
+      {:ok, %AccessGrant{account_type: :human, access_scope: :workspace} = grant} ->
+        {:ok,
+         %CommsCore.Administration.IdentityGrant{
+           tenant_id: grant.tenant_id,
+           user_id: grant.user_id,
+           role: grant.role,
+           step_up_recent?: grant.step_up_recent?
+         }}
+
+      {:error, :transaction_required} = error ->
+        error
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
   @impl CommsCore.Administration.AuthorizationActorPort
   def resolve_authorization_actor(subject), do: AccessControl.resolve_authorization_actor(subject)
 

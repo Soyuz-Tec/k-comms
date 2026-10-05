@@ -3,14 +3,23 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e
+  sha256: 5c9a64107bda9e4985281324243fd36641a44157bc26cdccc6b4321471f4dece
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: audit-csv-current-authority-f765
+      previous_manifest_sha256: 2ae4724b084c1f36b583fd1f864f551eb19dfa03b5da89bc386520ca9afc913c
+      approved_changes:
+      - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->5c9a64107bda9e4985281324243fd36641a44157bc26cdccc6b4321471f4dece
+      - runtime_collaborations:tenant-identity-access:callers:add:"CommsCore.AuditExport"
+      - runtime_collaborations:tenant-identity-access:operations:add:{"arity":2,"name":"lock_access"}
+      adr: docs/02-architecture/adr/0109-retain-current-authority-for-audit-csv-disclosure.md
+      removal_condition: Remove after the exact qualified Audit CSV authority delta is integrated into the protected parent and
+        becomes the immutable comparison manifest; rebind any later parent transition to its actual hash.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -707,9 +716,10 @@ runtime_collaborations:
     port: CommsCore.Administration.IdentityAccessPort
     result_contract: CommsCore.Administration.IdentityGrant
     implementation: CommsCore.Accounts
-    callers: [CommsCore.Administration.AuthorizationPolicy]
+    callers: [CommsCore.Administration.AuthorizationPolicy, CommsCore.AuditExport]
     operations:
       - {name: resolve_access, arity: 1}
+      - {name: lock_access, arity: 2}
     binding:
       application: comms_core
       key: tenant_identity_access_adapter
@@ -719,7 +729,7 @@ runtime_collaborations:
       control_flow: tenant_administration_to_identity_access
       compile_dependency: identity_access_to_tenant_administration
       static_cycle_policy: dependency_inversion
-    condition: TenantAdministration owns the bounded access-grant query contract while IdentityAccess verifies canonical user, tenant, device, and session state; callers may not bypass this exact query port.
+    condition: TenantAdministration owns this exact access-grant contract; resolve_access/1 remains an independent read, while lock_access/2 requires a caller transaction and one caller-supplied absolute monotonic deadline, retaining canonical active tenant, human workspace user, device and exact initiating session before AuditExport evidence reads and final disclosure rechecks; IdentityAccess verifies persisted role and step-up state and callers may not bypass the configured port (ADR0109).
   - id: tenant-authorization-actor
     consumer: tenant_administration
     provider: identity_access

@@ -18,6 +18,16 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :private_audit_export do
+    plug(:private_audit_export_response)
+  end
+
+  defp private_audit_export_response(conn, _options) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -474,7 +484,6 @@ defmodule CommsWeb.Router do
     post("/admin/invitations", InvitationController, :create)
     post("/admin/invitations/:id/revoke", InvitationController, :revoke)
     get("/admin/audit-events", AuditController, :index)
-    post("/admin/audit-events/export", AuditExportController, :create)
     get("/admin/webhooks", WebhookEndpointController, :index)
     post("/admin/webhooks", WebhookEndpointController, :create)
     get("/admin/webhooks/:id", WebhookEndpointController, :show)
@@ -515,6 +524,12 @@ defmodule CommsWeb.Router do
 
     put("/me/password", ProfileController, :password)
     post("/me/step-up", ProfileController, :step_up)
+  end
+
+  scope "/api/v1", CommsWeb do
+    # Protect early authentication/rate-limit errors as well as the CSV/fallback.
+    pipe_through([:private_audit_export, :authenticated_api])
+    post("/admin/audit-events/export", AuditExportController, :create)
   end
 
   scope "/api/v1/service", CommsWeb do
