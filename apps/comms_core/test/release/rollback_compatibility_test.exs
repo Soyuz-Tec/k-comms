@@ -122,7 +122,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       :private_matrix_rooms,
       :opaque_private_events,
       :active_matrix_device_jobs,
-      :active_private_purge_jobs
+      :active_private_purge_jobs,
+      :federation_state,
+      :active_federation_jobs
     ]
 
     clean = Map.new(keys, &{&1, 0})
