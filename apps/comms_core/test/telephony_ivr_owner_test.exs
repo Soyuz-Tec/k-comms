@@ -88,7 +88,8 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
     |> Ecto.Changeset.change(
       status: :ended,
       routing_status: "individual",
-      ended_at: DateTime.utc_now()
+      ended_at: DateTime.utc_now(),
+      end_reason: "synthetic_completed_ivr"
     )
     |> Repo.update!()
 
@@ -270,8 +271,10 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
 
     second_run = Repo.get_by!(IvrRun, call_id: second.id)
 
+    expired = DateTime.add(DateTime.utc_now(), -1, :second)
+
     Repo.get!(Call, second.id)
-    |> Call.changeset(%{expires_at: DateTime.add(DateTime.utc_now(), -1, :second)})
+    |> Call.changeset(%{started_at: DateTime.add(expired, -45, :second), expires_at: expired})
     |> Repo.update!()
 
     assert {:ok, :expired} = Telephony.expire(second.id, TelephonyExpiryWorker)
@@ -379,6 +382,7 @@ defmodule CommsCore.TelephonyIvrOwnerTest do
     selected
     |> Call.changeset(%{
       routing_status: "waiting",
+      started_at: DateTime.add(expired, -45, :second),
       expires_at: expired,
       route_expires_at: expired
     })
