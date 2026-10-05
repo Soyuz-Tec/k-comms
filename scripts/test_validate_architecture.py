@@ -1261,6 +1261,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             content["public_contracts"],
             [
+                "CommsCore.Messaging.PrivateEventView",
+                "CommsCore.Messaging.PrivateEventIntentView",
+                "CommsCore.Messaging.PrivateEventCommand",
+                "CommsCore.Messaging.PrivateEventReceipt",
+                "CommsCore.Messaging.PrivateEventPort",
                 "CommsCore.Attachments.UsageProjection",
                 "CommsCore.Attachments.UsageQuery",
                 "CommsCore.Messaging.UsageProjection",
@@ -1282,6 +1287,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Attachments.RestoreReport",
                 "CommsCore.Attachments.RestoredObjectIdentity",
                 "CommsCore.Attachments.ScanAttemptView",
+                "CommsCore.Messaging.PrivateEventPort.Contract",
             ],
         )
         self.assertNotIn("trust_governance", content["allowed_dependencies"])
@@ -1789,6 +1795,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(interfaces),
             {
+                "matrix-device-client-authentication",
+                "matrix-private-room-control",
+                "matrix-private-opaque-events",
                 "call-artifact-provider",
                 "call-artifact-storage",
                 "call-artifact-transcription",
@@ -2099,6 +2108,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "matrix-identity-governance-fence",
+                "matrix-participant-eligibility-withdrawal",
+                "private-room-governance-fence",
+                "private-room-opaque-content-erasure",
                 "call-artifact-governance-protection",
                 "telephony-voicemail-governance-protection",
                 "whiteboard-approved-content-assets",
@@ -2381,6 +2394,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "matrix-identity-governance-fence",
+                "matrix-participant-eligibility-withdrawal",
+                "private-room-governance-fence",
+                "private-room-opaque-content-erasure",
                 "call-artifact-governance-protection",
                 "telephony-voicemail-governance-protection",
                 "whiteboard-approved-content-assets",

@@ -163,6 +163,157 @@ defmodule CommsCore.AudioCalls.ArtifactsTest do
     %{account: account, subject: subject, call: call}
   end
 
+  for {deleted_timestamp, retained_content} <- [
+        {nil, :segment},
+        {:present, :segment},
+        {:present, :summary}
+      ] do
+    test "registered Governance refuses retained deleted artifact #{retained_content} content with #{deleted_timestamp} timestamp",
+         context do
+      alias CommsCore.Governance
+      alias CommsCore.Governance.DeletionRequest
+      enable!(context)
+      recording = available_recording!(context)
+      {:ok, transcript} = request_transcript!(context, recording)
+      assert {:ok, :transcribed} = process(transcript.id)
+      timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      Repo.get!(Artifact, recording.id)
+      |> Ecto.Changeset.change(status: :deleted, deleted_at: timestamp)
+      |> Repo.update!()
+
+      retained =
+        Repo.get!(Artifact, transcript.id)
+        |> Ecto.Changeset.change(
+          status: :deleted,
+          deleted_at: if(unquote(deleted_timestamp) == :present, do: timestamp)
+        )
+        |> Repo.update!()
+
+      segments = Repo.all(from(s in Segment, where: s.artifact_id == ^retained.id))
+      assert length(segments) == 1
+
+      {retained, physical_content} =
+        if unquote(retained_content) == :summary do
+          alias CommsCore.AudioCalls.Artifacts.Summary
+          Repo.delete_all(from(s in Segment, where: s.artifact_id == ^retained.id))
+
+          summary_artifact =
+            Repo.insert!(%Artifact{
+              tenant_id: retained.tenant_id,
+              conversation_id: retained.conversation_id,
+              call_id: retained.call_id,
+              source_artifact_id: retained.id,
+              requested_by_user_id: retained.requested_by_user_id,
+              requested_by_device_id: retained.requested_by_device_id,
+              requested_by_session_id: retained.requested_by_session_id,
+              kind: :summary,
+              status: :deleted,
+              deleted_at: timestamp,
+              provider_room: retained.provider_room,
+              object_key: retained.object_key <> "/summary",
+              content_type: "text/plain",
+              expires_at: retained.expires_at,
+              idempotency_key: Ecto.UUID.generate(),
+              summary_requested: true,
+              summary_source_sha256: String.duplicate("d", 64)
+            })
+
+          content =
+            Repo.insert!(%Summary{
+              tenant_id: retained.tenant_id,
+              artifact_id: summary_artifact.id,
+              source_artifact_id: retained.id,
+              source_sha256: String.duplicate("d", 64),
+              summary_sha256: String.duplicate("e", 64),
+              policy_version: "meeting-summary-v1",
+              provider_id: "synthetic_summary",
+              provider_model: "synthetic",
+              text: "Retained summary evidence"
+            })
+
+          {summary_artifact, content}
+        else
+          {retained, hd(segments)}
+        end
+
+      other = Fixtures.account_fixture()
+      same_tenant = Fixtures.user_fixture(context.account).user
+      same_raw = Repo.get!(CommsCore.Accounts.User, same_tenant.id)
+      foreign_raw = Repo.get!(CommsCore.Accounts.User, other.user.id)
+      owner = Fixtures.step_up(context.account, context.subject)
+
+      {:ok, %{request: request}} =
+        Governance.create_deletion_request(
+          %{
+            target_type: :conversation,
+            conversation_id: context.account.conversation.id,
+            reason: "Retained deleted transcript proof"
+          },
+          owner
+        )
+
+      {:ok, approved} =
+        Governance.transition_deletion_request(
+          request.id,
+          %{
+            version: request.lock_version,
+            status: "approved",
+            transition_reason: "Inspect physical content proof"
+          },
+          owner
+        )
+
+      {:ok, held} =
+        Governance.create_legal_hold(
+          %{
+            scope_type: :conversation,
+            conversation_id: context.account.conversation.id,
+            name: "Retained transcript hold",
+            reason: "Protect physical transcript before proof"
+          },
+          owner
+        )
+
+      job = %Oban.Job{args: %{"deletion_request_id" => approved.id}}
+      assert {:snooze, 300} = CommsWorkers.DeletionWorker.perform(job)
+
+      {:ok, _} =
+        Governance.release_legal_hold(
+          held.hold.id,
+          %{
+            version: held.hold.lock_version,
+            release_reason: "Inspect conservative pending proof"
+          },
+          owner
+        )
+
+      assert {:error, :artifact_erasure_state_unconfirmed} =
+               CommsWorkers.DeletionWorker.perform(job)
+
+      assert {:ok, true} =
+               Artifacts.governance_erasure_pending?(
+                 context.account.tenant.id,
+                 :conversation,
+                 context.account.conversation.id
+               )
+
+      assert Repo.get!(DeletionRequest, approved.id).status == :approved
+      assert Repo.get!(Artifact, retained.id) == retained
+
+      if unquote(retained_content) == :summary do
+        assert Repo.get!(CommsCore.AudioCalls.Artifacts.Summary, physical_content.id) ==
+                 physical_content
+      else
+        assert Repo.all(from(s in Segment, where: s.artifact_id == ^retained.id)) == segments
+      end
+
+      assert Repo.get!(CommsCore.Accounts.User, same_tenant.id) == same_raw
+      assert Repo.get!(CommsCore.Accounts.User, other.user.id) == foreign_raw
+      refute_receive {:object_deleted, _}
+    end
+  end
+
   test "rollback refuses proof when owned transcript inventory is absent" do
     # DataCase rolls back this DDL with the isolated synthetic test transaction.
     Repo.query!("DROP TABLE public.call_artifact_segments")

@@ -126,7 +126,7 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
 
     clean = Map.new(keys, &{&1, 0})
 
-    for count <- [6, 12, 14, 15] do
+    for count <- [6, 12, 14, 15, length(names)] do
       target = %{
         target_revision: "synthetic-receipt-#{count}",
         capabilities: names |> Enum.take(count) |> MapSet.new()
@@ -141,7 +141,7 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           ] do
         retained = Map.put(clean, key, 1)
 
-        if count == 15 do
+        if count == length(names) do
           assert ^retained = Release.assert_communication_rollback_hazards!(retained, target)
         else
           assert_raise RuntimeError, ~r/lacks native_call_wake_v1.*#{key}=1/, fn ->

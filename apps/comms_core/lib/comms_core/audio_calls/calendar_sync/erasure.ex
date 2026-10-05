@@ -148,7 +148,8 @@ defmodule CommsCore.AudioCalls.CalendarSync.Erasure do
 
     pending_exports =
       Enum.count(exports, fn export ->
-        export.status != :removed or is_nil(export.tombstoned_at) or is_nil(export.removed_at) or
+        not export.author_lineage_complete or export.author_user_ids == [] or
+          export.status != :removed or is_nil(export.tombstoned_at) or is_nil(export.removed_at) or
           Repo.exists?(
             from(m in EventMapping,
               where:
@@ -206,7 +207,8 @@ defmodule CommsCore.AudioCalls.CalendarSync.Erasure do
       from(e in Export,
         where:
           e.tenant_id == ^tenant and
-            (e.user_id == ^target or ^target in e.author_user_ids),
+            (e.user_id == ^target or ^target in e.author_user_ids or
+               not e.author_lineage_complete or fragment("cardinality(?) = 0", e.author_user_ids)),
         order_by: [asc: e.id],
         limit: 1001
       )

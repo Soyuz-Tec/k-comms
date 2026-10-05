@@ -61,13 +61,6 @@ defmodule CommsCore.Telephony do
     as: :rollback_hazard_count
 
   @doc false
-  @spec release_tenant_fingerprint_fragment(module(), binary()) :: %{
-          phone_provisioning_commands: [binary()]
-        }
-  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id),
-    to: CommsCore.Telephony.Provisioning
-
-  @doc false
   @spec rollback_voicemail_hazard_count() :: non_neg_integer()
   defdelegate rollback_voicemail_hazard_count(), to: CommsCore.Telephony.Mailboxes
   @doc false
@@ -75,10 +68,23 @@ defmodule CommsCore.Telephony do
   defdelegate rollback_control_hazard_count(), to: CommsCore.Telephony.Controls
 
   @doc false
-  @spec release_tenant_fingerprint_fragment(module(), String.t()) :: %{atom() => [String.t()]}
-  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id),
-    to: CommsCore.Telephony.ReleaseInventory,
-    as: :tenant_fingerprint_fragment
+  @spec release_tenant_fingerprint_fragment(module(), binary()) :: %{
+          phone_provisioning_commands: [binary()],
+          telephony_calls: [binary()],
+          telephony_ivr_menus: [binary()],
+          telephony_ivr_runs: [binary()],
+          telephony_ivr_event_receipts: [binary()],
+          telephony_agent_states: [binary()]
+        }
+  def release_tenant_fingerprint_fragment(repo, tenant_id) do
+    phone = CommsCore.Telephony.Provisioning.release_tenant_fingerprint_fragment(repo, tenant_id)
+    ivr = CommsCore.Telephony.ReleaseInventory.tenant_fingerprint_fragment(repo, tenant_id)
+
+    unless MapSet.disjoint?(MapSet.new(Map.keys(phone)), MapSet.new(Map.keys(ivr))),
+      do: raise("telephony fingerprint owner fragments contain overlapping categories")
+
+    Map.merge(phone, ivr)
+  end
 
   @spec config(map()) :: response()
   defdelegate config(subject), to: Lifecycle

@@ -45,7 +45,11 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calendar_erasure_receipts,
     :phone_provisioning_commands,
     :native_push_registrations,
-    :native_call_wakes
+    :native_call_wakes,
+    :matrix_identities,
+    :matrix_client_sessions,
+    :private_matrix_rooms,
+    :opaque_private_events
   ]
 
   defmodule ReadOnlyRepo do
@@ -92,7 +96,11 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "calendar_erasure_receipts" => "calendar-erasure-internal-id",
             "telephony_provisioning_commands" => "phone-receipt-internal-id",
             "native_push_registrations" => "native-registration-internal-id",
-            "native_call_wakes" => "native-wake-internal-id"
+            "native_call_wakes" => "native-wake-internal-id",
+            "matrix_identities" => "matrix-identity-internal-id",
+            "matrix_client_sessions" => "matrix-session-internal-id",
+            "private_matrix_rooms" => "private-room-internal-id",
+            "opaque_private_events" => "opaque-event-internal-id"
           },
           table
         )
@@ -164,6 +172,174 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
         ] do
       refute output =~ forbidden
     end
+  end
+
+  test "simultaneous retained IVR cleanup and every Phone command outcome contribute independently" do
+    alias CommsCore.Telephony.{
+      AgentState,
+      Call,
+      IvrEventReceipt,
+      IvrMenu,
+      IvrRun,
+      Number,
+      ProvisioningCommand
+    }
+
+    alias CommsCore.Telephony
+    account = Fixtures.account_fixture()
+    unrelated = Fixtures.account_fixture()
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    before_unrelated = Release.instant_room_tenant_fingerprint(Repo, unrelated.tenant.slug)
+
+    suffix =
+      System.unique_integer([:positive, :monotonic])
+      |> Integer.to_string()
+      |> String.pad_leading(9, "0")
+
+    number =
+      Repo.insert!(%Number{
+        tenant_id: account.tenant.id,
+        user_id: account.user.id,
+        phone_number: "+1415" <> suffix,
+        extension: "101",
+        inbound_trunk_id: "ST_synthetic_in",
+        outbound_trunk_id: "ST_synthetic_out"
+      })
+
+    call =
+      Repo.insert!(%Call{
+        tenant_id: account.tenant.id,
+        number_id: number.id,
+        user_id: account.user.id,
+        direction: :inbound,
+        status: :failed,
+        from_number: number.phone_number,
+        to_number: number.phone_number,
+        extension: "101",
+        inbound_trunk_id: number.inbound_trunk_id,
+        outbound_trunk_id: number.outbound_trunk_id,
+        provider_room: "kc_tel_fingerprint_" <> suffix,
+        provider_identity: "synthetic_fingerprint_" <> suffix,
+        started_at: now,
+        expires_at: DateTime.add(now, 60),
+        ended_at: now,
+        cleanup_completed_at: now,
+        end_reason: "synthetic_completed_cleanup"
+      })
+
+    menu =
+      Repo.insert!(%IvrMenu{
+        tenant_id: account.tenant.id,
+        number_id: number.id,
+        name: "Retained menu",
+        prompt_media: "sound:custom/menu",
+        choices: %{"1" => %{"kind" => "hangup"}},
+        fallback: %{"kind" => "hangup"},
+        enabled: false
+      })
+
+    run =
+      Repo.insert!(%IvrRun{
+        tenant_id: account.tenant.id,
+        call_id: call.id,
+        menu_id: menu.id,
+        menu_version: menu.version,
+        snapshot: %{"name" => menu.name},
+        phase: :completed,
+        effect_claim_fingerprint: String.duplicate("a", 64),
+        expires_at: DateTime.add(now, 60)
+      })
+
+    receipt =
+      Repo.insert!(%IvrEventReceipt{
+        tenant_id: account.tenant.id,
+        run_id: run.id,
+        event_id: String.duplicate("b", 64),
+        body_fingerprint: String.duplicate("c", 64),
+        step: 1,
+        event_type: "ChannelDestroyed"
+      })
+
+    agent =
+      Repo.insert!(%AgentState{
+        tenant_id: account.tenant.id,
+        user_id: account.user.id,
+        state: :away,
+        expires_at: DateTime.add(now, -60),
+        inserted_at: DateTime.add(now, -600),
+        updated_at: DateTime.add(now, -600)
+      })
+
+    commands =
+      for status <- [:inspecting, :verified, :applying, :unknown, :applied, :failed, :reconciling] do
+        Repo.insert!(%ProvisioningCommand{
+          tenant_id: account.tenant.id,
+          actor_user_id: account.user.id,
+          actor_device_id: account.device.id,
+          actor_session_id: account.session.id,
+          request_id: Ecto.UUID.generate(),
+          assignment_version: 0,
+          desired: %{"phone_number" => number.phone_number},
+          status: status,
+          lease_expires_at: DateTime.add(now, -60),
+          effect_consumed: status in [:unknown, :applied]
+        })
+      end
+
+    fragment = Telephony.release_tenant_fingerprint_fragment(Repo, account.tenant.id)
+
+    assert MapSet.new(Map.keys(fragment)) ==
+             MapSet.new([
+               :phone_provisioning_commands,
+               :telephony_calls,
+               :telephony_ivr_menus,
+               :telephony_ivr_runs,
+               :telephony_ivr_event_receipts,
+               :telephony_agent_states
+             ])
+
+    assert fragment.telephony_calls == [call.id]
+    assert fragment.telephony_ivr_menus == [menu.id]
+    assert fragment.telephony_ivr_runs == [run.id]
+    assert fragment.telephony_ivr_event_receipts == [receipt.id]
+    assert fragment.telephony_agent_states == [agent.id]
+
+    assert MapSet.new(fragment.phone_provisioning_commands) ==
+             MapSet.new(Enum.map(commands, & &1.id))
+
+    report = Release.instant_room_tenant_fingerprint(Repo, account.tenant.slug)
+    assert report.counts.phone_provisioning_commands == 7
+    assert report.counts.telephony_calls == 1
+    assert report.counts.telephony_ivr_menus == 1
+    assert report.counts.telephony_ivr_runs == 1
+    assert report.counts.telephony_ivr_event_receipts == 1
+    assert report.counts.telephony_agent_states == 1
+
+    assert before_unrelated ==
+             Release.instant_room_tenant_fingerprint(Repo, unrelated.tenant.slug)
+
+    output = Release.format_instant_room_tenant_fingerprint(report)
+
+    for private <- [
+          number.phone_number,
+          menu.name,
+          run.id,
+          receipt.event_id,
+          account.tenant.id,
+          account.user.id
+        ] do
+      refute output =~ private
+    end
+
+    # Each retained owner contributes to the real digest, even after cleanup.
+    Repo.delete!(Enum.find(commands, &(&1.status == :failed)))
+    after_phone = Release.instant_room_tenant_fingerprint(Repo, account.tenant.slug)
+    assert after_phone.counts.phone_provisioning_commands == 6
+    refute after_phone.fingerprint_sha256 == report.fingerprint_sha256
+    Repo.delete!(receipt)
+    after_ivr = Release.instant_room_tenant_fingerprint(Repo, account.tenant.slug)
+    assert after_ivr.counts.telephony_ivr_event_receipts == 0
+    refute after_ivr.fingerprint_sha256 == after_phone.fingerprint_sha256
   end
 
   test "fingerprint is stable, tenant-isolated, and changes with fixed-tenant residue" do

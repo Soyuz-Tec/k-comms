@@ -120,6 +120,126 @@ defmodule CommsCore.AudioCalls.CalendarSyncTest do
     {:ok, account: account, subject: subject, connection: connection, meeting: meeting}
   end
 
+  test "registered Governance preserves unknown nonowner Calendar authorship and unrelated controls",
+       context do
+    alias CommsCore.Governance
+    alias CommsCore.Governance.DeletionRequest
+    target = Fixtures.user_fixture(context.account).user
+    {export, _command} = exported(context)
+
+    unknown =
+      Repo.get!(Export, export.id)
+      |> Ecto.Changeset.change(
+        author_lineage_complete: false,
+        author_user_ids: [context.account.user.id]
+      )
+      |> Repo.update!()
+
+    {:ok, known_meeting} =
+      AudioCalls.schedule_meeting(context.account.conversation.id, input(), context.subject)
+
+    {known, _} = exported(%{context | meeting: known_meeting})
+    foreign = Fixtures.account_fixture()
+    foreign_subject = Fixtures.step_up(foreign)
+    {:ok, settings} = Administration.get_tenant_settings(foreign_subject)
+
+    {:ok, _} =
+      Administration.update_tenant_settings(
+        %{version: settings.settings.lock_version, allow_calendar_export: true},
+        foreign_subject
+      )
+
+    foreign_connection = connection(foreign)
+
+    {:ok, foreign_meeting} =
+      AudioCalls.schedule_meeting(foreign.conversation.id, input(), foreign_subject)
+
+    {foreign_export, _} =
+      exported(%{
+        account: foreign,
+        subject: foreign_subject,
+        connection: foreign_connection,
+        meeting: foreign_meeting
+      })
+
+    known_raw = Repo.get!(Export, known.id)
+    foreign_raw = Repo.get!(Export, foreign_export.id)
+    mapping_raw = Repo.get_by!(EventMapping, export_id: unknown.id)
+
+    {:ok, %{request: request}} =
+      Governance.create_deletion_request(
+        %{
+          target_type: :user,
+          subject_user_id: target.id,
+          reason: "Unknown retained Calendar author proof"
+        },
+        context.subject
+      )
+
+    {:ok, approved} =
+      Governance.transition_deletion_request(
+        request.id,
+        %{
+          version: request.lock_version,
+          status: "approved",
+          transition_reason: "Bounded synthetic erasure review"
+        },
+        context.subject
+      )
+
+    {:ok, held} =
+      Governance.create_legal_hold(
+        %{
+          scope_type: :user,
+          subject_user_id: target.id,
+          name: "Unknown Calendar author hold",
+          reason: "Preserve incomplete lineage"
+        },
+        context.subject
+      )
+
+    job = %Oban.Job{args: %{"deletion_request_id" => approved.id}}
+    assert {:snooze, 300} = CommsWorkers.DeletionWorker.perform(job)
+    assert Repo.get!(Export, unknown.id) == unknown
+
+    {:ok, _} =
+      Governance.release_legal_hold(
+        held.hold.id,
+        %{
+          version: held.hold.lock_version,
+          release_reason: "Allow proof inspection without removing unknown content"
+        },
+        context.subject
+      )
+
+    assert {:error, :calendar_authorship_unavailable} = CommsWorkers.DeletionWorker.perform(job)
+    assert Repo.get!(DeletionRequest, approved.id).status == :approved
+
+    assert {:ok, true} =
+             AudioCalls.calendar_governance_erasure_pending?(
+               context.account.tenant.id,
+               :user,
+               target.id
+             )
+
+    assert Repo.get!(Export, unknown.id) == unknown
+    assert Repo.get_by!(EventMapping, export_id: unknown.id) == mapping_raw
+    assert Repo.get!(Export, known.id) == known_raw
+    assert Repo.get!(Export, foreign_export.id) == foreign_raw
+    assert Repo.get!(CommsCore.Accounts.User, target.id).status == :active
+    refute_receive {:calendar_effect, _, _}
+
+    refute Repo.get_by(ErasureReceipt,
+             tenant_id: context.account.tenant.id,
+             target_type: :user,
+             target_fingerprint:
+               :crypto.hash(
+                 :sha256,
+                 "calendar-erasure-v1\0" <> context.account.tenant.id <> "\0user\0" <> target.id
+               )
+           )
+  end
+
   test "explicit opt-in retains the occurrence marker across source edits and fences cancellation",
        context do
     assert Repo.aggregate(Export, :count) == 0

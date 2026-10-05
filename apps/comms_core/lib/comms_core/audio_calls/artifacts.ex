@@ -1350,6 +1350,11 @@ defmodule CommsCore.AudioCalls.Artifacts do
       snapshots = Repo.all(erasure_query(tenant_id, target_type, target_id))
       if Enum.any?(snapshots, &protection!(&1).held), do: Repo.rollback(:artifact_legal_hold)
 
+      # A retained deleted marker without physical cleanup proof cannot be
+      # repaired by pretending the provider has already removed its content.
+      if Enum.any?(snapshots, &(&1.status == :deleted)),
+        do: Repo.rollback(:artifact_erasure_state_unconfirmed)
+
       Enum.each(snapshots, fn snapshot ->
         artifact = lock_id!(snapshot.id)
 
@@ -1388,9 +1393,24 @@ defmodule CommsCore.AudioCalls.Artifacts do
   def governance_erasure_pending?(_, _, _), do: {:error, :invalid_governance_target}
 
   defp erasure_query(tenant_id, target_type, target_id) do
+    retained_segments =
+      from(segment in Segment,
+        where: segment.tenant_id == ^tenant_id,
+        select: segment.artifact_id
+      )
+
+    retained_summaries =
+      from(summary in Summary,
+        where: summary.tenant_id == ^tenant_id,
+        select: summary.artifact_id
+      )
+
     query =
       from(a in Artifact,
-        where: a.tenant_id == ^tenant_id and a.status != :deleted,
+        where:
+          a.tenant_id == ^tenant_id and
+            (a.status != :deleted or is_nil(a.deleted_at) or
+               a.id in subquery(retained_segments) or a.id in subquery(retained_summaries)),
         order_by: [
           asc:
             fragment("CASE ? WHEN 'recording' THEN 0 WHEN 'transcript' THEN 1 ELSE 2 END", a.kind),

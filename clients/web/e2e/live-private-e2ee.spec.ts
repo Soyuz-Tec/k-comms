@@ -1,10 +1,10 @@
 import { test, expect, type Browser, type BrowserContext, type Page, type APIRequestContext, type TestInfo } from "@playwright/test";
 
 const enabled = process.env.K_COMMS_LIVE_PRIVATE_E2EE === "true";
+// Recovery and authentication secrets must never enter trace/video artifacts.
+test.use({ trace: "off", video: "off" });
 test.describe("maintained Matrix Rust private-room protocol", () => {
   test.skip(!enabled, "Requires qualified disposable Synapse, a zero-device control principal and two fresh enrolled humans over HTTPS");
-  // Recovery and authentication secrets must never enter trace/video artifacts.
-  test.use({ trace: "off", video: "off" });
   test("real Rust encryption, SAS trust, unknown ACK, recovery, removal and poisoned control refusal", async ({ browser, request }, info) => {
     test.setTimeout(240_000);
     test.skip(info.project.name !== "chromium", "One serialized native protocol qualification owns the disposable identities");
