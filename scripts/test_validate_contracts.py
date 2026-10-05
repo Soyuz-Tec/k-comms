@@ -178,7 +178,7 @@ class SharedDocumentContractTests(unittest.TestCase):
 
     def test_standalone_and_socket_receipts_cannot_diverge(self) -> None:
         payloads = copy.deepcopy(self.payloads)
-        payloads["shared-document.v1.json"]["$defs"]["SharedDocumentSnapshot"]["properties"]["version"]["minimum"] = 0
+        payloads["shared-document.v1.json"]["$defs"]["SharedDocumentSnapshot"]["properties"]["version"]["minimum"] = -1
         with self.assertRaisesRegex(ValueError, "standalone shared document schemas diverged"):
             self.validate(payloads=payloads)
         asyncapi = copy.deepcopy(self.asyncapi)
