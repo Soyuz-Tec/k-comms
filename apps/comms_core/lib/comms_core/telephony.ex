@@ -15,6 +15,34 @@ defmodule CommsCore.Telephony do
   }
 
   @type response :: {:ok, map() | CallView.t()} | {:error, atom() | CommsCore.ValidationError.t()}
+
+  @doc "Current-owner Phone provider setup; no carrier purchase or client credentials."
+  defdelegate phone_provisioning_state(subject), to: CommsCore.Telephony.Provisioning, as: :state
+
+  defdelegate inspect_phone_provisioning(attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :inspect
+
+  defdelegate apply_phone_provisioning(id, attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :apply_configuration
+
+  defdelegate reconcile_phone_provisioning(id, attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :reconcile
+
+  defdelegate authorize_phone_provisioning_io(request, mode, caller),
+    to: CommsCore.Telephony.Provisioning,
+    as: :authorize_io
+
+  defdelegate complete_phone_provisioning(request, result, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :complete
+
+  defdelegate rollback_phone_provisioning_hazard_count(),
+    to: CommsCore.Telephony.Provisioning,
+    as: :rollback_hazard_count
+
   @doc false
   @spec rollback_voicemail_hazard_count() :: non_neg_integer()
   defdelegate rollback_voicemail_hazard_count(), to: CommsCore.Telephony.Mailboxes

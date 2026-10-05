@@ -9,6 +9,7 @@ defmodule CommsCore.Telephony.Number do
     field(:extension, :string)
     field(:inbound_trunk_id, :string)
     field(:outbound_trunk_id, :string)
+    field(:lock_version, :integer, default: 1)
     timestamps()
   end
 

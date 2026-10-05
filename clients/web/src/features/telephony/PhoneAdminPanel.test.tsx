@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PhoneAdminPanel } from "./PhoneAdminPanel";
 
-const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { api: { voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string }[] }; });
+const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { api: { phoneProvisioningState: vi.fn().mockResolvedValue({ provider: { enabled: false, ready: false, reason: "provider_management_disabled", number_purchase: false, trunk_credentials_edit: false }, assignment_version: 0, commands: [] }), voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string; access_scope?: string }[] }; });
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api }) }));
 vi.mock("../../app/workspace-data", () => ({ useWorkspaceData: () => ({ users: harness.users }) }));
 vi.mock("../../app/step-up", () => ({ useStepUp: () => ({ runWithStepUp: harness.stepUp }), stepUpWasCancelled: () => false }));
@@ -22,7 +22,7 @@ async function fillAssignment() {
 }
 
 describe("phone provisioning", () => {
-  beforeEach(() => { vi.clearAllMocks(); harness.users = [{ id: "user-1", display_name: "Member One", status: "active" }, { id: "service-1", display_name: "Automation", status: "active", account_type: "service" }, { id: "guest-1", display_name: "Guest", status: "active", account_type: "guest" }, { id: "inactive-1", display_name: "Inactive", status: "suspended" }]; harness.load.mockResolvedValue(configuration); harness.stepUp.mockImplementation((action: () => Promise<unknown>) => action()); harness.refresh.mockResolvedValue(undefined); harness.update.mockResolvedValue({ id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" }); });
+  beforeEach(() => { vi.clearAllMocks(); harness.users = [{ id: "user-1", display_name: "Member One", status: "active", account_type: "human", access_scope: "workspace" }, { id: "service-1", display_name: "Automation", status: "active", account_type: "service" }, { id: "guest-1", display_name: "Guest", status: "active", account_type: "guest" }, { id: "inactive-1", display_name: "Inactive", status: "suspended" }]; harness.load.mockResolvedValue(configuration); harness.stepUp.mockImplementation((action: () => Promise<unknown>) => action()); harness.refresh.mockResolvedValue(undefined); harness.update.mockResolvedValue({ id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" }); });
   it("guides setup from provider to verification and saves only through step-up with an audit reason", async () => {
     render(<PhoneAdminPanel />);
     const user = await fillAssignment();
@@ -35,7 +35,7 @@ describe("phone provisioning", () => {
     await user.click(screen.getByRole("button", { name: "Save phone line" }));
     await screen.findByText("Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.");
     expect(harness.stepUp).toHaveBeenCalledOnce();
-    await waitFor(() => expect(harness.update).toHaveBeenCalledWith({ phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "First phone pilot" }));
+    await waitFor(() => expect(harness.update).toHaveBeenCalledWith({ phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "First phone pilot", version: 0 }));
     expect(harness.refresh).toHaveBeenCalled();
     expect(screen.getByLabelText("Reason for this change")).toHaveValue("");
     expect(screen.getByText("Phone service is off")).toBeVisible();
@@ -78,7 +78,7 @@ describe("phone provisioning", () => {
     harness.load.mockResolvedValue({ ...configuration, line_assigned: true, number: { id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1" } });
     const view = render(<PhoneAdminPanel />);
     expect(await screen.findByLabelText("Assigned member")).toHaveValue("");
-    harness.users = [{ id: "user-1", display_name: "Member One", status: "active" }];
+    harness.users = [{ id: "user-1", display_name: "Member One", status: "active", account_type: "human", access_scope: "workspace" }];
     view.rerender(<PhoneAdminPanel />);
     expect(screen.getByLabelText("Assigned member")).toHaveValue("user-1");
     expect(harness.update).not.toHaveBeenCalled();

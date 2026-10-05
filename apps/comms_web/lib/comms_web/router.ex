@@ -393,6 +393,16 @@ defmodule CommsWeb.Router do
     post("/telephony/calls/:id/end", TelephonyController, :end_call)
     post("/telephony/calls/:id/join", TelephonyController, :join)
     get("/admin/telephony", TelephonyController, :admin_config)
+    get("/admin/telephony/provisioning", PhoneProvisioningController, :index)
+    post("/admin/telephony/provisioning/inspect", PhoneProvisioningController, :inspect)
+
+    post(
+      "/admin/telephony/provisioning/:id/apply",
+      PhoneProvisioningController,
+      :apply_configuration
+    )
+
+    post("/admin/telephony/provisioning/:id/reconcile", PhoneProvisioningController, :reconcile)
     put("/admin/telephony", TelephonyController, :provision)
     patch("/me/profile", ProfileController, :update)
     post("/socket-tickets", SocketTicketController, :create)

@@ -469,6 +469,9 @@ contexts:
     public_contracts:
       - CommsCore.Telephony.UsageProjection
       - CommsCore.Telephony.UsageQuery
+      - CommsCore.Telephony.ProvisioningRequest
+      - CommsCore.Telephony.ProvisioningPort
+      - CommsCore.Telephony.ProvisioningPort.Contract
       - CommsCore.Telephony.CallView
       - CommsCore.Telephony.CredentialRequest
       - CommsCore.Telephony.ProviderCommand
@@ -1105,6 +1108,35 @@ technical_interfaces:
       dispatcher and behaviour. Requests and receipts are persistence-neutral and version/room/consent bound; configured
       provider capability does not establish live provider or production qualification.
 
+  - id: telephony-provider-provisioning
+    owner: telephony
+    interface: CommsCore.Telephony.ProvisioningPort
+    callers:
+    - CommsCore.Telephony.Provisioning
+    - CommsWeb.PhoneProvisioningController
+    operations:
+    - name: status
+      arity: 1
+    - name: inspect
+      arity: 1
+    - name: apply
+      arity: 1
+    dispatch: configured
+    contracts:
+    - CommsCore.Telephony.ProvisioningPort
+    - CommsCore.Telephony.ProvisioningPort.Contract
+    - CommsCore.Telephony.ProvisioningRequest
+    behaviour: CommsCore.Telephony.ProvisioningPort.Contract
+    implementation: CommsIntegrations.Telephony.ProvisioningLiveKit
+    binding:
+      application: comms_core
+      key: telephony_provisioning_adapter
+      module: CommsIntegrations.Telephony.ProvisioningLiveKit
+    transaction: independent
+    condition: ADR-0107 permits only bounded secret-free inspection and a one-shot dispatch-rule create for operator-bound
+      existing tenant trunks and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible
+      assignment and CAS before each read/effect; effects are consumed before dispatch and uncertain results reconcile read-only.
+
   - id: telephony-provider-controls
     owner: telephony
     interface: CommsCore.Telephony.ProviderControlPort
@@ -1252,6 +1284,7 @@ tables:
   audio_calls: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCall, role: source}
   audio_call_participants: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCallParticipant, role: source}
   telephony_numbers: {owner: telephony, canonical_schema: CommsCore.Telephony.Number, role: source}
+  telephony_provisioning_commands: {owner: telephony, canonical_schema: CommsCore.Telephony.ProvisioningCommand, role: source}
   telephony_calls: {owner: telephony, canonical_schema: CommsCore.Telephony.Call, role: source}
   telephony_provider_events: {owner: telephony, canonical_schema: CommsCore.Telephony.ProviderEvent, role: source}
   telephony_room_tombstones: {owner: telephony, canonical_schema: CommsCore.Telephony.RoomTombstone, role: source}
