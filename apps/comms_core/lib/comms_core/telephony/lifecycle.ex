@@ -157,7 +157,7 @@ defmodule CommsCore.Telephony.Lifecycle do
              from(c in Call,
                where:
                  c.id == ^id and c.tenant_id == ^grant.tenant_id and
-                   c.routing_status not in ["waiting", "voicemail"] and
+                   c.routing_status not in ["waiting", "voicemail", "ivr", "ivr_destination"] and
                    (c.user_id == ^grant.user_id or
                       (c.status == :ringing and c.routing_status == "offered" and
                          ^grant.user_id in c.offered_user_ids))

@@ -107,7 +107,11 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     second =
       struct!(
         first,
-        Map.merge(change1, %{phase: :awaiting_digit, digit_deadline: first.digit_deadline})
+        Map.merge(change1, %{
+          phase: :awaiting_digit,
+          prompt_completed_at: @now,
+          digit_deadline: first.digit_deadline
+        })
       )
 
     assert {:applied, change2} =
@@ -118,7 +122,11 @@ defmodule CommsCore.TelephonyIvrStateMachineTest do
     third =
       struct!(
         second,
-        Map.merge(change2, %{phase: :awaiting_digit, digit_deadline: first.digit_deadline})
+        Map.merge(change2, %{
+          phase: :awaiting_digit,
+          prompt_completed_at: @now,
+          digit_deadline: first.digit_deadline
+        })
       )
 
     assert {:applied, %{phase: :selected, selected_target: %{"kind" => "hangup"}}} =
