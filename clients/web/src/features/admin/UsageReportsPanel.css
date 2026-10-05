@@ -5,6 +5,7 @@
 .usage-reports input, .usage-reports select, .usage-reports button, .usage-daily summary { min-height: 44px; max-width: 100%; }
 .usage-window-form input { width: 100%; min-width: 0; }
 .usage-report-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.usage-report-actions .button.secondary { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-strong); }
 .usage-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; min-width: 0; }
 .usage-source { display: grid; align-content: start; gap: 12px; border: 1px solid var(--border-default); border-radius: 12px; padding: 14px; min-width: 0; }
 .usage-current-metrics { display: grid; gap: 8px; margin: 0; }
@@ -13,6 +14,8 @@
 .usage-current-metrics dd { margin: 0; font-variant-numeric: tabular-nums; }
 .usage-daily summary { cursor: pointer; align-content: center; overflow-wrap: anywhere; }
 .usage-daily .field { margin-block: 8px; }
+/* WebKit otherwise paints a long native selected value outside its field. */
+.usage-daily select { white-space: normal; }
 .usage-daily-table { max-width: 100%; overflow: auto; }
 .usage-daily-table table { width: 100%; border-collapse: collapse; }
 .usage-daily-table th, .usage-daily-table td { padding: 8px; text-align: start; border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
