@@ -3,6 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "description": "K-Comms desktop evaluation client with packaged existing UC interface",
+  "homepage": "https://github.com/Soyuz-Tec/k-comms",
   "type": "module",
   "main": "src/main.mjs",
   "author": "K-Comms contributors",
