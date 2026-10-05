@@ -260,6 +260,20 @@ contexts:
       - revoke_guest_link_view/3
       - update_view/3
       - usage_projection/2
+      - cancel_stale_federation_command/2
+      - close_federation_room/3
+      - create_federation_room/3
+      - deliver_federation_command/3
+      - export_federation_metadata/2
+      - federation_consent/3
+      - federation_room/2
+      - federation_timeline/3
+      - federation_trusts/1
+      - invite_federation_participant/3
+      - prepare_federation_command/2
+      - put_federation_trust/2
+      - reconcile_federation_commands/1
+      - send_federation_message/3
       collaboration_operations:
       - active_conversation_ids/1
       - active_conversation_member?/2
@@ -290,6 +304,10 @@ contexts:
       - validate_active_members/3
       - validate_reference/2
       - lock_private_room_grant/5
+      - federation_erasure_pending?/3
+      - fence_federation_user/2
+      - prepare_federation_erasure/3
+      - rollback_federation_hazard_count/0
       owner_internal_operations:
       - add_member/4
       - archive/3
@@ -422,6 +440,7 @@ contexts:
       - matrix_client_session/2
       - prepare_matrix_identity_erasure/2
       - matrix_identity_erasure_pending?/2
+      - lock_federation_actor/1
       owner_internal_operations:
       - access_context/1
       - admin_revoke_session/4
@@ -761,6 +780,11 @@ contexts:
       - protection/2
       owner_internal_operations: []
     CommsCore.Governance.PrivateRoomProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.FederationProtection:
       public_operations: []
       collaboration_operations:
       - protection/3

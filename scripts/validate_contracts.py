@@ -2388,6 +2388,56 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+def validate_federation_contract(openapi: dict[str, Any], payload: dict[str, Any] | None = None) -> None:
+    schemas = openapi.get("components", {}).get("schemas", {})
+    base = "/api/v1/conversations/{conversationId}/federation"
+    routes = {
+        "/api/v1/admin/federation/trusts": {"get", "put"},
+        base: {"get", "post", "delete"},
+        base + "/consent": {"put"}, base + "/invitations": {"post"},
+        base + "/messages": {"get", "post"}, base + "/export": {"get"},
+    }
+    for path, methods in routes.items():
+        for method in methods:
+            operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+            if operation.get("security") != [{"bearerAuth": []}]:
+                raise ValueError("Federation requires current authenticated owner routes")
+            success = "202" if method in {"post", "delete"} else "200"
+            headers = operation.get("responses", {}).get(success, {}).get("headers", {})
+            if headers.get("Cache-Control", {}).get("schema") != {"const": "private, no-store"} or headers.get("Pragma", {}).get("schema") != {"const": "no-cache"}:
+                raise ValueError("Federation metadata and queued effects require private no-store receipts")
+    expected = {
+        "FederationRoom": {"id", "conversation_id", "domain", "residency", "status", "version", "consent", "remote_cleanup_state"},
+        "FederationTrust": {"id", "domain", "residency", "cross_border_reason", "enabled", "version", "residency_verified"},
+        "FederationSendRequest": {"version", "body", "idempotency_key"},
+        "FederationTimelineEvent": {"id", "sender", "body", "timestamp", "disclosure"},
+    }
+    for name, fields in expected.items():
+        definition = schemas.get(name, {})
+        if set(definition.get("properties", {})) != fields or set(definition.get("required", [])) != fields or definition.get("additionalProperties") is not False:
+            raise ValueError("Federation exact owner wire fields cannot expose credentials or private provider lineage")
+    if schemas["FederationCreateRequest"]["properties"]["plaintext_disclosure_accepted"] != {"const": True} or schemas["FederationTimelineEvent"]["properties"]["disclosure"] != {"const": "plaintext_bridge"}:
+        raise ValueError("Federation requires explicit plaintext disclosure; encrypted rooms are refused")
+    if schemas["FederationTimeline"]["properties"]["remote_deletion_confirmed"] != {"const": False} or schemas["FederationMetadataExport"]["properties"]["remote_deletion_confirmed"] != {"const": False} or schemas["FederationTrust"]["properties"]["residency_verified"] != {"const": False}:
+        raise ValueError("Matrix local observations cannot attest remote deletion or verified geography")
+    if schemas["FederationMetadataExport"]["properties"]["export_scope"] != {"const": "local_metadata_only"} or schemas["FederationMetadataExport"]["properties"]["incoming_content_persisted_locally"] != {"const": False}:
+        raise ValueError("Federation metadata export must disclose its bounded local scope")
+    if schemas["FederationTimeline"]["properties"]["events"].get("maxItems") != 50 or schemas["FederationTimeline"]["properties"]["cursor"].get("maxLength") != 4096:
+        raise ValueError("Federation observation requires bounded room history and opaque owner cursor")
+    if payload is not None:
+        def portable(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [portable(item) for item in value]
+            return value
+        for name, value in payload.get("$defs", {}).items():
+            if name not in schemas or value != portable(schemas[name]):
+                raise ValueError("Standalone Federation mirror must preserve exact canonical wire semantics")
+        if set(payload.get("$defs", {})) != {name for name in schemas if name.startswith("Federation")}:
+            raise ValueError("Standalone Federation mirror must close every owner definition")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2413,6 +2463,7 @@ def main() -> None:
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_federation_contract(openapi, schemas["federation.v1.json"])
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

@@ -56,6 +56,16 @@ defmodule CommsCore.Accounts do
           | :version_required
           | :weak_password
 
+  @spec lock_federation_actor(CommsCore.Accounts.FederationActorLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.AccessGrant.t()} | {:error, atom()}
+  defdelegate lock_federation_actor(query), to: CommsCore.Accounts.FederationGrants, as: :lock
+
+  @spec matrix_identity_view(binary(), binary()) ::
+          {:ok, CommsCore.Accounts.MatrixIdentityView.t()} | {:error, :not_found}
+  defdelegate matrix_identity_view(tenant_id, user_id),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :identity_view
+
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
           atom()
@@ -75,7 +85,8 @@ defmodule CommsCore.Accounts do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Accounts.UsageQuery.t()
+          CommsCore.Accounts.MatrixIdentityView.t()
+          | CommsCore.Accounts.UsageQuery.t()
           | CommsCore.Accounts.UsageProjection.t()
           | CommsCore.Accounts.AccessContext.t()
           | CommsCore.Accounts.AccessGrant.t()

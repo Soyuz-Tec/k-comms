@@ -24,7 +24,8 @@ ROLLBACK_CAPABILITIES = (
     "rich_content_erasure_v1,"
     "member_workspace_v1,"
     "governance_history_v1,"
-    "private_rooms_v1"
+    "private_rooms_v1,"
+    "workspace_federation_v1"
 )
 LIFECYCLE_VALUES = {
     "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS": "3600",

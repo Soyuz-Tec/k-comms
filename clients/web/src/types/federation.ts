@@ -1,0 +1,5 @@
+export interface FederationTrust { id: string; domain: string; residency: string; cross_border_reason: string; enabled: boolean; version: number; residency_verified: false; }
+export interface FederationRoom { id: string; conversation_id: string; domain: string; residency: string; status: "creating" | "active" | "fenced"; version: number; consent: "none" | "invited" | "accepted" | "withdrawn"; remote_cleanup_state: "none" | "pending" | "remote_unconfirmed"; }
+export interface FederationTimeline { events: Array<{ id: string; sender: string; body: string; timestamp: number; disclosure: "plaintext_bridge" }>; cursor: string | null; remote_deletion_confirmed: false; }
+export interface FederationPolicyInput { domain: string; residency: string; cross_border_reason: string; enabled: boolean; version?: number; }
+export interface FederationMetadataExport { room: FederationRoom; export_scope: "local_metadata_only"; remote_deletion_confirmed: false; incoming_content_persisted_locally: false; truncated: boolean; receipts: Array<{ id: string; observed_at: string; local_redaction_observed_at: string | null }>; }

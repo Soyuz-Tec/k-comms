@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.k-comms.example/federation.v1.json",
+  "title": "Federation explicit plaintext bridge v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/FederationTrustRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationCreateRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationConsentRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationInviteRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationSendRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationCloseRequest"
+    },
+    {
+      "$ref": "#/$defs/FederationTrustResponse"
+    },
+    {
+      "$ref": "#/$defs/FederationTrustListResponse"
+    },
+    {
+      "$ref": "#/$defs/FederationRoomResponse"
+    },
+    {
+      "$ref": "#/$defs/FederationQueuedMessageResponse"
+    },
+    {
+      "$ref": "#/$defs/FederationTimelineResponse"
+    },
+    {
+      "$ref": "#/$defs/FederationMetadataExportResponse"
+    }
+  ],
+  "$defs": {
+    "FederationTrust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "domain",
+        "residency",
+        "cross_border_reason",
+        "enabled",
+        "version",
+        "residency_verified"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 253,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\\s\\S])",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^\\d+(?:\\.\\d+){3}$"
+              }
+            },
+            {
+              "not": {
+                "pattern": "\\.(?:localhost|local|internal|invalid|test)$"
+              }
+            }
+          ]
+        },
+        "residency": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "cross_border_reason": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "residency_verified": {
+          "const": false
+        }
+      }
+    },
+    "FederationTrustRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "residency",
+        "cross_border_reason",
+        "enabled"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 253,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\\s\\S])",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^\\d+(?:\\.\\d+){3}$"
+              }
+            },
+            {
+              "not": {
+                "pattern": "\\.(?:localhost|local|internal|invalid|test)$"
+              }
+            }
+          ]
+        },
+        "residency": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "cross_border_reason": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "FederationRoom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "conversation_id",
+        "domain",
+        "residency",
+        "status",
+        "version",
+        "consent",
+        "remote_cleanup_state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 253,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\\s\\S])",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^\\d+(?:\\.\\d+){3}$"
+              }
+            },
+            {
+              "not": {
+                "pattern": "\\.(?:localhost|local|internal|invalid|test)$"
+              }
+            }
+          ]
+        },
+        "residency": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "creating",
+            "active",
+            "fenced"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "consent": {
+          "type": "string",
+          "enum": [
+            "none",
+            "invited",
+            "accepted",
+            "withdrawn"
+          ]
+        },
+        "remote_cleanup_state": {
+          "type": "string",
+          "enum": [
+            "none",
+            "pending",
+            "remote_unconfirmed"
+          ]
+        }
+      }
+    },
+    "FederationCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "plaintext_disclosure_accepted"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 253,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$(?![\\s\\S])",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "^\\d+(?:\\.\\d+){3}$"
+              }
+            },
+            {
+              "not": {
+                "pattern": "\\.(?:localhost|local|internal|invalid|test)$"
+              }
+            }
+          ]
+        },
+        "plaintext_disclosure_accepted": {
+          "const": true
+        }
+      }
+    },
+    "FederationConsentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "accept"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accept": {
+          "type": "boolean"
+        },
+        "plaintext_disclosure_accepted": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "accept": {
+                "const": true
+              }
+            },
+            "required": [
+              "accept"
+            ]
+          },
+          "then": {
+            "properties": {
+              "plaintext_disclosure_accepted": {
+                "const": true
+              }
+            },
+            "required": [
+              "plaintext_disclosure_accepted"
+            ]
+          }
+        }
+      ]
+    },
+    "FederationInviteRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "matrix_user_id"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "matrix_user_id": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 255,
+          "pattern": "^@[a-z0-9._=/-]+:[a-z0-9.-]+$(?![\\s\\S])"
+        }
+      }
+    },
+    "FederationSendRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "body",
+        "idempotency_key"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "idempotency_key": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "FederationCloseRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "FederationQueuedMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "disclosure"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "prepared",
+            "uncertain",
+            "done",
+            "cancelled",
+            "cancelled_unknown"
+          ]
+        },
+        "disclosure": {
+          "const": "plaintext_bridge"
+        }
+      }
+    },
+    "FederationTimelineEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sender",
+        "body",
+        "timestamp",
+        "disclosure"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sender": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disclosure": {
+          "const": "plaintext_bridge"
+        }
+      }
+    },
+    "FederationTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events",
+        "cursor",
+        "remote_deletion_confirmed"
+      ],
+      "properties": {
+        "events": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/FederationTimelineEvent"
+          }
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "remote_deletion_confirmed": {
+          "const": false
+        }
+      }
+    },
+    "FederationExportReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "observed_at",
+        "local_redaction_observed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "local_redaction_observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "FederationMetadataExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room",
+        "export_scope",
+        "remote_deletion_confirmed",
+        "incoming_content_persisted_locally",
+        "truncated",
+        "receipts"
+      ],
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/FederationRoom"
+        },
+        "export_scope": {
+          "const": "local_metadata_only"
+        },
+        "remote_deletion_confirmed": {
+          "const": false
+        },
+        "incoming_content_persisted_locally": {
+          "const": false
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "receipts": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/FederationExportReceipt"
+          }
+        }
+      }
+    },
+    "FederationTrustResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FederationTrust"
+        }
+      }
+    },
+    "FederationRoomResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FederationRoom"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "FederationQueuedMessageResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FederationQueuedMessage"
+        }
+      }
+    },
+    "FederationTimelineResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FederationTimeline"
+        }
+      }
+    },
+    "FederationMetadataExportResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FederationMetadataExport"
+        }
+      }
+    },
+    "FederationTrustListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/FederationTrust"
+          }
+        }
+      }
+    }
+  }
+}

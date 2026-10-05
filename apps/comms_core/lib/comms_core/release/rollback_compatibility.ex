@@ -41,7 +41,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
        :opaque_private_events,
        :active_matrix_device_jobs,
        :active_private_purge_jobs
-     ]}
+     ]},
+    {"workspace_federation_v1", [:federation_state, :active_federation_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -217,6 +218,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_meeting_reminder_jobs: active_job_count(repo, :meeting_reminder),
       rich_messages: Messaging.rollback_rich_content_hazard_count(),
       rich_whiteboards: Whiteboards.rollback_rich_content_hazard_count(),
+      federation_state: Conversations.rollback_federation_hazard_count(),
+      active_federation_jobs:
+        active_job_count(repo, :federation_command) +
+          active_job_count(repo, :federation_reconcile),
       member_workspaces: Accounts.rollback_member_workspace_hazard_count(),
       matrix_identities: Accounts.rollback_matrix_identity_hazard_count(),
       private_matrix_rooms: Conversations.rollback_private_room_hazard_count(),
