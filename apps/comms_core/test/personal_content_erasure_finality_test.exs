@@ -12,6 +12,7 @@ defmodule CommsCore.PersonalContentErasureFinalityTest do
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Messaging.PersonalContent.{Draft, SavedItem}
   alias CommsTestSupport.Fixtures
+  alias CommsCore.RetainedAdmissionLockProof
 
   @query_event [:comms_core, :repo, :query]
   @password "synthetic-private-erasure-target-password"
@@ -37,7 +38,14 @@ defmodule CommsCore.PersonalContentErasureFinalityTest do
       # real eraser can finish while this actual admitted writer is paused.
       # Observe actual PostgreSQL blocking; a delayed Task alone is not proof.
       {query, blockers} = wait_for_lock(eraser_backend)
-      assert String.contains?(query, ~s("users")) or String.contains?(query, ~s("sessions"))
+
+      assert String.contains?(query, ~s("users")) or String.contains?(query, ~s("sessions")) or
+               RetainedAdmissionLockProof.waiting_on_admission?(
+                 eraser_backend,
+                 writer_backend,
+                 c.tenant_id
+               )
+
       assert writer_backend in blockers
       refute Task.yield(eraser, 0)
 

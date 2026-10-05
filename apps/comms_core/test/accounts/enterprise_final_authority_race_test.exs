@@ -5,6 +5,7 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
   alias CommsCore.Accounts.{AuthChallenge, FederatedIdentity, Session, User}
   alias CommsCore.Administration.Tenant
   alias CommsCore.Governance.TenantLock
+  alias CommsCore.RetainedAdmissionLockProof
   alias CommsCore.ServiceAccounts.ServiceAccount
   alias CommsTestSupport.Fixtures
   alias Ecto.Adapters.SQL.Sandbox
@@ -93,6 +94,10 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
           Repo.transaction(fn ->
             # Governance's legal-hold tenant lock precedes every identity row.
             TenantLock.lock!(account.tenant.id)
+            # Match the actual owner prefix before strengthening a retained
+            # User row. A manually held User followed by a late quota lock is
+            # the reverse of both current SCIM and governed identity admission.
+            :ok = RetainedAdmissionLockProof.retain_canonical_identity_prefix!(account.tenant.id)
 
             Repo.one!(
               from(user in User,
@@ -101,7 +106,7 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
               )
             )
 
-            send(parent, {:managed_user_locked, self()})
+            send(parent, {:managed_user_locked, self(), backend_pid()})
 
             receive do
               :erase -> :ok
@@ -123,7 +128,7 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
         end)
       end)
 
-    assert_receive {:managed_user_locked, eraser_pid}, 5_000
+    assert_receive {:managed_user_locked, eraser_pid, eraser_backend}, 5_000
 
     writer =
       Task.async(fn ->
@@ -140,7 +145,7 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
       end)
 
     assert_receive {:writer_backend, writer_backend}, 5_000
-    assert_waiting(writer_backend, "users")
+    assert_admission_wait(writer_backend, eraser_backend, account.tenant.id)
     send(eraser_pid, :erase)
     assert_receive :governance_erased, 5_000
     send(eraser_pid, :commit)
@@ -660,6 +665,18 @@ defmodule CommsCore.Accounts.EnterpriseFinalAuthorityRaceTest do
 
   defp assert_waiting(pid, table, blocker_backend \\ nil),
     do: await_row_lock(pid, table, blocker_backend, System.monotonic_time(:millisecond) + 5_000)
+
+  defp assert_admission_wait(waiter, holder, tenant, attempts \\ 300)
+
+  defp assert_admission_wait(_, _, _, 0),
+    do: flunk("SCIM did not wait on exact identity admission")
+
+  defp assert_admission_wait(waiter, holder, tenant, attempts) do
+    unless RetainedAdmissionLockProof.waiting_on_admission?(waiter, holder, tenant) do
+      Process.sleep(10)
+      assert_admission_wait(waiter, holder, tenant, attempts - 1)
+    end
+  end
 
   defp await_row_lock(pid, table, blocker_backend, deadline) do
     result =
