@@ -1,5 +1,36 @@
 import Config
 
+# Separate default-off management; bindings contain acquired DIDs/trunk IDs.
+# Provider credentials stay in the existing protected server configuration.
+phone_provisioning_flag = System.get_env("TELEPHONY_PROVISIONING_ENABLED", "false")
+
+unless phone_provisioning_flag in ["true", "false"],
+  do: raise("TELEPHONY_PROVISIONING_ENABLED must be true or false")
+
+phone_provisioning_bindings =
+  if phone_provisioning_flag == "true" do
+    text = System.get_env("TELEPHONY_PROVISIONING_BINDINGS", "{}")
+    result = if byte_size(text) <= 65_536, do: Jason.decode(text), else: :error
+
+    case result do
+      {:ok, bindings} when is_map(bindings) ->
+        if CommsIntegrations.Telephony.ProvisioningLiveKit.valid_bindings?(bindings),
+          do: bindings,
+          else:
+            raise(
+              "TELEPHONY_PROVISIONING_BINDINGS requires exclusive validated tenant trunk and DID bindings"
+            )
+
+      _ ->
+        raise("TELEPHONY_PROVISIONING_BINDINGS must be bounded valid JSON")
+    end
+  else
+    %{}
+  end
+
+config :comms_core, :telephony_provisioning_enabled, phone_provisioning_flag == "true"
+config :comms_integrations, :telephony_provisioning_bindings, phone_provisioning_bindings
+
 parse_endpoint = fn value ->
   uri = URI.parse(value)
 

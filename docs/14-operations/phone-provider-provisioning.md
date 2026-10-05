@@ -1,0 +1,39 @@
+# Phone provider setup
+
+Management is OFF unless `TELEPHONY_PROVISIONING_ENABLED=true`. Calling remains
+independently controlled by the existing telephony flag. Supply the existing
+protected LiveKit API settings and operator-owned `TELEPHONY_PROVISIONING_BINDINGS`
+as bounded JSON mapping tenant UUIDs to `inbound_trunk_ids`,
+`outbound_trunk_ids` and `phone_numbers` lists. Each list must be nonempty; IDs
+and DIDs must be unique across tenants. This setting contains no passwords.
+No carrier account or provider credentials were supplied during development.
+
+Acquire and route a DID with the carrier and create its LiveKit trunks outside
+this client. The UI inspects only the operator-bound trunk IDs, verifies the DID
+on both and either adopts a unique safe individual dispatch rule or explicitly
+creates that rule. It cannot buy/port numbers, change SIP credentials, add
+unrestricted dispatch, activate agents or turn on calling.
+
+Use Workspace Admin → Phone → provider bindings. Inspect with an eligible active
+human workspace assignee and extension. Review the receipt and Apply with current
+password verification and a change reason. Apply rechecks the current owner,
+assignee, assignment version and provider resources. Validate actual inbound
+ringing/answer/reject, outbound caller ID, two-way audio and hangup separately.
+
+If Apply's outcome is uncertain, refresh receipts and choose Reconcile original
+effect. Reconciliation never sends Create again. If the original rule remains
+missing/conflicting, keep management/calling off and investigate the exact
+`kcomms-phone-<command UUID>` operation with the provider. Do not create a second
+rule or clear the durable receipt to make the UI appear ready. Retain control
+credentials while an external effect may need reconciliation.
+
+Official protocol source: https://github.com/livekit/protocol/blob/863261643ad83c8c7fc55e46f6a0e6ae36c85e4e/protobufs/livekit_sip.proto
+(release `@livekit/protocol@1.52.1`, SHA256
+`c73d015eee1fe27082a9b60be6eac51d0b75a4dc5b44602b9447221398330bd2`).
+Compatibility with the operator's deployed provider version and permission grants
+requires qualification; no real provider request was made during source work.
+
+Required gates after source review: migration/owner/controller/adapter tests,
+strict architecture/public-facade validation, web typecheck/unit/build and
+operator-owned synthetic provider journeys. Local source/light checks do not
+qualify production provider effects. Apply migration before enabling management.

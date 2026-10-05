@@ -9,6 +9,7 @@ export interface PhoneNumberAssignment {
   user_id: string;
   inbound_trunk_id?: string;
   outbound_trunk_id?: string;
+  version?: number;
 }
 
 export interface PhoneConfiguration {
@@ -68,6 +69,7 @@ export interface PhoneCallsPage {
 }
 
 export interface PhoneNumberInput {
+  version?: number;
   phone_number: string;
   extension: string;
   user_id: string;

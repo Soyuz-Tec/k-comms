@@ -20,7 +20,7 @@ defmodule CommsWeb.TelephonyPresenter do
     :control_state
   ]
   @number_fields [:id, :phone_number, :extension, :user_id]
-  @admin_number_fields @number_fields ++ [:inbound_trunk_id, :outbound_trunk_id]
+  @admin_number_fields @number_fields ++ [:inbound_trunk_id, :outbound_trunk_id, :version]
 
   def call(call), do: Map.take(call, @call_fields)
 

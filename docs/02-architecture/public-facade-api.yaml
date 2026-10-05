@@ -564,6 +564,7 @@ contexts:
       - admin_config/1
       - advance_route/2
       - answer/3
+      - apply_phone_provisioning/3
       - bind_control/3
       - claim_cleanup/2
       - claim_control/2
@@ -574,6 +575,7 @@ contexts:
       - complete_cleanup/3
       - complete_control/3
       - complete_dispatch/3
+      - complete_phone_provisioning/3
       - complete_voicemail/3
       - config/1
       - control_capabilities/1
@@ -585,6 +587,7 @@ contexts:
       - expire_route/2
       - get_call/2
       - handle_webhook/2
+      - inspect_phone_provisioning/2
       - join/3
       - list_calls/2
       - list_controls/2
@@ -592,9 +595,11 @@ contexts:
       - list_voicemails/2
       - mailbox_config/1
       - mark_voicemail_read/2
+      - phone_provisioning_state/1
       - provision/2
       - purge_voicemail/2
       - reconcile_control/3
+      - reconcile_phone_provisioning/3
       - reject/2
       - request_control/3
       - save_mailbox/2
@@ -604,11 +609,13 @@ contexts:
       - usage_projection/2
       - voicemail_playback/2
       collaboration_operations:
+      - authorize_phone_provisioning_io/3
       - governance_erasure_pending?/3
       - prepare_governance_erasure/3
       - revoke_identity_access/1
       - revoke_tenant_media/1
       - rollback_control_hazard_count/0
+      - rollback_phone_provisioning_hazard_count/0
       - rollback_voicemail_hazard_count/0
       owner_internal_operations:
       - callback/2

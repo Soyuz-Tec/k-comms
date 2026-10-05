@@ -57,6 +57,13 @@ defmodule CommsCore.Telephony.Lifecycle do
         user_id = value(attrs, :user_id)
         require_human!(grant.tenant_id, user_id)
         lock_key!("assignment:" <> grant.tenant_id)
+        CommsCore.Telephony.Provisioning.guard_legacy_binding!(value(attrs, :phone_number))
+
+        if CommsCore.Telephony.Provisioning.unresolved_effect?(grant.tenant_id),
+          do: Repo.rollback(:telephony_outcome_unknown)
+
+        if CommsCore.Telephony.ProvisioningPort.enabled?(),
+          do: Repo.rollback(:telephony_provider_management_required)
 
         if Repo.exists?(
              from(c in Call, where: c.tenant_id == ^grant.tenant_id and c.status in ^@active)
@@ -73,7 +80,18 @@ defmodule CommsCore.Telephony.Lifecycle do
 
         parameters = Map.put(parameters, :tenant_id, grant.tenant_id)
 
-        case number |> Number.changeset(parameters) |> Repo.insert_or_update() do
+        changeset = Number.changeset(number, parameters)
+
+        if value(attrs, :version) != nil and
+             value(attrs, :version) != if(number.id, do: number.lock_version, else: 0),
+           do: Repo.rollback(:stale_version)
+
+        changeset =
+          if number.id,
+            do: Ecto.Changeset.optimistic_lock(changeset, :lock_version),
+            else: changeset
+
+        case Repo.insert_or_update(changeset) do
           {:ok, saved} ->
             audit!(saved.tenant_id, grant.user_id, "telephony.provisioned", saved.id, %{
               reason: value(attrs, :reason)
@@ -649,7 +667,15 @@ defmodule CommsCore.Telephony.Lifecycle do
 
     %{
       configured: not is_nil(visible),
-      number: if(visible, do: Map.take(visible, fields), else: nil),
+      number:
+        if(visible,
+          do:
+            if(admin?,
+              do: Map.put(Map.take(visible, fields), :version, visible.lock_version),
+              else: Map.take(visible, fields)
+            ),
+          else: nil
+        ),
       can_manage: grant.role in [:owner, :admin]
     }
   end
