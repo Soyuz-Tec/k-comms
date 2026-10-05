@@ -1,4 +1,31 @@
 defmodule CommsCore.Messaging do
+  @spec send_private_event(binary(), map(), map()) ::
+          {:ok, %{event: CommsCore.Messaging.PrivateEventView.t(), replayed: boolean()}}
+          | {:error, atom()}
+  defdelegate send_private_event(id, attrs, subject),
+    to: CommsCore.Messaging.PrivateEvents,
+    as: :send_encrypted
+
+  @spec replay_private_events(binary(), map(), map()) ::
+          {:ok,
+           %{
+             events: [CommsCore.Messaging.PrivateEventView.t()],
+             pending_intents: [CommsCore.Messaging.PrivateEventIntentView.t()],
+             has_more: boolean(),
+             generation: pos_integer(),
+             membership_epoch: pos_integer()
+           }}
+          | {:error, atom()}
+  defdelegate replay_private_events(id, attrs, subject),
+    to: CommsCore.Messaging.PrivateEvents,
+    as: :replay
+
+  @behaviour CommsCore.Conversations.PrivateContentErasurePort
+  @impl CommsCore.Conversations.PrivateContentErasurePort
+  @spec erase_private_content(CommsCore.Conversations.PrivateContentErasureCommand.t()) ::
+          {:ok, CommsCore.Conversations.PrivateContentErasureReceipt.t()} | {:error, atom()}
+  defdelegate erase_private_content(command), to: CommsCore.Messaging.PrivateEvents, as: :erase
+
   @moduledoc """
   Public ConversationContent facade for durable messaging operations.
 
@@ -113,11 +140,21 @@ defmodule CommsCore.Messaging do
   @doc false
   @spec rollback_rich_content_hazard_count() :: non_neg_integer()
   defdelegate rollback_rich_content_hazard_count(), to: CommsCore.Messaging.PersonalContent
+  @spec rollback_private_event_hazard_count() :: non_neg_integer()
+  def rollback_private_event_hazard_count,
+    do: CommsCore.Repo.aggregate(CommsCore.Messaging.PrivateEvent, :count)
 
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
     %{
+      opaque_private_events:
+        repo.all(
+          from(e in CommsCore.Messaging.PrivateEvent,
+            where: e.tenant_id == ^tenant_id,
+            select: e.id
+          )
+        ),
       messages:
         repo.all(
           from(message in Message,

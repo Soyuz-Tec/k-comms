@@ -15,6 +15,7 @@ from validate_contracts import (
     CONTRACTS,
     load_yaml,
     validate_call_contract,
+    validate_calendar_contract,
     validate_call_realtime_contract,
     validate_guest_contract,
     validate_instant_room_contract,
@@ -22,6 +23,10 @@ from validate_contracts import (
     validate_telephony_contract,
     validate_enterprise_identity_contract,
     validate_member_workflow_contract,
+    validate_shared_document_contract,
+    validate_ivr_contract,
+    validate_workspace_domain_contract,
+    validate_native_call_wake_contract,
     validate_refs,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
@@ -126,6 +131,66 @@ class ReferenceValidationTests(unittest.TestCase):
             validate_refs({"nested": {"$ref": "schema.json#/$defs/Node"}}, source)
 
 
+class SharedDocumentContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        self.asyncapi = load_yaml(CONTRACTS / "asyncapi/asyncapi.yaml")
+        self.payloads = {"shared-document.v1.json": json.loads((CONTRACTS / "json-schema/shared-document.v1.json").read_text())}
+
+    def validate(self, openapi=None, payloads=None, asyncapi=None) -> None:
+        validate_shared_document_contract(openapi or self.openapi, payloads or self.payloads, asyncapi or self.asyncapi)
+
+    def test_actual_shared_document_owner_contracts_pass(self) -> None:
+        self.validate()
+
+    def test_all_document_routes_refuse_public_guest_and_service_authentication(self) -> None:
+        paths = {"/api/v1/conversations/{conversationId}/documents": ["get", "post"], "/api/v1/documents/{documentId}": ["get"], "/api/v1/documents/{documentId}/copies": ["post"], "/api/v1/documents/{documentId}/operations": ["get", "post"], "/api/v1/documents/{documentId}/export": ["get"]}
+        for path, methods in paths.items():
+            for method in methods:
+                for security in [[], [{"guestBearerAuth": []}], [{"serviceAccountAuth": []}]]:
+                    with self.subTest(path=path, method=method, security=security):
+                        document = copy.deepcopy(self.openapi)
+                        document["paths"][path][method]["security"] = security
+                        with self.assertRaisesRegex(ValueError, "authority cannot become public"):
+                            self.validate(openapi=document)
+
+    def test_private_receipts_cannot_become_cacheable(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/documents/{documentId}"]["get"]["responses"]["200"]["headers"]["Cache-Control"]["schema"]["const"] = "public"
+        with self.assertRaisesRegex(ValueError, "responses must remain private"):
+            self.validate(openapi=document)
+
+    def test_client_lineage_and_opaque_atom_updates_cannot_enter_closed_dtos(self) -> None:
+        for schema, field in [("SharedDocumentAtom", "update"), ("SharedDocumentCreation", "author_user_ids"), ("SharedDocumentSnapshot", "lineage_verified")]:
+            with self.subTest(schema=schema, field=field):
+                document = copy.deepcopy(self.openapi)
+                document["components"]["schemas"][schema]["properties"][field] = {}
+                with self.assertRaisesRegex(ValueError, "exact server-owned fields"):
+                    self.validate(openapi=document)
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["SharedDocumentEdit"]["oneOf"][0]["properties"]["author_user_ids"] = {}
+        with self.assertRaisesRegex(ValueError, "opaque state or client lineage"):
+            self.validate(openapi=document)
+
+    def test_document_replay_and_edit_limits_cannot_be_unbounded(self) -> None:
+        for schema, field, limit in [("SharedDocumentSnapshot", "atoms", "maxItems"), ("SharedDocumentSnapshot", "content", "maxLength"), ("SharedDocumentChange", "insert", "maxLength"), ("SharedDocumentReplay", "data", "maxItems")]:
+            with self.subTest(schema=schema, field=field):
+                document = copy.deepcopy(self.openapi)
+                del document["components"]["schemas"][schema]["properties"][field][limit]
+                with self.assertRaisesRegex(ValueError, "limits drifted|remain bounded"):
+                    self.validate(openapi=document)
+
+    def test_standalone_and_socket_receipts_cannot_diverge(self) -> None:
+        payloads = copy.deepcopy(self.payloads)
+        payloads["shared-document.v1.json"]["$defs"]["SharedDocumentSnapshot"]["properties"]["version"]["minimum"] = -1
+        with self.assertRaisesRegex(ValueError, "standalone shared document schemas diverged"):
+            self.validate(payloads=payloads)
+        asyncapi = copy.deepcopy(self.asyncapi)
+        del asyncapi["components"]["schemas"]["SharedDocumentOperation"]["properties"]["generation"]
+        with self.assertRaisesRegex(ValueError, "socket payload diverged"):
+            self.validate(asyncapi=asyncapi)
+
+
 class ContractValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.openapi = load_yaml(CONTRACTS / "openapi" / "openapi.yaml")
@@ -137,6 +202,44 @@ class ContractValidationTests(unittest.TestCase):
         validate_whiteboard_contract(self.openapi)
         validate_telephony_contract(self.openapi)
         validate_enterprise_identity_contract(self.openapi)
+        validate_workspace_domain_contract(self.openapi)
+
+    def test_workspace_domain_public_probe_cannot_request_email_or_member_authority(self) -> None:
+        for mutate in (
+                lambda d: d["components"]["schemas"]["WorkspaceDomainDiscoveryRequest"]["properties"].update(email={"type": "string"}),
+                lambda d: d["paths"]["/api/v1/workspaces/discover"]["post"].update(security=[{"bearerAuth": []}]),
+                lambda d: d["paths"]["/api/v1/workspaces/discover"]["post"].update(parameters=[])):
+            document = copy.deepcopy(self.openapi)
+            mutate(document)
+            with self.assertRaises(ValueError):
+                validate_workspace_domain_contract(document)
+
+    def test_workspace_domain_hints_cannot_be_external_inconsistent_or_additional(self) -> None:
+        schema = self.openapi["components"]["schemas"]["WorkspaceDomainDiscoveryResponse"]
+        validator = Draft202012Validator(schema)
+        for response in (
+                {"data": {"available": True, "sign_in_path": None}},
+                {"data": {"available": False, "sign_in_path": "/sign-in?tenant_slug=private"}},
+                {"data": {"available": True, "sign_in_path": "https://outside.example"}},
+                {"data": {"available": True, "sign_in_path": "/sign-in?tenant_slug=ok&email=private"}},
+                {"data": {"available": False, "sign_in_path": None, "tenant_id": "private"}}):
+            with self.subTest(response=response):
+                self.assertFalse(validator.is_valid(response))
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["WorkspaceDomainDiscoveryResponse"]["properties"]["data"].pop("allOf")
+        with self.assertRaises(ValueError):
+            validate_workspace_domain_contract(document)
+
+    def test_workspace_domain_mutations_cannot_drop_current_version_proof_or_row_bound(self) -> None:
+        for mutate in (
+                lambda d: d["components"]["schemas"]["WorkspaceDomainVersionRequest"]["properties"]["version"].update(minimum=0),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["post"]["responses"].pop("428"),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["data"].update(maxItems=9),
+                lambda d: d["paths"]["/api/v1/admin/workspace-domains"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]["discovery_enabled"].update(default=True)):
+            document = copy.deepcopy(self.openapi)
+            mutate(document)
+            with self.assertRaises(ValueError):
+                validate_workspace_domain_contract(document)
 
     def test_current_member_workflow_contracts_and_standalone_schemas_pass(self) -> None:
         payloads = {
@@ -1196,6 +1299,121 @@ class InstantRoomRealtimeContractValidationTests(unittest.TestCase):
             ValueError, "durable instant-room lifecycle evidence"
         ):
             validate_instant_room_realtime_contract(asyncapi)
+
+
+class BoundedIvrContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        self.schemas = {
+            "telephony-ivr.v1.json": json.loads(
+                (CONTRACTS / "json-schema/telephony-ivr.v1.json").read_text()
+            )
+        }
+
+    def test_digit_name_must_constrain_object_keys_and_match_both_contracts(self) -> None:
+        self.openapi["components"]["schemas"]["IvrMenu"]["properties"]["choices"]["propertyNames"] = None
+        with self.assertRaisesRegex(ValueError, "IVR OpenAPI and JSON Schema differ"):
+            validate_ivr_contract(self.openapi, self.schemas)
+
+    def test_provider_event_cannot_be_advertised_as_human_bearer_authority(self) -> None:
+        self.openapi["paths"]["/api/v1/telephony/ivr/webhook"]["post"]["security"] = [{"bearerAuth": []}]
+        with self.assertRaisesRegex(ValueError, "IVR caller/human authority differs"):
+            validate_ivr_contract(self.openapi, self.schemas)
+
+
+class CalendarContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        cls.payload = json.loads((CONTRACTS / "json-schema/calendar-sync.v1.json").read_text())
+
+    def test_callback_cannot_accept_arbitrary_redirects(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/oauth/{provider}/callback"]["get"]["responses"]["303"]["headers"]["Location"]["schema"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "fixed private profile redirect"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_owner_authentication_cannot_be_removed(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/exports"]["post"]["security"] = []
+        with self.assertRaisesRegex(ValueError, "current human authentication"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_browser_binding_and_provider_tokens_cannot_enter_public_projection(self) -> None:
+        for name, key in [("CalendarAuthorization", "browser_binding"), ("CalendarConnection", "refresh_token")]:
+            document = copy.deepcopy(self.openapi)
+            document["components"]["schemas"][name]["properties"][key] = {"type": "string"}
+            with self.assertRaisesRegex(ValueError, "exclude credentials/browser binding"):
+                validate_calendar_contract(document, self.payload)
+
+    def test_reexport_requires_current_source_version_but_stop_does_not(self) -> None:
+        schema = self.openapi["components"]["schemas"]["CalendarExportResolveRequest"]
+        validator = Draft202012Validator(schema)
+        self.assertFalse(validator.is_valid({"version": 2, "decision": "reexport_current"}))
+        self.assertTrue(validator.is_valid({"version": 2, "decision": "reexport_current", "meeting_version": 7}))
+        self.assertTrue(validator.is_valid({"version": 2, "decision": "stop_syncing"}))
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["CalendarExportResolveRequest"].pop("allOf")
+        with self.assertRaisesRegex(ValueError, "current meeting version"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_private_cache_receipt_cannot_be_removed(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/connections"]["get"]["responses"]["200"].pop("headers")
+        with self.assertRaisesRegex(ValueError, "private no-store"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_standalone_mirror_cannot_expose_an_external_principal(self) -> None:
+        payload = copy.deepcopy(self.payload)
+        payload["$defs"]["CalendarConnection"]["properties"]["external_subject"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "canonical safe wire"):
+            validate_calendar_contract(self.openapi, payload)
+
+
+class NativeWakeContractTests(unittest.TestCase):
+    def setUp(self):
+        self.open = load_yaml(CONTRACTS / "openapi" / "openapi.yaml")
+        self.standalone = json.loads((CONTRACTS / "json-schema" / "native-call-wake.v1.json").read_text())
+
+    def test_actual_current_owner_paths_and_safe_schema_mirrors(self):
+        validate_native_call_wake_contract(self.open, self.standalone)
+
+    def test_native_media_cannot_drop_or_widen_current_session_admission_query(self):
+        for change in ["missing", "string", "mandatory"]:
+            altered = copy.deepcopy(self.open)
+            operation = altered["paths"]["/api/v1/conversations/{conversationId}/calls/{callId}/participants"]["get"]
+            if change == "missing": operation.pop("parameters")
+            elif change == "string": operation["parameters"][0]["schema"] = {"type": "string"}
+            else: operation["parameters"][0]["required"] = True
+            with self.assertRaisesRegex(ValueError, "current-session admission query"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_native_route_cannot_become_anonymous_or_generic_auth_response(self):
+        for field, value in [("security", [{}]), ("operationId", "createSession")]:
+            altered = copy.deepcopy(self.open)
+            altered["paths"]["/api/v1/native-call-wakes/{wakeId}/admit"]["post"][field] = value
+            with self.assertRaisesRegex(ValueError, "current member bearer"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_private_material_cannot_enter_a_read_projection_or_push_hint(self):
+        for name, field in [("NativePushRegistration", "token_hash"), ("NativeCallWakeHint", "caller")]:
+            altered = copy.deepcopy(self.open)
+            altered["components"]["schemas"][name]["properties"][field] = {"type": "string"}
+            with self.assertRaisesRegex(ValueError, "private|opaque"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_provider_token_cannot_lose_write_only_contract(self):
+        altered = copy.deepcopy(self.open)
+        altered["components"]["schemas"]["NativePushRegistrationRequest"]["properties"]["token"].pop("writeOnly")
+        with self.assertRaisesRegex(ValueError, "write-only"):
+            validate_native_call_wake_contract(altered, self.standalone)
+
+    def test_standalone_hint_rejects_caller_credential_and_malformed_identity(self):
+        validator = Draft202012Validator(self.standalone, format_checker=FormatChecker())
+        payload = {"protocol_version": "1", "wake_id": "00000000-0000-4000-8000-000000000001", "expires_at": "2026-10-05T00:00:25Z", "kind": "call"}
+        self.assertFalse(list(validator.iter_errors(payload)))
+        for changed in [payload | {"caller": "Private caller"}, payload | {"participant_token": "not-authority"}, payload | {"wake_id": "invalid"}, payload | {"protocol_version": 1}]:
+            self.assertTrue(list(validator.iter_errors(changed)))
 
 
 if __name__ == "__main__":

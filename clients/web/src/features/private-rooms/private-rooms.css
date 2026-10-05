@@ -1,0 +1,14 @@
+.private-rooms-page { padding: 24px; overflow: auto; width: 100%; }
+.private-rooms-page h1,.private-rooms-page h2 { margin: 0 0 12px; }
+.private-rooms-page section,.private-rooms-page aside { padding: 16px; border: 1px solid var(--border-color, #ccd3db); border-radius: 12px; margin: 16px 0; }
+.private-rooms-page label { display: block; margin: 10px 0; }
+.private-rooms-page input:not([type=checkbox]),.private-rooms-page textarea,.private-rooms-page select { display: block; width: 100%; max-width: 42rem; padding: 10px; }
+.private-rooms-page button { margin: 6px 8px 6px 0; padding: 8px 12px; }
+.private-room-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; }
+.private-room-layout aside > button { display: block; width: 100%; text-align: left; }
+.private-message-list { padding: 0; list-style: none; max-height: 50vh; overflow: auto; }
+.private-message-list p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.private-mode-notice { padding: 12px; border-left: 4px solid #637be9; }
+.private-verification { position: fixed; z-index: 1000; inset: 12% 15%; background: var(--surface-color, white); overflow: auto; box-shadow: 0 0 0 100vmax #0008; }
+.private-sas { font-size: 1.5rem; }
+@media (max-width: 760px) { .private-room-layout { grid-template-columns: 1fr; } .private-rooms-page { padding: 12px; } .private-verification { inset: 10% 4%; } }

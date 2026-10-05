@@ -20,10 +20,27 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
   @impl CommsCore.Accounts.CallLifecyclePort
   def revoke_identity_access(%IdentityCommand{} = command) do
     if Repo.in_transaction?() do
+      # Only loss of User authority withdraws offline consent. Logout and
+      # device/session revocation preserve the independently consented grant.
+      if command.operation == :user_access_revoked do
+        case AudioCalls.fence_calendar_identity(
+               %CommsCore.AudioCalls.CalendarSync.IdentityFenceCommand{
+                 tenant_id: command.tenant_id,
+                 user_id: command.user_id,
+                 reason: :user_suspended,
+                 deadline_ms: System.monotonic_time(:millisecond) + 15_000
+               }
+             ) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+
       with {:ok, %IdentityReceipt{revoked_participant_count: audio_count}} <-
              AudioCalls.revoke_identity_access(command),
            {:ok, %IdentityReceipt{revoked_participant_count: phone_count}} <-
-             Telephony.revoke_identity_access(command) do
+             Telephony.revoke_identity_access(command),
+           :ok <- fence_federation_identity(command) do
         {:ok, %IdentityReceipt{revoked_participant_count: audio_count + phone_count}}
       else
         {:error, _reason} = error -> error
@@ -34,9 +51,27 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
     end
   end
 
+  defp fence_federation_identity(%IdentityCommand{
+         operation: :user_access_revoked,
+         tenant_id: tenant,
+         user_id: user
+       }) do
+    case CommsCore.Conversations.fence_federation_user(tenant, user) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp fence_federation_identity(_), do: :ok
+
   @spec revoke_tenant_media(TenantCommand.t()) ::
           {:ok, TenantReceipt.t()} | {:error, term()}
   @impl CommsCore.Administration.CallLifecyclePort
+  def revoke_tenant_media(%TenantCommand{operation: :calendar_export_disabled, tenant_id: tenant}) do
+    with {:ok, _} <- AudioCalls.fence_calendar_tenant(tenant),
+         do: {:ok, %TenantReceipt{revoked_participant_count: 0}}
+  end
+
   def revoke_tenant_media(%TenantCommand{} = command) do
     if Repo.in_transaction?() do
       with {:ok, %TenantReceipt{revoked_participant_count: audio_count}} <-

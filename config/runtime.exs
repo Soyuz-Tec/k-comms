@@ -1,5 +1,36 @@
 import Config
 
+# Separate default-off management; bindings contain acquired DIDs/trunk IDs.
+# Provider credentials stay in the existing protected server configuration.
+phone_provisioning_flag = System.get_env("TELEPHONY_PROVISIONING_ENABLED", "false")
+
+unless phone_provisioning_flag in ["true", "false"],
+  do: raise("TELEPHONY_PROVISIONING_ENABLED must be true or false")
+
+phone_provisioning_bindings =
+  if phone_provisioning_flag == "true" do
+    text = System.get_env("TELEPHONY_PROVISIONING_BINDINGS", "{}")
+    result = if byte_size(text) <= 65_536, do: Jason.decode(text), else: :error
+
+    case result do
+      {:ok, bindings} when is_map(bindings) ->
+        if CommsIntegrations.Telephony.ProvisioningLiveKit.valid_bindings?(bindings),
+          do: bindings,
+          else:
+            raise(
+              "TELEPHONY_PROVISIONING_BINDINGS requires exclusive validated tenant trunk and DID bindings"
+            )
+
+      _ ->
+        raise("TELEPHONY_PROVISIONING_BINDINGS must be bounded valid JSON")
+    end
+  else
+    %{}
+  end
+
+config :comms_core, :telephony_provisioning_enabled, phone_provisioning_flag == "true"
+config :comms_integrations, :telephony_provisioning_bindings, phone_provisioning_bindings
+
 parse_endpoint = fn value ->
   uri = URI.parse(value)
 
@@ -143,6 +174,75 @@ optional_secret = fn name ->
   end
 end
 
+# Identity authentication secrets are server-custodied. Matrix encryption,
+# cross-signing private and recovery keys are never configured on K-Comms.
+if System.get_env("MATRIX_HOMESERVER_URL") do
+  issuer = System.fetch_env!("MATRIX_HOMESERVER_URL") |> String.trim_trailing("/")
+  server_name = System.fetch_env!("MATRIX_SERVER_NAME")
+  control_user = System.fetch_env!("MATRIX_CONTROL_USER_ID")
+  uri = URI.parse(issuer)
+
+  unless uri.scheme == "https" and is_binary(uri.host) and uri.userinfo == nil and
+           uri.query == nil and uri.fragment == nil and uri.path in [nil, "", "/"] and
+           Regex.match?(~r/\A[A-Za-z0-9.-]+(?::[0-9]{1,5})?\z/, server_name) and
+           not Regex.match?(~r/[\x00-\x20\x7F]/u, issuer <> server_name <> control_user) and
+           Regex.match?(~r/\A@[^\s:]+:[^\s]+\z/u, control_user) and
+           String.ends_with?(control_user, ":" <> server_name),
+         do:
+           raise(
+             "Matrix provider must be an explicitly configured HTTPS origin and canonical server name"
+           )
+
+  identity_token = optional_secret.("MATRIX_IDENTITY_ADMIN_TOKEN")
+  control_token = optional_secret.("MATRIX_CONTROL_ADMIN_TOKEN")
+
+  unless Enum.all?(
+           [identity_token, control_token],
+           &(is_binary(&1) and byte_size(&1) in 1..8192 and
+               not Regex.match?(~r/[\x00-\x20\x7f]/u, &1))
+         ),
+         do:
+           raise(
+             "Matrix provider requires bounded single-line protected authentication credentials"
+           )
+
+  provisioning =
+    case System.get_env("MATRIX_CLIENT_PROVISIONING_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "MATRIX_CLIENT_PROVISIONING_ENABLED must be true or false"
+    end
+
+  private_rooms =
+    case System.get_env("PRIVATE_ROOMS_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "PRIVATE_ROOMS_ENABLED must be true or false"
+    end
+
+  config :comms_core,
+    matrix_client_provisioning_enabled: provisioning,
+    private_rooms_enabled: provisioning and private_rooms,
+    matrix_identity_provider: %{
+      issuer: issuer,
+      server_name: server_name,
+      control_user_id: control_user
+    }
+
+  config :comms_integrations, :synapse_identity, %{
+    homeserver_url: issuer,
+    server_name: server_name,
+    admin_token: identity_token
+  }
+
+  config :comms_integrations, :synapse_private_rooms, %{
+    homeserver_url: issuer,
+    server_name: server_name,
+    control_user_id: control_user,
+    control_token: control_token
+  }
+end
+
 csv_values = fn name ->
   values = System.get_env(name, "") |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
 
@@ -184,6 +284,162 @@ parse_json_list = fn value, name ->
 end
 
 if config_env() == :prod do
+  # ADR-0103 is opt-in and targets one operator-pinned maintained Matrix homeserver.
+  federation_secret = fn name ->
+    value = optional_secret.(name)
+    filename = System.get_env(name <> "_FILE")
+
+    if is_binary(filename) and filename != "" and File.read!(filename) != value,
+      do: raise("#{name}_FILE must contain exactly one token without trailing control bytes")
+
+    value
+  end
+
+  federation_domain? = fn value ->
+    if is_binary(value) and byte_size(value) in 4..253 and value == String.downcase(value) do
+      labels = String.split(value, ".")
+
+      length(labels) >= 2 and
+        Enum.all?(
+          labels,
+          &(byte_size(&1) in 1..63 and Regex.match?(~r/\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z/, &1))
+        ) and
+        not Enum.any?(
+          ["localhost", "local", "internal", "invalid", "test"],
+          &(List.last(labels) == &1)
+        ) and
+        match?({:error, _}, :inet.parse_address(String.to_charlist(value)))
+    else
+      false
+    end
+  end
+
+  federation_enabled =
+    case System.get_env("FEDERATION_ENABLED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "FEDERATION_ENABLED must be exactly true or false"
+    end
+
+  federation_qualified =
+    case System.get_env("FEDERATION_PROVIDER_QUALIFIED", "false") do
+      "true" -> true
+      "false" -> false
+      _ -> raise "FEDERATION_PROVIDER_QUALIFIED must be exactly true or false"
+    end
+
+  federation_key_encoded = federation_secret.("FEDERATION_ENVELOPE_KEY")
+
+  federation_key =
+    if federation_key_encoded do
+      case Base.decode64(federation_key_encoded) do
+        {:ok, key} when byte_size(key) == 32 ->
+          unless Base.encode64(key) == federation_key_encoded,
+            do: raise("FEDERATION_ENVELOPE_KEY must use canonical Base64")
+
+          key
+
+        _ ->
+          raise "FEDERATION_ENVELOPE_KEY must encode exactly 32 bytes"
+      end
+    end
+
+  federation_token = federation_secret.("FEDERATION_ACCESS_TOKEN")
+
+  if federation_token &&
+       (byte_size(federation_token) not in 16..4096 ||
+          Regex.match?(~r/[^\x21-\x7e]/, federation_token)),
+     do: raise("FEDERATION_ACCESS_TOKEN must contain one bounded printable token")
+
+  if federation_key do
+    foreign_materials =
+      System.get_env()
+      |> Enum.filter(fn {name, _} ->
+        name != "FEDERATION_ENVELOPE_KEY" and name != "FEDERATION_ENVELOPE_KEY_FILE" and
+          Regex.match?(~r/(SECRET|PASSWORD|TOKEN|KEY|KEYS|KEYRING)(?:$|_)/, name)
+      end)
+      |> Enum.flat_map(fn {name, value} ->
+        content =
+          if String.ends_with?(name, "_FILE"),
+            do: optional_secret.(String.trim_trailing(name, "_FILE")),
+            else: value
+
+        case Jason.decode(content || "") do
+          {:ok, keys} when is_map(keys) ->
+            [content | Enum.filter(Map.values(keys), &is_binary/1)]
+
+          _ ->
+            [
+              content
+              | Enum.map(
+                  String.split(content || "", ","),
+                  &List.last(String.split(&1, ":", parts: 2))
+                )
+            ]
+        end
+      end)
+      |> Enum.flat_map(fn value ->
+        case Base.decode64(value || "") do
+          {:ok, decoded} -> [value, decoded]
+          _ -> [value]
+        end
+      end)
+
+    if federation_key in foreign_materials or federation_key_encoded in foreign_materials,
+      do: raise("FEDERATION_ENVELOPE_KEY must use dedicated secret material")
+  end
+
+  federation_origin = System.get_env("FEDERATION_HOMESERVER_ORIGIN")
+  federation_server = System.get_env("FEDERATION_SERVER_NAME")
+  federation_bridge = System.get_env("FEDERATION_BRIDGE_USER")
+  federation_residency = System.get_env("FEDERATION_LOCAL_RESIDENCY")
+
+  if federation_enabled do
+    uri = URI.parse(federation_origin || "")
+    principal_prefix = "@"
+    principal_suffix = ":" <> to_string(federation_server)
+
+    principal_local =
+      if is_binary(federation_bridge) and String.starts_with?(federation_bridge, principal_prefix) and
+           String.ends_with?(federation_bridge, principal_suffix),
+         do:
+           String.slice(
+             federation_bridge,
+             1,
+             byte_size(federation_bridge) - byte_size(principal_suffix) - 1
+           ),
+         else: ""
+
+    unless federation_qualified && is_binary(federation_key) && is_binary(federation_token) &&
+             federation_domain?.(uri.host) && federation_origin == "https://" <> uri.host &&
+             federation_domain?.(federation_server) &&
+             is_binary(federation_bridge) && byte_size(federation_bridge) <= 255 &&
+             Regex.match?(~r/\A[a-z0-9._=\/-]{1,128}\z/, principal_local) &&
+             is_binary(federation_residency) && byte_size(federation_residency) in 2..80,
+           do:
+             raise(
+               "Federation requires reviewed provider qualification, pinned HTTPS DNS origin, canonical bridge principal, declared local residency and dedicated credentials"
+             )
+  end
+
+  config :comms_core,
+    federation_enabled: federation_enabled,
+    federation_homeserver_origin: federation_origin,
+    federation_server_name: federation_server,
+    federation_bridge_user: federation_bridge,
+    federation_envelope_key: federation_key
+
+  config :comms_integrations,
+    federation_matrix: %{
+      enabled: federation_enabled,
+      origin: federation_origin,
+      server_name: federation_server,
+      bridge_user: federation_bridge,
+      access_token: federation_token,
+      local_residency: federation_residency,
+      provider_qualified: federation_qualified
+    }
+
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
 
@@ -458,6 +714,23 @@ if config_env() == :prod do
     end
   end
 
+  telephony_ivr_qualified? =
+    parse_boolean.(System.get_env("TELEPHONY_IVR_QUALIFIED", "false"), "TELEPHONY_IVR_QUALIFIED")
+
+  telephony_ivr_prompts = csv_values.("TELEPHONY_IVR_PROMPT_ALLOWLIST")
+
+  unless length(telephony_ivr_prompts) <= 20 and
+           Enum.all?(telephony_ivr_prompts, &Regex.match?(~r/^sound:[A-Za-z0-9_\/-]{1,150}$/, &1)) do
+    raise "TELEPHONY_IVR_PROMPT_ALLOWLIST requires at most 20 reviewed sound media names"
+  end
+
+  if telephony_ivr_qualified? and
+       not (telephony_pbx_enabled? and telephony_pbx_qualified? and telephony_ivr_prompts != [] and
+              is_binary(telephony_pbx_webhook_secret) and
+              byte_size(telephony_pbx_webhook_secret) >= 32) do
+    raise "TELEPHONY_IVR_QUALIFIED requires qualified ARI, approved prompts and signed event relay"
+  end
+
   voicemail_storage_qualified? =
     parse_boolean.(
       System.get_env("TELEPHONY_VOICEMAIL_STORAGE_QUALIFIED", "false"),
@@ -545,10 +818,56 @@ if config_env() == :prod do
            Regex.match?(~r/^[a-z]{2,3}$/, artifact_transcription_language),
          do: raise("ARTIFACT_TRANSCRIPTION_LANGUAGE must be a two or three letter language code")
 
+  artifact_transcription_token = optional_secret.("ARTIFACT_TRANSCRIPTION_BEARER_TOKEN")
+  artifact_transcription_model_sha256 = System.get_env("ARTIFACT_TRANSCRIPTION_MODEL_SHA256")
+
+  if not is_nil(artifact_transcription_token) and
+       (byte_size(artifact_transcription_token) not in 32..4_096 or
+          Regex.match?(~r/[\x00-\x20\x7F]/, artifact_transcription_token)),
+     do: raise("ARTIFACT_TRANSCRIPTION_BEARER_TOKEN must be a protected bounded bearer secret")
+
+  if not is_nil(artifact_transcription_model_sha256) and
+       (not Regex.match?(~r/^[a-f0-9]{64}$/, artifact_transcription_model_sha256) or
+          is_nil(artifact_transcription_token)),
+     do:
+       raise(
+         "Pinned recognition requires ARTIFACT_TRANSCRIPTION_MODEL_SHA256 and bearer authentication"
+       )
+
+  summary_privacy_approved? =
+    parse_boolean.(
+      System.get_env("MEETING_SUMMARY_PRIVACY_APPROVED", "false"),
+      "MEETING_SUMMARY_PRIVACY_APPROVED"
+    )
+
+  summaries_enabled? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_SUMMARIES_ENABLED", "false"),
+      "ARTIFACT_SUMMARIES_ENABLED"
+    )
+
+  summaries_qualified? =
+    parse_boolean.(
+      System.get_env("ARTIFACT_SUMMARIES_QUALIFIED", "false"),
+      "ARTIFACT_SUMMARIES_QUALIFIED"
+    )
+
+  if summaries_enabled? and
+       not (summary_privacy_approved? and summaries_qualified? and
+              artifact_privacy_approved? and artifact_provider_qualified? and
+              artifact_tenant_ids != [] and
+              artifact_transcription_enabled?),
+     do:
+       raise(
+         "Selected-quote summaries require separate privacy approval, qualification and retained transcript processing"
+       )
+
   artifact_transcription = [
     enabled: artifact_transcription_enabled?,
     qualified: artifact_transcription_qualified?,
     origin: artifact_transcription_origin,
+    bearer_token: artifact_transcription_token,
+    model_sha256: artifact_transcription_model_sha256,
     max_media_bytes:
       parse_bounded_integer.(
         System.get_env("ARTIFACT_TRANSCRIPTION_MAX_MEDIA_BYTES", "26214400"),
@@ -658,6 +977,84 @@ if config_env() == :prod do
   public_app_uri = URI.parse(public_app_url)
   recovery_signing_key = System.fetch_env!("PASSWORD_RECOVERY_SIGNING_KEY")
 
+  calendar_keys_encoded = optional_secret.("CALENDAR_SECRET_ENCRYPTION_KEYS")
+  calendar_current_key_id = System.get_env("CALENDAR_ENCRYPTION_KEY_ID", "primary")
+
+  if calendar_keys_encoded do
+    entries = String.split(calendar_keys_encoded, ",", trim: false)
+
+    unless length(entries) in 1..8 and
+             Enum.all?(entries, fn entry ->
+               case String.split(entry, ":", parts: 2) do
+                 [id, encoded] ->
+                   Regex.match?(~r/\A[A-Za-z0-9_.-]{1,64}\z/, id) and
+                     Regex.match?(~r/\A[A-Za-z0-9+\/]{43}=\z/, encoded)
+
+                 _ ->
+                   false
+               end
+             end),
+           do: raise("Calendar keyring must contain 1 to 8 exact key_id:Base64 entries")
+  end
+
+  calendar_keys = parse_keyring.(calendar_keys_encoded, "CALENDAR_SECRET_ENCRYPTION_KEYS")
+
+  unless Regex.match?(~r/\A[A-Za-z0-9_.-]{1,64}\z/, calendar_current_key_id) and
+           (is_nil(calendar_keys) or Map.has_key?(calendar_keys, calendar_current_key_id)),
+         do: raise("Calendar active key identifier must select a configured key")
+
+  calendar_origin = URI.to_string(%URI{public_app_uri | path: nil, query: nil, fragment: nil})
+
+  calendar_providers =
+    Map.new([:google, :microsoft], fn provider ->
+      prefix = "CALENDAR_" <> (provider |> Atom.to_string() |> String.upcase())
+
+      enabled =
+        parse_boolean.(System.get_env(prefix <> "_ENABLED", "false"), prefix <> "_ENABLED")
+
+      client_id = System.get_env(prefix <> "_CLIENT_ID")
+      client_secret = optional_secret.(prefix <> "_CLIENT_SECRET")
+      tenant_id = System.get_env(prefix <> "_TENANT_ID")
+
+      if enabled do
+        unless is_map(calendar_keys) and public_app_uri.scheme == "https" and
+                 public_app_uri.port == 443 and
+                 is_binary(client_id) and byte_size(client_id) in 1..512 and
+                 Regex.match?(~r/\A[\x21-\x7e]+\z/, client_id) and
+                 is_binary(client_secret) and byte_size(client_secret) in 16..4096 and
+                 Regex.match?(~r/\A[\x21-\x7e]+\z/, client_secret) and
+                 (provider == :google or
+                    (is_binary(tenant_id) and
+                       Regex.match?(
+                         ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/,
+                         tenant_id
+                       ))),
+               do:
+                 raise(
+                   "Enabled Calendar providers require dedicated keys and bounded HTTPS OAuth configuration"
+                 )
+      end
+
+      {provider,
+       %{
+         enabled: enabled,
+         client_id: client_id,
+         client_secret: client_secret,
+         tenant_id: tenant_id,
+         workspace_origin: calendar_origin,
+         redirect_uri:
+           calendar_origin <>
+             "/api/v1/calendar/oauth/" <>
+             Atom.to_string(provider) <> "/callback"
+       }}
+    end)
+
+  config :comms_integrations, calendar_providers: calendar_providers
+
+  config :comms_core,
+    calendar_workspace_origin: calendar_origin,
+    calendar_secret_keyring: %{current_key_id: calendar_current_key_id, keys: calendar_keys}
+
   governance_history_cursor_key =
     case System.get_env("GOV_HISTORY_CURSOR_KEY") do
       value when value in [nil, ""] -> nil
@@ -724,6 +1121,76 @@ if config_env() == :prod do
       "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"
     )
 
+  native_push_enabled =
+    parse_boolean.(System.get_env("NATIVE_PUSH_ENABLED", "false"), "NATIVE_PUSH_ENABLED")
+
+  native_push_provider_enabled =
+    parse_boolean.(
+      System.get_env("NATIVE_PUSH_PROVIDER_ENABLED", "false"),
+      "NATIVE_PUSH_PROVIDER_ENABLED"
+    )
+
+  native_push_keys =
+    parse_keyring.(optional_secret.("NATIVE_PUSH_ENCRYPTION_KEYS"), "NATIVE_PUSH_ENCRYPTION_KEYS")
+
+  native_push_key = optional_secret.("NATIVE_PUSH_ENCRYPTION_KEY")
+
+  native_push_platforms =
+    case System.get_env("NATIVE_PUSH_PLATFORM_CONFIGS_JSON", "[]") |> Jason.decode() do
+      {:ok, platforms} when is_list(platforms) and length(platforms) <= 8 ->
+        Enum.map(platforms, fn platform ->
+          unless is_map(platform) and
+                   MapSet.new(Map.keys(platform)) ==
+                     MapSet.new(~w(platform channel application_id environment device_qualified)) and
+                   platform["platform"] in ["ios", "android"] and
+                   platform["channel"] in ~w(apns_alert apns_voip fcm) and
+                   is_binary(platform["application_id"]) and
+                   Regex.match?(
+                     ~r/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/,
+                     platform["application_id"]
+                   ) and
+                   platform["environment"] in ~w(sandbox production) and
+                   is_boolean(platform["device_qualified"]) and
+                   ((platform["platform"] == "ios" and
+                       platform["channel"] in ~w(apns_alert apns_voip)) or
+                      (platform["platform"] == "android" and platform["channel"] == "fcm" and
+                         platform["environment"] == "production")),
+                 do:
+                   raise(
+                     "NATIVE_PUSH_PLATFORM_CONFIGS_JSON has an invalid approved application configuration"
+                   )
+
+          platform
+        end)
+
+      _ ->
+        raise "NATIVE_PUSH_PLATFORM_CONFIGS_JSON must be a bounded approved application list"
+    end
+
+  native_push_channels =
+    native_push_platforms
+    |> Enum.filter(&(&1["device_qualified"] == true))
+    |> Enum.map(& &1["channel"])
+    |> Enum.uniq()
+
+  native_transport_names =
+    ~w(NATIVE_PUSH_APNS_KEY_ID NATIVE_PUSH_APNS_TEAM_ID NATIVE_PUSH_APNS_PRIVATE_KEY_FILE NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE)
+
+  if role == "edge" && Enum.any?(native_transport_names, &(System.get_env(&1) not in [nil, ""])),
+    do: raise("Native transport credential bindings belong to Worker only")
+
+  config :comms_integrations,
+    native_push_provider_enabled: native_push_provider_enabled,
+    native_push_channels: native_push_channels,
+    native_push_apns: [
+      key_id: System.get_env("NATIVE_PUSH_APNS_KEY_ID"),
+      team_id: System.get_env("NATIVE_PUSH_APNS_TEAM_ID"),
+      private_key_file: System.get_env("NATIVE_PUSH_APNS_PRIVATE_KEY_FILE")
+    ],
+    native_push_fcm: [
+      service_account_file: System.get_env("NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE")
+    ]
+
   identity_secret_encryption_key = optional_secret.("IDENTITY_SECRET_ENCRYPTION_KEY")
 
   identity_secret_encryption_key_id =
@@ -777,7 +1244,9 @@ if config_env() == :prod do
           push_subscription_encryption_keys
         },
         {"IDENTITY_SECRET_ENCRYPTION_KEYS", identity_secret_encryption_key_id,
-         identity_secret_encryption_keys}
+         identity_secret_encryption_keys},
+        {"NATIVE_PUSH_ENCRYPTION_KEYS",
+         System.get_env("NATIVE_PUSH_ENCRYPTION_KEY_ID", "primary"), native_push_keys}
       ] do
     unless Regex.match?(~r/^[A-Za-z0-9_.-]{1,64}$/, current_key_id) do
       raise "#{environment_name} active key identifier is invalid"
@@ -816,6 +1285,9 @@ if config_env() == :prod do
       push_subscription_encryption_keys
     )
 
+  native_push_materials =
+    encryption_materials.(native_push_key, "NATIVE_PUSH_ENCRYPTION_KEY", native_push_keys)
+
   identity_materials =
     encryption_materials.(
       identity_secret_encryption_key,
@@ -832,6 +1304,7 @@ if config_env() == :prod do
         oidc_client_secret,
         telephony_pbx_password,
         telephony_pbx_webhook_secret,
+        artifact_transcription_token,
         livekit_api_secret,
         turn_static_auth_secret
       ],
@@ -850,6 +1323,59 @@ if config_env() == :prod do
       end
     )
 
+  calendar_materials =
+    encryption_materials.(nil, "CALENDAR_SECRET_ENCRYPTION_KEYS", calendar_keys)
+
+  other_calendar_materials =
+    Enum.reduce(
+      [identity_materials, webhook_materials, push_materials],
+      shared_secret_materials,
+      &MapSet.union/2
+    )
+
+  other_calendar_materials =
+    Enum.reduce(Map.values(calendar_providers), other_calendar_materials, fn provider, set ->
+      if is_binary(provider.client_secret) do
+        set = MapSet.put(set, provider.client_secret)
+
+        case Base.decode64(provider.client_secret) do
+          {:ok, decoded} -> MapSet.put(set, decoded)
+          _ -> set
+        end
+      else
+        set
+      end
+    end)
+
+  other_calendar_materials =
+    if governance_history_cursor_key do
+      set = MapSet.put(other_calendar_materials, governance_history_cursor_key)
+
+      case Base.decode64(governance_history_cursor_key) do
+        {:ok, decoded} -> MapSet.put(set, decoded)
+        _ -> set
+      end
+    else
+      other_calendar_materials
+    end
+
+  unless MapSet.disjoint?(calendar_materials, other_calendar_materials),
+    do: raise("Calendar encryption must use dedicated secret material")
+
+  shared_secret_materials =
+    Enum.reduce(Map.values(calendar_providers), shared_secret_materials, fn provider, set ->
+      if is_binary(provider.client_secret) do
+        set = MapSet.put(set, provider.client_secret)
+
+        case Base.decode64(provider.client_secret) do
+          {:ok, decoded} -> MapSet.put(set, decoded)
+          _ -> set
+        end
+      else
+        set
+      end
+    end)
+
   # File-backed credentials are resolved after the environment-only check.
   # Compare actual decoded keyrings and provider secrets too; file paths cannot
   # establish that their loaded material is independent from history signing.
@@ -862,7 +1388,13 @@ if config_env() == :prod do
 
     other_materials =
       Enum.reduce(
-        [identity_materials, webhook_materials, push_materials],
+        [
+          identity_materials,
+          webhook_materials,
+          push_materials,
+          calendar_materials,
+          native_push_materials
+        ],
         shared_secret_materials,
         &MapSet.union/2
       )
@@ -874,7 +1406,8 @@ if config_env() == :prod do
   for {name, materials} <- [
         {"identity", identity_materials},
         {"webhook", webhook_materials},
-        {"push", push_materials}
+        {"push", push_materials},
+        {"native push", native_push_materials}
       ] do
     unless MapSet.disjoint?(materials, shared_secret_materials),
       do:
@@ -882,6 +1415,12 @@ if config_env() == :prod do
           "#{name} encryption keys must be independent from signing, recovery, provider and break-glass credentials"
         )
   end
+
+  unless Enum.all?(
+           [identity_materials, webhook_materials, push_materials],
+           &MapSet.disjoint?(native_push_materials, &1)
+         ),
+         do: raise("Native push encryption keys must use dedicated secret material")
 
   unless MapSet.disjoint?(identity_materials, webhook_materials) and
            MapSet.disjoint?(identity_materials, push_materials),
@@ -1101,10 +1640,12 @@ if config_env() == :prod do
 
   config :comms_core,
     telephony_control_adapter: telephony_control_adapter,
+    telephony_ivr_prompt_allowlist: telephony_ivr_prompts,
     telephony_control_fingerprint_key:
       :crypto.mac(:hmac, :sha256, secret_key_base, "k-comms-telephony-controls-v1"),
     direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
     meeting_artifact_policy: [
+      summary_privacy_approved: summary_privacy_approved?,
       privacy_approved: artifact_privacy_approved?,
       provider_qualified: artifact_provider_qualified?,
       enabled_tenant_ids: artifact_tenant_ids
@@ -1151,7 +1692,12 @@ if config_env() == :prod do
     push_subscription_encryption_key: System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY"),
     push_subscription_encryption_key_id: push_subscription_encryption_key_id,
     push_subscription_encryption_keys: push_subscription_encryption_keys,
-    web_push_vapid_public_key: System.get_env("WEB_PUSH_VAPID_PUBLIC_KEY")
+    web_push_vapid_public_key: System.get_env("WEB_PUSH_VAPID_PUBLIC_KEY"),
+    native_push_enabled: native_push_enabled,
+    native_push_platforms: native_push_platforms,
+    native_push_encryption_key: native_push_key,
+    native_push_encryption_key_id: System.get_env("NATIVE_PUSH_ENCRYPTION_KEY_ID", "primary"),
+    native_push_encryption_keys: native_push_keys
 
   database_tls_options =
     CommsCore.DatabaseTLS.repo_options!(
@@ -1303,6 +1849,8 @@ if config_env() == :prod do
     telephony_transfer_destination_prefixes: telephony_transfer_prefixes,
     telephony_pbx_enabled: telephony_pbx_enabled?,
     telephony_pbx_qualified: telephony_pbx_qualified?,
+    telephony_ivr_qualified: telephony_ivr_qualified?,
+    telephony_ivr_prompt_allowlist: telephony_ivr_prompts,
     telephony_pbx_api_url: telephony_pbx_origin,
     telephony_pbx_username: telephony_pbx_username,
     telephony_pbx_password: telephony_pbx_password,
@@ -1314,6 +1862,7 @@ if config_env() == :prod do
     meeting_artifacts_enabled: meeting_artifacts_enabled?,
     egress_enabled: egress_enabled?,
     artifact_transcription: artifact_transcription,
+    artifact_summarization: [enabled: summaries_enabled?, qualified: summaries_qualified?],
     telephony_ring_timeout_seconds: telephony_ring_timeout_seconds,
     telephony_max_duration_seconds: telephony_max_duration_seconds,
     livekit_server_url: livekit_server_url,

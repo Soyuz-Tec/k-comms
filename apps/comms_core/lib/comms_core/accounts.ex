@@ -1,6 +1,7 @@
 defmodule CommsCore.Accounts do
   @behaviour CommsCore.Administration.AuthorizationActorPort
   @behaviour CommsCore.Administration.IdentityAccessPort
+  @behaviour CommsCore.Administration.WorkspaceDomainIdentityPort
   @behaviour CommsCore.Administration.InvitationIdentityPort
 
   alias CommsCore.Accounts.{
@@ -56,6 +57,10 @@ defmodule CommsCore.Accounts do
           | :version_required
           | :weak_password
 
+  @spec lock_federation_actor(CommsCore.Accounts.FederationActorLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.AccessGrant.t()} | {:error, atom()}
+  defdelegate lock_federation_actor(query), to: CommsCore.Accounts.FederationGrants, as: :lock
+
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
           atom()
@@ -75,7 +80,8 @@ defmodule CommsCore.Accounts do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Accounts.UsageQuery.t()
+          CommsCore.Accounts.MatrixIdentityView.t()
+          | CommsCore.Accounts.UsageQuery.t()
           | CommsCore.Accounts.UsageProjection.t()
           | CommsCore.Accounts.AccessContext.t()
           | CommsCore.Accounts.AccessGrant.t()
@@ -112,6 +118,75 @@ defmodule CommsCore.Accounts do
           | {:error, public_error()}
 
   @spec access_context(binary(), binary()) :: public_response()
+  @spec lock_calendar_actor(CommsCore.Accounts.CalendarActorLockQuery.t()) ::
+          {:ok, AccessGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_actor(query), to: CommsCore.Accounts.CalendarAuthority, as: :actor
+
+  @spec revalidate_calendar_actor(CommsCore.Accounts.CalendarActorLockQuery.t()) ::
+          {:ok, AccessGrant.t()} | {:error, atom()}
+  defdelegate revalidate_calendar_actor(query),
+    to: CommsCore.Accounts.CalendarAuthority,
+    as: :revalidate_actor
+
+  @spec lock_calendar_worker(CommsCore.Accounts.CalendarWorkerLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.CalendarWorkerGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_worker(query), to: CommsCore.Accounts.CalendarAuthority, as: :worker
+
+  @spec lock_calendar_source_users(CommsCore.Accounts.CalendarSourceLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.CalendarSourceGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_source_users(query),
+    to: CommsCore.Accounts.CalendarAuthority,
+    as: :source
+
+  @spec lock_matrix_participants(
+          CommsCore.Accounts.MatrixParticipantsLockQuery.t(),
+          public_map() | nil
+        ) ::
+          {:ok, %{eligible_user_ids: [binary()], grant: CommsCore.Accounts.AccessGrant.t() | nil}}
+          | {:error, atom()}
+  defdelegate lock_matrix_participants(query, subject),
+    to: CommsCore.Accounts.MatrixParticipants,
+    as: :lock
+
+  @spec prepare_matrix_identity_erasure(binary(), binary()) :: :ok | {:error, atom()}
+  defdelegate prepare_matrix_identity_erasure(tenant, user),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :prepare_erasure
+
+  @spec matrix_identity_erasure_pending?(binary(), binary()) :: boolean()
+  defdelegate matrix_identity_erasure_pending?(tenant, user),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :erasure_pending?
+
+  @spec matrix_client_session(public_map(), integer()) ::
+          {:ok, CommsCore.Accounts.MatrixClientSessionView.t()} | {:error, atom()}
+  defdelegate matrix_client_session(subject, deadline),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :client_session
+
+  @spec matrix_client_session(public_map()) ::
+          {:ok, CommsCore.Accounts.MatrixClientSessionView.t()} | {:error, atom()}
+  defdelegate matrix_client_session(subject),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :client_session
+
+  @spec matrix_identity_view(binary(), binary()) ::
+          {:ok, CommsCore.Accounts.MatrixIdentityView.t()} | {:error, atom()}
+  defdelegate matrix_identity_view(tenant_id, user_id),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :identity_view
+
+  @spec matrix_upload_public_signing_keys(public_map(), public_map()) :: :ok | {:error, atom()}
+  defdelegate matrix_upload_public_signing_keys(keys, subject),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :upload_public_signing_keys
+
+  @spec reconcile_matrix_devices(module()) ::
+          {:ok, %{scanned: non_neg_integer(), revoked: non_neg_integer()}} | {:error, atom()}
+  defdelegate reconcile_matrix_devices(caller),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :reconcile
+
   @spec admin_revoke_session_command(binary(), binary(), public_map(), public_map()) ::
           public_response()
   @spec authenticate_view(binary(), binary(), binary(), public_input()) :: public_response()
@@ -243,6 +318,10 @@ defmodule CommsCore.Accounts do
 
   @doc false
   @spec rollback_enterprise_identity_hazard_count() :: non_neg_integer()
+  @spec rollback_matrix_identity_hazard_count() :: non_neg_integer()
+  def rollback_matrix_identity_hazard_count,
+    do: ReleaseInventory.matrix_identity_hazard_count(Repo)
+
   def rollback_enterprise_identity_hazard_count,
     do: ReleaseInventory.enterprise_identity_hazard_count(Repo)
 
@@ -307,6 +386,33 @@ defmodule CommsCore.Accounts do
 
   @impl CommsCore.Administration.IdentityAccessPort
   def resolve_access(subject), do: AccessControl.resolve_access(subject)
+
+  @impl CommsCore.Administration.IdentityAccessPort
+  def lock_access(subject, deadline) do
+    case CommsCore.Accounts.ContentWriteGrant.lock(subject, deadline) do
+      {:ok, %AccessGrant{account_type: :human, access_scope: :workspace} = grant} ->
+        {:ok,
+         %CommsCore.Administration.IdentityGrant{
+           tenant_id: grant.tenant_id,
+           user_id: grant.user_id,
+           role: grant.role,
+           step_up_recent?: grant.step_up_recent?
+         }}
+
+      {:error, :transaction_required} = error ->
+        error
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
+  @impl CommsCore.Administration.WorkspaceDomainIdentityPort
+  @spec authorize_workspace_domain(CommsCore.Administration.DomainIdentityAuthorization.t()) ::
+          {:ok, CommsCore.Administration.IdentityGrant.t()} | {:error, atom()}
+  defdelegate authorize_workspace_domain(command),
+    to: CommsCore.Accounts.WorkspaceDomainAuthority,
+    as: :authorize
 
   @impl CommsCore.Administration.AuthorizationActorPort
   def resolve_authorization_actor(subject), do: AccessControl.resolve_authorization_actor(subject)
@@ -495,6 +601,13 @@ defmodule CommsCore.Accounts do
           :ok | {:error, :forbidden | :transaction_required}
   def lock_push_registration_identity(tenant_id, user_id, device_id),
     do: Directory.lock_push_registration_identity(tenant_id, user_id, device_id)
+
+  @doc "Retain exact current human/device/session authority after the caller's governance and quota fences."
+  @spec lock_native_push_authority(map(), integer()) ::
+          {:ok, CommsCore.Accounts.NativePushAuthority.t()} | {:error, atom()}
+  defdelegate lock_native_push_authority(subject, deadline),
+    to: CommsCore.Accounts.NativePushAuthority,
+    as: :lock
 
   @doc false
   @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::
@@ -1161,9 +1274,15 @@ defmodule CommsCore.Accounts do
   defp validation_error?(_reason), do: false
 
   defp revoke_sessions_for_session_boundary(tenant_id, session_ids, reason) do
+    CommsCore.Accounts.MatrixSessions.revoke_sessions(tenant_id, session_ids)
+
     CallLifecycleCommand.sessions_revoked(tenant_id, session_ids, reason)
     |> CallLifecyclePort.revoke_identity_access()
     |> call_lifecycle_ok!()
+
+    NotificationCommand.sessions_revoked(tenant_id, session_ids, reason)
+    |> NotificationPort.execute()
+    |> notification_ok!()
   end
 
   defp revoke_device_for_session_boundary(tenant_id, device_id, reason) do

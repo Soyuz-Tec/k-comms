@@ -165,3 +165,25 @@ as socket tickets. Every native reconnect obtains a new ticket over HTTPS.
 - Ephemeral events such as typing do not carry durability promises.
 - A reconnect always reconciles against durable state rather than assuming no messages were missed.
 - Session revocation or membership removal stops further commands and events.
+
+### Shared documents
+
+Current workspace humans in durable conversations join `document:<documentId>`.
+The same one-use socket-ticket and retained session checks apply. Join and every
+inbound/intercepted outbound event reauthorize the document, current membership,
+original-author governance protection and document generation. Guest and
+instant-room clients cannot use this durable document owner.
+
+`document.operation_applied.v1` carries the exact committed operation receipt:
+document/conversation/client UUIDs, generation, version, kind, optional title,
+server-created inserted atoms, exact deleted atom IDs and timestamp. Reconcile
+versions in order; a gap requires authenticated HTTP replay. Reconnect obtains
+a fresh ticket, joins, catches up replay and retries any unknown acknowledgement
+using the unchanged UUID and input. A generation change or withdrawn authority
+clears retained client content and cannot resume old edits.
+
+`document.presence.v1` accepts only generation and selection anchor/head IDs;
+the server adds the actual user/device identity, validates anchors against the
+current document and limits each session to 20 presence updates per second.
+Clients expire remote selections after 15 seconds. Content edits go through the
+authenticated owner HTTP operation route, never arbitrary channel broadcasts.

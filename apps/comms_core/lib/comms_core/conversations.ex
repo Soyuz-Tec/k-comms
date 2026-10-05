@@ -50,7 +50,8 @@ defmodule CommsCore.Conversations do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Conversations.UsageQuery.t()
+          CommsCore.Conversations.Federation.View.t()
+          | CommsCore.Conversations.UsageQuery.t()
           | CommsCore.Conversations.UsageProjection.t()
           | CommsCore.Conversations.AdmissionUsage.t()
           | CommsCore.Conversations.CallConversation.t()
@@ -129,9 +130,102 @@ defmodule CommsCore.Conversations do
   @spec revoke_guest_link_view(binary(), binary(), public_map()) :: public_response()
   @spec update_view(binary(), public_map(), public_map()) :: public_response()
 
+  @spec export_federation_metadata(binary(), public_map()) :: public_response()
+  defdelegate export_federation_metadata(conversation_id, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :export
+
+  @spec federation_trusts(public_map()) :: public_response()
+  defdelegate federation_trusts(subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :trusts
+
+  @spec put_federation_trust(public_map(), public_map()) :: public_response()
+  defdelegate put_federation_trust(attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :put_trust
+
+  @spec federation_room(binary(), public_map()) :: public_response()
+  defdelegate federation_room(conversation_id, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :get
+
+  @spec create_federation_room(binary(), public_map(), public_map()) :: public_response()
+  defdelegate create_federation_room(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :create
+
+  @spec federation_consent(binary(), public_map(), public_map()) :: public_response()
+  defdelegate federation_consent(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :consent
+
+  @spec invite_federation_participant(binary(), public_map(), public_map()) :: public_response()
+  defdelegate invite_federation_participant(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :invite
+
+  @spec send_federation_message(binary(), public_map(), public_map()) :: public_response()
+  defdelegate send_federation_message(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :send
+
+  @spec close_federation_room(binary(), public_map(), public_map()) :: public_response()
+  defdelegate close_federation_room(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :close
+
+  @spec federation_timeline(binary(), public_map(), public_map()) :: public_response()
+  defdelegate federation_timeline(conversation_id, attrs, subject),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :timeline
+
+  @spec deliver_federation_command(binary(), module(), atom()) :: public_response()
+  defdelegate deliver_federation_command(id, caller, create_mode),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :deliver
+
+  @spec prepare_federation_command(binary(), module()) :: public_response()
+  defdelegate prepare_federation_command(id, caller),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :claim_first_attempt
+
+  @spec reconcile_federation_commands(module()) :: public_response()
+  defdelegate reconcile_federation_commands(caller),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :reconcile
+
+  @spec cancel_stale_federation_command(binary(), module()) :: public_response()
+  defdelegate cancel_stale_federation_command(id, caller),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :cancel_stale
+
+  @spec fence_federation_user(binary(), binary()) :: public_response()
+  defdelegate fence_federation_user(tenant_id, user_id),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :fence_user
+
+  @spec prepare_federation_erasure(binary(), atom(), binary()) :: public_response()
+  defdelegate prepare_federation_erasure(tenant_id, type, target),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :prepare_erasure
+
+  @spec federation_erasure_pending?(binary(), atom(), binary()) :: public_response()
+  defdelegate federation_erasure_pending?(tenant_id, type, target),
+    to: CommsCore.Conversations.Federation.Commands,
+    as: :erasure_pending?
+
+  @spec rollback_federation_hazard_count() :: non_neg_integer()
+  def rollback_federation_hazard_count(),
+    do: CommsCore.Conversations.Federation.Commands.rollback_hazards(Repo) |> length()
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id),
     do: ReleaseFingerprint.fragment(repo, tenant_id)
+
+  @spec rollback_private_room_hazard_count() :: non_neg_integer()
+  def rollback_private_room_hazard_count,
+    do: CommsCore.Conversations.PrivateRoomInventory.hazard_count()
 
   @impl ConversationBootstrapPort
   def create_initial_channel(%InitialConversationCommand{} = command),
@@ -364,6 +458,65 @@ defmodule CommsCore.Conversations do
   def project(conversation), do: Directory.project(conversation)
 
   def create_view(attrs, subject), do: Commands.create_view(attrs, subject)
+
+  @spec create_private_room(public_map(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate create_private_room(attrs, subject),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :create
+
+  @spec list_private_rooms(public_map()) ::
+          {:ok, [CommsCore.Conversations.PrivateRoomView.t()]} | {:error, atom()}
+  defdelegate list_private_rooms(subject), to: CommsCore.Conversations.PrivateRooms, as: :list
+
+  @spec private_room(binary(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate private_room(id, subject), to: CommsCore.Conversations.PrivateRooms, as: :get
+
+  @spec remove_private_room_member(binary(), binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate remove_private_room_member(id, user_id, attrs, subject),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :remove_member
+
+  @spec lock_private_room_grant(binary(), public_map(), pos_integer(), pos_integer(), integer()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomGrant.t()} | {:error, atom()}
+  defdelegate lock_private_room_grant(id, subject, epoch, generation, deadline),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :lock_grant
+
+  @spec lock_private_room_grant(binary(), public_map(), pos_integer(), pos_integer()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomGrant.t()} | {:error, atom()}
+  defdelegate lock_private_room_grant(id, subject, epoch, generation),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :lock_grant
+
+  @spec prepare_private_room_erasure(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, %{private_rooms_fenced: non_neg_integer()}} | {:error, atom()}
+  defdelegate prepare_private_room_erasure(tenant, type, target),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :prepare
+
+  @spec private_room_erasure_pending?(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, boolean()} | {:error, atom()}
+  defdelegate private_room_erasure_pending?(tenant, type, target),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :pending?
+
+  @spec reconcile_private_room_purges(module()) ::
+          {:ok, %{scanned: non_neg_integer(), provider_purged: non_neg_integer()}}
+          | {:error, atom()}
+  defdelegate reconcile_private_room_purges(caller),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :reconcile
+
+  @spec authorize_private_content_erasure(
+          CommsCore.Conversations.PrivateContentErasureCommand.t()
+        ) :: :ok | {:error, atom()}
+  defdelegate authorize_private_content_erasure(command),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :authorize_content_erasure
+
   def list_for_user_views(subject), do: Directory.list_for_user_views(subject)
 
   def discover_public_channel_views(params, subject),

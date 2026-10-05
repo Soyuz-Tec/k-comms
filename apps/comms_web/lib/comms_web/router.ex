@@ -24,6 +24,40 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :workspace_discovery_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSameOriginJSON)
+    plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
+  end
+
+  pipeline :calendar_callback do
+    plug(:accepts, ["html", "json"])
+
+    plug(:put_secure_browser_headers, %{
+      "content-security-policy" =>
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
+    })
+
+    plug(CommsWeb.Plugs.RequireSecureTransport)
+    plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
+  end
+
+  pipeline :authenticated_document_export_api do
+    plug(:accepts, ["txt", "json"])
+    plug(CommsWeb.Plugs.Authenticate)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
+  pipeline :private_audit_export do
+    plug(:private_audit_export_response)
+  end
+
+  defp private_audit_export_response(conn, _options) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -159,10 +193,16 @@ defmodule CommsWeb.Router do
     get("/status", StatusController, :show)
   end
 
+  scope "/api/v1", CommsWeb do
+    pipe_through(:workspace_discovery_api)
+    post("/workspaces/discover", WorkspaceDiscoveryController, :create)
+  end
+
   scope "/api/v1/telephony", CommsWeb do
     pipe_through(:telephony_provider_api)
     post("/livekit/webhook", TelephonyWebhookController, :create)
     post("/pbx/webhook", TelephonyPBXWebhookController, :create)
+    post("/ivr/webhook", TelephonyIvrWebhookController, :create)
   end
 
   scope "/api/v1/providers", CommsWeb do
@@ -188,6 +228,11 @@ defmodule CommsWeb.Router do
     post("/guest-links/preview", GuestSessionController, :preview)
     post("/guest-sessions", GuestSessionController, :create)
     post("/guest/sessions/refresh", GuestSessionController, :refresh)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:calendar_callback)
+    get("/calendar/oauth/:provider/callback", CalendarController, :callback)
   end
 
   scope "/api/v1", CommsWeb do
@@ -233,6 +278,12 @@ defmodule CommsWeb.Router do
       :consent
     )
 
+    post(
+      "/conversation/calls/:call_id/artifacts/:id/summary-consent",
+      GuestCallArtifactController,
+      :summary_consent
+    )
+
     post("/conversation/calls", GuestCommunicationController, :create_call)
     post("/conversation/calls/:call_id/join", GuestCommunicationController, :join_call)
     post("/conversation/calls/:call_id/end", GuestCommunicationController, :end_call)
@@ -245,7 +296,42 @@ defmodule CommsWeb.Router do
   end
 
   scope "/api/v1", CommsWeb do
+    pipe_through(:authenticated_document_export_api)
+    get("/documents/:document_id/export", SharedDocumentController, :export)
+  end
+
+  scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
+
+    post("/me/matrix/session", PrivateRoomController, :matrix_session)
+    post("/me/matrix/public-signing-keys", PrivateRoomController, :signing_keys)
+    get("/private-rooms", PrivateRoomController, :index)
+    post("/private-rooms", PrivateRoomController, :create)
+    get("/private-rooms/:id", PrivateRoomController, :show)
+    delete("/private-rooms/:id/members/:user_id", PrivateRoomController, :remove_member)
+    get("/private-rooms/:id/events", PrivateRoomController, :events)
+    post("/private-rooms/:id/events", PrivateRoomController, :send_event)
+    get("/admin/federation/trusts", FederationController, :trusts)
+    put("/admin/federation/trusts", FederationController, :policy)
+    get("/conversations/:conversation_id/federation", FederationController, :show)
+    post("/conversations/:conversation_id/federation", FederationController, :create)
+    put("/conversations/:conversation_id/federation/consent", FederationController, :consent)
+    post("/conversations/:conversation_id/federation/invitations", FederationController, :invite)
+
+    post(
+      "/conversations/:conversation_id/federation/messages",
+      FederationController,
+      :send_message
+    )
+
+    get(
+      "/conversations/:conversation_id/federation/export",
+      FederationController,
+      :export_metadata
+    )
+
+    get("/conversations/:conversation_id/federation/messages", FederationController, :timeline)
+    delete("/conversations/:conversation_id/federation", FederationController, :close)
 
     get("/whiteboards", WhiteboardLibraryController, :index)
     put("/conversations/:conversation_id/whiteboard/title", WhiteboardLibraryController, :rename)
@@ -269,6 +355,12 @@ defmodule CommsWeb.Router do
     )
 
     get("/conversations/:conversation_id/whiteboard/export", WhiteboardLibraryController, :export)
+    get("/conversations/:conversation_id/documents", SharedDocumentController, :index)
+    post("/conversations/:conversation_id/documents", SharedDocumentController, :create)
+    get("/documents/:document_id", SharedDocumentController, :show)
+    post("/documents/:document_id/copies", SharedDocumentController, :copy)
+    post("/documents/:document_id/operations", SharedDocumentController, :operation)
+    get("/documents/:document_id/operations", SharedDocumentController, :replay)
 
     post(
       "/conversations/:conversation_id/whiteboard/assets",
@@ -301,6 +393,12 @@ defmodule CommsWeb.Router do
     post("/me/oidc/link/callback", EnterpriseIdentityController, :oidc_link_callback)
 
     get("/meetings", MeetingController, :index)
+    get("/calendar/connections", CalendarController, :connections)
+    post("/calendar/oauth/:provider/authorize", CalendarController, :authorize)
+    post("/calendar/connections/:connection_id/unlink", CalendarController, :unlink)
+    get("/calendar/exports", CalendarController, :exports)
+    post("/calendar/exports", CalendarController, :create_export)
+    post("/calendar/exports/:export_id/resolve", CalendarController, :resolve_export)
     post("/conversations/:conversation_id/meetings", MeetingController, :create)
     get("/meetings/:meeting_id", MeetingController, :show)
     patch("/meetings/:meeting_id", MeetingController, :update)
@@ -317,6 +415,11 @@ defmodule CommsWeb.Router do
     put("/admin/telephony/mailbox", VoicemailController, :save_mailbox)
     get("/admin/telephony/routes", TelephonyController, :routes)
     put("/admin/telephony/routes", TelephonyController, :save_route)
+    get("/admin/telephony/ivr", TelephonyIvrController, :config)
+    put("/admin/telephony/ivr", TelephonyIvrController, :save)
+    get("/telephony/agent-state", TelephonyIvrController, :agent_state)
+    put("/telephony/agent-state", TelephonyIvrController, :set_agent_state)
+    get("/admin/telephony/queues/current", TelephonyIvrController, :supervisor)
     get("/telephony/capabilities", TelephonyController, :capabilities)
     get("/telephony/calls/:id/controls", TelephonyController, :controls)
     post("/telephony/calls/:id/controls", TelephonyController, :control)
@@ -369,6 +472,18 @@ defmodule CommsWeb.Router do
       :playback
     )
 
+    post(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/summary-consent",
+      CallArtifactController,
+      :summary_consent
+    )
+
+    get(
+      "/conversations/:conversation_id/calls/:call_id/artifacts/:id/summary",
+      CallArtifactController,
+      :summary
+    )
+
     get(
       "/conversations/:conversation_id/calls/:call_id/artifacts/:id/transcript",
       CallArtifactController,
@@ -393,6 +508,16 @@ defmodule CommsWeb.Router do
     post("/telephony/calls/:id/end", TelephonyController, :end_call)
     post("/telephony/calls/:id/join", TelephonyController, :join)
     get("/admin/telephony", TelephonyController, :admin_config)
+    get("/admin/telephony/provisioning", PhoneProvisioningController, :index)
+    post("/admin/telephony/provisioning/inspect", PhoneProvisioningController, :inspect)
+
+    post(
+      "/admin/telephony/provisioning/:id/apply",
+      PhoneProvisioningController,
+      :apply_configuration
+    )
+
+    post("/admin/telephony/provisioning/:id/reconcile", PhoneProvisioningController, :reconcile)
     put("/admin/telephony", TelephonyController, :provision)
     patch("/me/profile", ProfileController, :update)
     post("/socket-tickets", SocketTicketController, :create)
@@ -406,6 +531,11 @@ defmodule CommsWeb.Router do
     get("/notification-attempts", NotificationController, :attempts)
     post("/notification-intents/:id/retry", NotificationController, :retry)
     get("/me/push-subscriptions/config", PushSubscriptionController, :config)
+    get("/me/native-push/config", NativePushController, :config)
+    get("/me/native-push/registration", NativePushController, :show)
+    put("/me/native-push/registration", NativePushController, :register)
+    delete("/me/native-push/registration", NativePushController, :revoke)
+    post("/native-call-wakes/:id/admit", NativePushController, :admit)
     get("/me/push-subscriptions", PushSubscriptionController, :index)
     post("/me/push-subscriptions", PushSubscriptionController, :create)
     delete("/me/push-subscriptions/:id", PushSubscriptionController, :delete)
@@ -478,6 +608,12 @@ defmodule CommsWeb.Router do
     get("/admin/usage", UsageReportController, :index)
     get("/admin/role-permissions", RolePermissionController, :index)
     post("/admin/users/:id/role-preview", RolePermissionController, :preview)
+    get("/admin/workspace-domains", WorkspaceDomainController, :index)
+    post("/admin/workspace-domains", WorkspaceDomainController, :create)
+    post("/admin/workspace-domains/:id/challenge", WorkspaceDomainController, :renew)
+    post("/admin/workspace-domains/:id/verify", WorkspaceDomainController, :verify)
+    patch("/admin/workspace-domains/:id", WorkspaceDomainController, :update)
+    delete("/admin/workspace-domains/:id", WorkspaceDomainController, :revoke)
     get("/admin/users", AdminUserController, :index)
     patch("/admin/users/:id", AdminUserController, :update)
     get("/admin/users/:user_id/sessions", AdminUserController, :sessions)
@@ -526,8 +662,13 @@ defmodule CommsWeb.Router do
     pipe_through(:authenticated_export_api)
 
     get("/admin/usage/export", UsageReportController, :export)
-    post("/admin/audit-events/export", AuditExportController, :create)
     get("/admin/deletion-requests/:id/timeline/export", DeletionRequestHistoryController, :export)
+  end
+
+  scope "/api/v1", CommsWeb do
+    # Protect early authentication/rate-limit errors and retain browser CSV Accept.
+    pipe_through([:private_audit_export, :authenticated_export_api])
+    post("/admin/audit-events/export", AuditExportController, :create)
   end
 
   scope "/api/v1", CommsWeb do

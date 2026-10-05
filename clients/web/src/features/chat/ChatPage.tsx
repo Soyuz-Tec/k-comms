@@ -6,9 +6,10 @@ import {
   useState,
   type CSSProperties
 } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { useSession } from "../../app/session";
+import { useFederationAuthorityGeneration } from "../federation/useFederationAuthorityGeneration";
 import { useStepUp } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
@@ -69,6 +70,7 @@ interface FocusTarget {
 
 export function ChatPage() {
   const { api, session } = useSession();
+  const federationAuthorityGeneration = useFederationAuthorityGeneration(session);
   const [conversationSidebarWidth, setConversationSidebarWidth] = useState(
     readConversationSidebarWidth
   );
@@ -592,6 +594,7 @@ export function ChatPage() {
     void memberWorkspace.onboarding("dismiss");
   }
 
+  if (activeConversation?.content_mode === "matrix_e2ee") return <Navigate to={`/app/private?room=${encodeURIComponent(activeConversation.id)}`} replace />;
   return (
     <main
       className={`workspace-grid mobile-${mobilePane}`}
@@ -761,7 +764,7 @@ export function ChatPage() {
 
       {showSearch && <UnifiedSearchPanel key={searchConversationId || "workspace"} api={api} conversations={conversations} initialConversationId={searchConversationId} onClose={closeSearch} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
-      {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
+      {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}-${federationAuthorityGeneration}`} authorityGeneration={federationAuthorityGeneration} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
       {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}
       {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
       {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} onMessageUpdated={updateLoadedMessage} onReport={(message) => { setReportError(null); setReportTarget(message); }} />}

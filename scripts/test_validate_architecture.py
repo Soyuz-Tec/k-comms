@@ -983,7 +983,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(
             notification_collaboration["callers"],
-            ["CommsCore.Accounts", "CommsCore.Accounts.PasswordRecovery"],
+            [
+                "CommsCore.Accounts",
+                "CommsCore.Accounts.PasswordRecovery",
+                "CommsCore.Accounts.GovernanceErasure",
+            ],
         )
 
         transition = next(
@@ -1257,6 +1261,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             content["public_contracts"],
             [
+                "CommsCore.Messaging.PrivateEventView",
+                "CommsCore.Messaging.PrivateEventIntentView",
+                "CommsCore.Messaging.PrivateEventCommand",
+                "CommsCore.Messaging.PrivateEventReceipt",
+                "CommsCore.Messaging.PrivateEventPort",
                 "CommsCore.Attachments.UsageProjection",
                 "CommsCore.Attachments.UsageQuery",
                 "CommsCore.Messaging.UsageProjection",
@@ -1278,6 +1287,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Attachments.RestoreReport",
                 "CommsCore.Attachments.RestoredObjectIdentity",
                 "CommsCore.Attachments.ScanAttemptView",
+                "CommsCore.Messaging.PrivateEventPort.Contract",
             ],
         )
         self.assertNotIn("trust_governance", content["allowed_dependencies"])
@@ -1585,6 +1595,14 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             delivery["public_contracts"],
             [
+                "CommsCore.Notifications.NativePushView",
+                "CommsCore.Notifications.NativeCallTarget",
+                "CommsCore.Notifications.NativeCallRequest",
+                "CommsCore.Notifications.NativeDelivery",
+                "CommsCore.Notifications.NativeCallWakePort",
+                "CommsCore.Notifications.NativeCallWakePort.Contract",
+                "CommsCore.Notifications.NativePushProviderPort",
+                "CommsCore.Notifications.NativePushProviderPort.Contract",
                 "CommsCore.Notifications.AttemptView",
                 "CommsCore.Notifications.Availability",
                 "CommsCore.Notifications.Delivery",
@@ -1607,6 +1625,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "meeting.updated.v1",
                 "meeting.cancelled.v1",
                 "meeting.reminder.v1",
+                "call.started.v1",
+                "telephony.call.updated",
             ],
         )
         self.assertEqual(
@@ -1623,6 +1643,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             "notification_intents",
             "notification_attempts",
             "push_subscriptions",
+            "native_push_registrations",
+            "native_call_wakes",
         ):
             self.assertEqual(manifest["tables"][table]["access"], "owner_only")
 
@@ -1631,6 +1653,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Notifications.Intent",
             "CommsCore.Notifications.Preference",
             "CommsCore.Notifications.PushSubscription",
+            "CommsCore.Notifications.NativePushRegistration",
+            "CommsCore.Notifications.NativeCallWake",
         }
         leaks = []
         for app in ("comms_web", "comms_workers", "comms_integrations"):
@@ -1644,6 +1668,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Accounts.Device",
             "CommsCore.Accounts.Tenant",
             "CommsCore.Accounts.User",
+            "CommsCore.Accounts.Session",
             "CommsCore.Administration.Tenant",
             "CommsCore.Conversations.Membership",
         }
@@ -1668,6 +1693,12 @@ class ValidateArchitectureTest(unittest.TestCase):
             "intent.ex": ("tenant_id", "user_id"),
             "preference.ex": ("tenant_id", "user_id"),
             "push_subscription.ex": ("tenant_id", "user_id", "device_id"),
+            "native_push_registration.ex": (
+                "tenant_id", "user_id", "device_id", "session_id"
+            ),
+            "native_call_wake.ex": (
+                "tenant_id", "user_id", "device_id", "session_id", "registration_id"
+            ),
         }
         schema_root = root / "apps/comms_core/lib/comms_core/notifications"
         for filename, fields in schema_scalar_fields.items():
@@ -1764,11 +1795,22 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(interfaces),
             {
+                "federation-matrix-provider",
+                "matrix-device-client-authentication",
+                "matrix-private-room-control",
+                "matrix-private-opaque-events",
                 "call-artifact-provider",
                 "call-artifact-storage",
                 "call-artifact-transcription",
+                "owned-calendar-provider-protocol",
+                "call-artifact-summarization",
                 "notification-availability-adapter",
+                "native-call-wake-owner",
+                "native-push-provider",
                 "telephony-provider-controls",
+                "telephony-ivr-provider",
+                "telephony-provider-provisioning",
+                "telephony-provider-provisioning-authority",
                 "telephony-voicemail-provider",
                 "telephony-voicemail-storage",
                 "telephony-provider-webhook-verification",
@@ -1778,6 +1820,42 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "worker-outbox-publication",
             },
         )
+        provisioning = interfaces["telephony-provider-provisioning"]
+        self.assertEqual(
+            {key: provisioning[key] for key in (
+                "owner", "interface", "callers", "operations", "dispatch", "contracts",
+                "behaviour", "implementation", "binding", "transaction",
+            )},
+            {
+                "owner": "telephony",
+                "interface": "CommsCore.Telephony.ProvisioningPort",
+                "callers": ["CommsCore.Telephony.Provisioning", "CommsWeb.PhoneProvisioningController"],
+                "operations": [{"name": "status", "arity": 1}, {"name": "inspect", "arity": 1}, {"name": "apply", "arity": 1}],
+                "dispatch": "configured",
+                "contracts": ["CommsCore.Telephony.ProvisioningPort", "CommsCore.Telephony.ProvisioningPort.Contract", "CommsCore.Telephony.ProvisioningRequest"],
+                "behaviour": "CommsCore.Telephony.ProvisioningPort.Contract",
+                "implementation": "CommsIntegrations.Telephony.ProvisioningLiveKit",
+                "binding": {"application": "comms_core", "key": "telephony_provisioning_adapter", "module": "CommsIntegrations.Telephony.ProvisioningLiveKit"},
+                "transaction": "independent",
+            },
+        )
+        authority = interfaces["telephony-provider-provisioning-authority"]
+        self.assertEqual(
+            {key: authority[key] for key in (
+                "owner", "interface", "callers", "operations", "dispatch", "contracts", "transaction",
+            )},
+            {
+                "owner": "telephony",
+                "interface": "CommsCore.Telephony.ProvisioningAuthorityPort",
+                "callers": ["CommsIntegrations.Telephony.ProvisioningLiveKit"],
+                "operations": [{"name": "authorize_io", "arity": 3}],
+                "dispatch": "direct",
+                "contracts": ["CommsCore.Telephony.ProvisioningAuthorityPort", "CommsCore.Telephony.ProvisioningRequest"],
+                "transaction": "independent",
+            },
+        )
+        self.assertNotIn("binding", authority)
+        self.assertNotIn("implementation", authority)
         self.assertEqual(
             interfaces["web-validation-error-rendering"]["operations"],
             [{"name": "from", "arity": 1}],
@@ -1794,6 +1872,23 @@ class ValidateArchitectureTest(unittest.TestCase):
                 {"name": "record_attempt", "arity": 2},
             ],
         )
+        federation = interfaces["federation-matrix-provider"]
+        self.assertEqual(federation["behaviour"], "CommsCore.Conversations.Federation.ProviderPort")
+        self.assertEqual(federation["interface"], "CommsCore.Conversations.Federation.ProviderAdapter")
+        self.assertEqual(federation["contracts"], [
+            "CommsCore.Conversations.Federation.ProviderAdapter",
+            "CommsCore.Conversations.Federation.ProviderRequest",
+            "CommsCore.Conversations.Federation.ProviderReceipt",
+            "CommsCore.Conversations.Federation.ProviderPort",
+        ])
+        self.assertEqual(federation["callers"], ["CommsCore.Conversations.Federation.Commands"])
+        self.assertEqual(federation["operations"], [{"name": "perform", "arity": 1}])
+        self.assertEqual(federation["binding"], {
+            "application": "comms_core", "key": "federation_provider_adapter",
+            "module": "CommsIntegrations.Federation.Matrix",
+        })
+        self.assertEqual(federation["dispatch"], "configured")
+        self.assertEqual(federation["transaction"], "required")
         availability = interfaces["notification-availability-adapter"]
         self.assertEqual(
             availability["behaviour"],
@@ -1811,6 +1906,43 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "module": "CommsWeb.NotificationAvailabilityNotifier",
             },
         )
+        for identifier, contract, implementation, key, operations, transaction in (
+            (
+                "native-call-wake-owner",
+                "CommsCore.Notifications.NativeCallWakePort",
+                "CommsIntegrations.NativePush.CallOwner",
+                "native_call_wake_adapter",
+                [
+                    {"name": "recipients", "arity": 1},
+                    {"name": "authorize", "arity": 1},
+                    {"name": "admit", "arity": 3},
+                ],
+                "required",
+            ),
+            (
+                "native-push-provider",
+                "CommsCore.Notifications.NativePushProviderPort",
+                "CommsIntegrations.NativePush.Provider",
+                "native_push_provider_adapter",
+                [{"name": "status", "arity": 0}, {"name": "deliver", "arity": 2}],
+                "independent",
+            ),
+        ):
+            with self.subTest(interface=identifier):
+                interface = interfaces[identifier]
+                self.assertEqual(interface["owner"], "notification_delivery")
+                self.assertEqual(interface["interface"], contract)
+                self.assertEqual(interface["behaviour"], contract + ".Contract")
+                self.assertEqual(interface["implementation"], implementation)
+                self.assertEqual(
+                    interface["callers"], ["CommsCore.Notifications.NativeWakePorts"]
+                )
+                self.assertEqual(interface["operations"], operations)
+                self.assertEqual(interface["transaction"], transaction)
+                self.assertEqual(
+                    interface["binding"],
+                    {"application": "comms_core", "key": key, "module": implementation},
+                )
 
     def test_repository_publishes_an_exact_calls_boundary_and_collaborations(
         self,
@@ -1831,20 +1963,45 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.ArtifactStorageObject",
             "CommsCore.AudioCalls.ArtifactStoragePort",
             "CommsCore.AudioCalls.ArtifactStoragePort.Contract",
+            "CommsCore.AudioCalls.ArtifactSummarizationPort",
+            "CommsCore.AudioCalls.ArtifactSummarizationPort.Contract",
+            "CommsCore.AudioCalls.ArtifactSummaryReceipt",
+            "CommsCore.AudioCalls.ArtifactSummaryRequest",
+            "CommsCore.AudioCalls.ArtifactSummaryView",
             "CommsCore.AudioCalls.ArtifactTranscript",
             "CommsCore.AudioCalls.ArtifactTranscriptSegment",
             "CommsCore.AudioCalls.ArtifactTranscriptionPort",
             "CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract",
             "CommsCore.AudioCalls.ArtifactTranscriptionRequest",
             "CommsCore.AudioCalls.ArtifactView",
-            "CommsCore.AudioCalls.MeetingView",
-            "CommsCore.AudioCalls.MeetingErasurePlan",
+            "CommsCore.AudioCalls.CalendarSync.AuthorizationReceipt",
+            "CommsCore.AudioCalls.CalendarSync.CallbackCommand",
+            "CommsCore.AudioCalls.CalendarSync.ConnectionView",
+            "CommsCore.AudioCalls.CalendarSync.ErasurePlan",
+            "CommsCore.AudioCalls.CalendarSync.EventCommand",
+            "CommsCore.AudioCalls.CalendarSync.EventReceipt",
+            "CommsCore.AudioCalls.CalendarSync.ExportView",
+            "CommsCore.AudioCalls.CalendarSync.ExternalIdentityReceipt",
+            "CommsCore.AudioCalls.CalendarSync.IdentityFenceCommand",
+            "CommsCore.AudioCalls.CalendarSync.IdentityFenceReceipt",
+            "CommsCore.AudioCalls.CalendarSync.OAuthRequest",
+            "CommsCore.AudioCalls.CalendarSync.ProtectionPort",
+            "CommsCore.AudioCalls.CalendarSync.ProtectionQuery",
+            "CommsCore.AudioCalls.CalendarSync.ProtectionReceipt",
+            "CommsCore.AudioCalls.CalendarSync.ProviderAdapter",
+            "CommsCore.AudioCalls.CalendarSync.ProviderCapability",
+            "CommsCore.AudioCalls.CalendarSync.ProviderPort",
+            "CommsCore.AudioCalls.CalendarSync.SourceContributionQuery",
+            "CommsCore.AudioCalls.CalendarSync.SourceContributionReceipt",
+            "CommsCore.AudioCalls.CalendarSync.TokenReceipt",
             "CommsCore.AudioCalls.CallParticipantView",
-            "CommsCore.AudioCalls.CallView",
             "CommsCore.AudioCalls.CallSessionView",
+            "CommsCore.AudioCalls.CallView",
             "CommsCore.AudioCalls.CredentialRequest",
             "CommsCore.AudioCalls.EvictionClaim",
             "CommsCore.AudioCalls.EvictionProgress",
+            "CommsCore.AudioCalls.MeetingErasurePlan",
+            "CommsCore.AudioCalls.MeetingView",
             "CommsCore.AudioCalls.ModerationTarget",
             "CommsCore.AudioCalls.ProviderCall",
             "CommsCore.AudioCalls.UsageProjection",
@@ -1858,6 +2015,34 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.Artifacts.Consent",
             "CommsCore.AudioCalls.Artifacts.ProviderEvent",
             "CommsCore.AudioCalls.Artifacts.Segment",
+            "CommsCore.AudioCalls.AudioCall",
+            "CommsCore.AudioCalls.AudioCallParticipant",
+            "CommsCore.AudioCalls.AuthorizationPolicy",
+            "CommsCore.AudioCalls.CalendarSync.Boxes",
+            "CommsCore.AudioCalls.CalendarSync.Budget",
+            "CommsCore.AudioCalls.CalendarSync.Commands",
+            "CommsCore.AudioCalls.CalendarSync.Connection",
+            "CommsCore.AudioCalls.CalendarSync.Connections",
+            "CommsCore.AudioCalls.CalendarSync.Effects",
+            "CommsCore.AudioCalls.CalendarSync.Erasure",
+            "CommsCore.AudioCalls.CalendarSync.ErasureReceipt",
+            "CommsCore.AudioCalls.CalendarSync.EventMapping",
+            "CommsCore.AudioCalls.CalendarSync.Export",
+            "CommsCore.AudioCalls.CalendarSync.Exports",
+            "CommsCore.AudioCalls.CalendarSync.Guards",
+            "CommsCore.AudioCalls.CalendarSync.IdentityFences",
+            "CommsCore.AudioCalls.CalendarSync.OAuthChallenge",
+            "CommsCore.AudioCalls.CalendarSync.ReleaseInventory",
+            "CommsCore.AudioCalls.CalendarSync.SecretBox",
+            "CommsCore.AudioCalls.CalendarSync.SecretContext",
+            "CommsCore.AudioCalls.CalendarSync.SourceContributions",
+            "CommsCore.AudioCalls.CalendarSync.SyncCommand",
+            "CommsCore.AudioCalls.Collaboration",
+            "CommsCore.AudioCalls.Lifecycle",
+            "CommsCore.AudioCalls.Artifacts.DerivedAuthority",
+            "CommsCore.AudioCalls.Artifacts.Metadata",
+            "CommsCore.AudioCalls.Artifacts.Summaries",
+            "CommsCore.AudioCalls.Artifacts.Summary",
             "CommsCore.AudioCalls.Meeting",
             "CommsCore.AudioCalls.MeetingCalendar",
             "CommsCore.AudioCalls.MeetingCallPolicy",
@@ -1865,11 +2050,6 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.MeetingOccurrence",
             "CommsCore.AudioCalls.MeetingSchedule",
             "CommsCore.AudioCalls.Meetings",
-            "CommsCore.AudioCalls.AudioCall",
-            "CommsCore.AudioCalls.AudioCallParticipant",
-            "CommsCore.AudioCalls.AuthorizationPolicy",
-            "CommsCore.AudioCalls.Collaboration",
-            "CommsCore.AudioCalls.Lifecycle",
             "CommsCore.AudioCalls.Participants",
             "CommsCore.AudioCalls.Projector",
             "CommsCore.AudioCalls.ReleaseInventory",
@@ -1914,6 +2094,13 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "call_artifact_consents": "CommsCore.AudioCalls.Artifacts.Consent",
                 "call_artifact_provider_events": "CommsCore.AudioCalls.Artifacts.ProviderEvent",
                 "call_artifact_segments": "CommsCore.AudioCalls.Artifacts.Segment",
+                "calendar_connections": "CommsCore.AudioCalls.CalendarSync.Connection",
+                "calendar_erasure_receipts": "CommsCore.AudioCalls.CalendarSync.ErasureReceipt",
+                "calendar_event_mappings": "CommsCore.AudioCalls.CalendarSync.EventMapping",
+                "calendar_exports": "CommsCore.AudioCalls.CalendarSync.Export",
+                "calendar_oauth_challenges": "CommsCore.AudioCalls.CalendarSync.OAuthChallenge",
+                "calendar_sync_commands": "CommsCore.AudioCalls.CalendarSync.SyncCommand",
+                "call_artifact_summaries": "CommsCore.AudioCalls.Artifacts.Summary",
             },
         )
 
@@ -1939,6 +2126,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "federation-governance-protection",
+                "matrix-identity-governance-fence",
+                "matrix-participant-eligibility-withdrawal",
+                "private-room-governance-fence",
+                "private-room-opaque-content-erasure",
                 "call-artifact-governance-protection",
                 "telephony-voicemail-governance-protection",
                 "whiteboard-approved-content-assets",
@@ -1951,8 +2143,24 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "shared-document-governance-protection",
+                "workspace-domain-governance-fence",
+                "workspace-domain-retained-identity",
+                "calendar-governance-protection",
             },
         )
+        federation = collaborations["federation-governance-protection"]
+        self.assertEqual(federation["consumer"], "conversations")
+        self.assertEqual(federation["provider"], "trust_governance")
+        self.assertEqual(federation["port"], "CommsCore.Conversations.Federation.ProtectionPort")
+        self.assertEqual(federation["result_contract"], "CommsCore.Conversations.Federation.Protection")
+        self.assertEqual(federation["callers"], ["CommsCore.Conversations.Federation.Commands"])
+        self.assertEqual(federation["operations"], [{"name": "protection", "arity": 3}])
+        self.assertEqual(federation["binding"], {
+            "application": "comms_core", "key": "federation_protection_adapter",
+            "module": "CommsCore.Governance.FederationProtection",
+        })
+        self.assertEqual(federation["transaction"], "required")
         expected_call_collaborations = {
             "identity-call-lifecycle": {
                 "consumer": "identity_access",
@@ -2039,6 +2247,46 @@ class ValidateArchitectureTest(unittest.TestCase):
                 self.assertIsInstance(declaration["condition"], str)
                 self.assertTrue(declaration["condition"].strip())
 
+        expected_domain_collaborations = {
+            "workspace-domain-retained-identity": (
+                "identity_access", "CommsCore.Administration.WorkspaceDomainIdentityPort",
+                "CommsCore.Administration.IdentityGrant", "CommsCore.Accounts",
+                "authorize_workspace_domain", "workspace_domain_identity_adapter",
+            ),
+            "workspace-domain-governance-fence": (
+                "trust_governance", "CommsCore.Administration.WorkspaceDomainGovernancePort",
+                "CommsCore.Administration.DomainGovernanceFenceReceipt", "CommsCore.Governance",
+                "lock_workspace_domain_fence", "workspace_domain_governance_adapter",
+            ),
+        }
+        for collaboration_id, expected in expected_domain_collaborations.items():
+            with self.subTest(collaboration=collaboration_id):
+                provider, port, result, implementation, operation, binding_key = expected
+                declaration = collaborations[collaboration_id]
+                self.assertEqual(set(declaration), {
+                    "id", "consumer", "provider", "port", "result_contract",
+                    "implementation", "callers", "operations", "binding",
+                    "transaction", "graph_semantics", "condition",
+                })
+                self.assertEqual(declaration["consumer"], "tenant_administration")
+                self.assertEqual(declaration["provider"], provider)
+                self.assertEqual(declaration["port"], port)
+                self.assertEqual(declaration["result_contract"], result)
+                self.assertEqual(declaration["implementation"], implementation)
+                self.assertEqual(declaration["callers"], ["CommsCore.Administration.WorkspaceDomains"])
+                self.assertEqual(declaration["operations"], [{"name": operation, "arity": 1}])
+                self.assertEqual(declaration["binding"], {
+                    "application": "comms_core", "key": binding_key, "module": implementation,
+                })
+                self.assertEqual(declaration["transaction"], "required")
+                self.assertEqual(declaration["graph_semantics"], {
+                    "control_flow": f"tenant_administration_to_{provider}",
+                    "compile_dependency": f"{provider}_to_tenant_administration",
+                    "static_cycle_policy": "dependency_inversion",
+                })
+                self.assertIsInstance(declaration["condition"], str)
+                self.assertTrue(declaration["condition"].strip())
+
     def test_repository_inverts_identity_notification_lifecycle_dependency(
         self,
     ) -> None:
@@ -2122,6 +2370,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_reference_paths,
             [
+                "apps/comms_core/lib/comms_core/accounts/governance_erasure.ex",
                 "apps/comms_core/lib/comms_core/accounts/notification_port.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
@@ -2136,6 +2385,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_callers,
             [
+                "apps/comms_core/lib/comms_core/accounts/governance_erasure.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
             ],
@@ -2175,6 +2425,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "federation-governance-protection",
+                "matrix-identity-governance-fence",
+                "matrix-participant-eligibility-withdrawal",
+                "private-room-governance-fence",
+                "private-room-opaque-content-erasure",
                 "call-artifact-governance-protection",
                 "telephony-voicemail-governance-protection",
                 "whiteboard-approved-content-assets",
@@ -2187,6 +2442,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "shared-document-governance-protection",
+                "workspace-domain-governance-fence",
+                "workspace-domain-retained-identity",
+                "calendar-governance-protection",
             },
         )
         self.assertEqual(
@@ -4983,6 +5242,82 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ),
                 [item.render() for item in violations],
             )
+
+    def test_scoped_query_does_not_reserve_a_separately_published_owner_command_facade(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            manifest["contexts"]["alpha"]["kind"] = "business"
+            manifest["contexts"]["beta"]["kind"] = "business"
+            manifest["contexts"]["beta"]["public_facades"].append("CommsCore.Beta.Commands")
+            manifest["tables"] = {}
+            manifest["read_model_exceptions"] = [{
+                "id": "alpha-beta-query", "module": "CommsCore.Alpha.Reader",
+                "mode": "read_only", "owners": ["beta"],
+                "condition": "Only Reader may call the exact root Beta query.",
+                "access": {"public_contracts": [], "public_queries": ["CommsCore.Beta.lookup/1"],
+                           "source_tables": []},
+            }]
+            sources = {
+                "beta.ex": "defmodule CommsCore.Beta do\n  @spec lookup(binary()) :: binary()\n  def lookup(id), do: id\nend\n",
+                "beta/commands.ex": "defmodule CommsCore.Beta.Commands do\n  @spec erase(binary()) :: binary()\n  def erase(id), do: id\nend\n",
+                "alpha/reader.ex": "defmodule CommsCore.Alpha.Reader do\n  def read(id), do: CommsCore.Beta.lookup(id)\nend\n",
+                "alpha/workflow.ex": "defmodule CommsCore.Alpha.Workflow do\n  def erase(id), do: CommsCore.Beta.Commands.erase(id)\nend\n",
+            }
+            for relative, source in sources.items():
+                path = root / "apps/comms_core/lib/comms_core" / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            violations = analyze_context_boundaries(root, manifest)
+            self.assertEqual(violations, [], [item.render() for item in violations])
+            # Publishing that command facade grants the reader no command access.
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            for command in ("CommsCore.Beta.Commands.erase(id)",
+                            "apply(CommsCore.Beta.Commands, :erase, [id])"):
+                reader.write_text("defmodule CommsCore.Alpha.Reader do\n  def read(id), do: " + command + "\nend\n")
+                violations = analyze_context_boundaries(root, manifest)
+                self.assertTrue(any(item.rule == "read_model_scope_violation" for item in violations),
+                                [item.render() for item in violations])
+
+    def test_owner_command_facade_does_not_grant_root_query_schema_table_or_reader_writes(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            manifest["contexts"]["alpha"]["kind"] = "business"
+            manifest["contexts"]["beta"]["kind"] = "business"
+            manifest["contexts"]["beta"]["public_facades"].append("CommsCore.Beta.Commands")
+            manifest["read_model_exceptions"] = [{
+                "id": "alpha-beta-query", "module": "CommsCore.Alpha.Reader",
+                "mode": "read_only", "owners": ["beta"],
+                "condition": "The exact read-only root query remains reserved.",
+                "access": {"public_contracts": [], "public_queries": ["CommsCore.Beta.lookup/1"],
+                           "source_tables": []},
+            }]
+            (root / "apps/comms_core/lib/comms_core/beta.ex").write_text(
+                "defmodule CommsCore.Beta do\n  @spec lookup(binary()) :: binary()\n  def lookup(id), do: id\n  def secret(id), do: id\nend\n")
+            commands = root / "apps/comms_core/lib/comms_core/beta/commands.ex"
+            commands.write_text("defmodule CommsCore.Beta.Commands do\n  def erase(id), do: id\nend\n")
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.parent.mkdir(parents=True, exist_ok=True)
+            reader.write_text("defmodule CommsCore.Alpha.Reader do\n  def read(id), do: CommsCore.Beta.lookup(id)\nend\n")
+            bypass = root / "apps/comms_core/lib/comms_core/alpha/workflow.ex"
+            for unsafe, rule in (
+                    ("def read(id), do: CommsCore.Beta.lookup(id)", "read_model_scope_violation"),
+                    ("def read(id), do: apply(CommsCore.Beta, :lookup, [id])", "read_model_scope_violation"),
+                    ("alias CommsCore.Beta.Record\n  def read, do: CommsCore.Repo.all(Record)", "foreign_schema_import"),
+                    ('def write, do: Ecto.Adapters.SQL.query!(CommsCore.Repo, "DELETE FROM beta_records", [])', "direct_foreign_write")):
+                with self.subTest(unsafe=unsafe):
+                    bypass.write_text("defmodule CommsCore.Alpha.Workflow do\n  " + unsafe + "\nend\n")
+                    violations = analyze_context_boundaries(root, manifest)
+                    self.assertTrue(any(item.rule == rule for item in violations), [item.render() for item in violations])
+            bypass.unlink()
+            for unsafe, rule in (
+                    ("def read(id), do: CommsCore.Beta.secret(id)", "read_model_scope_violation"),
+                    ("def read(id), do: apply(CommsCore.Beta, :secret, [id])", "read_model_scope_violation"),
+                    ("alias CommsCore.Beta.Record\n  def write, do: CommsCore.Repo.delete_all(Record)", "read_model_write")):
+                with self.subTest(unsafe=unsafe):
+                    reader.write_text("defmodule CommsCore.Alpha.Reader do\n  " + unsafe + "\nend\n")
+                    violations = analyze_context_boundaries(root, manifest)
+                    self.assertTrue(any(item.rule == rule for item in violations), [item.render() for item in violations])
 
     def test_rejects_source_table_access_for_a_business_context_exception(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:

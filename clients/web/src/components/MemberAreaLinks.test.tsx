@@ -14,7 +14,7 @@ describe("MemberAreaLinks", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
-    expect(navigation.querySelectorAll("svg")).toHaveLength(8);
+    expect(navigation.querySelectorAll("svg")).toHaveLength(9);
     expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
     expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
     expect(screen.getByRole("link", { name: "Whiteboard" })).toHaveAttribute(
@@ -84,6 +84,6 @@ describe("MemberAreaLinks", () => {
     );
     expect(screen.getByRole("region", { name: "Communicate" })).toContainElement(screen.getByRole("link", { name: "Meetings" }));
     expect(screen.getByRole("region", { name: "Personal" })).toContainElement(screen.getByRole("link", { name: "Saved items" }));
-    expect(screen.getAllByRole("link")).toHaveLength(8);
+    expect(screen.getAllByRole("link")).toHaveLength(9);
   });
 });

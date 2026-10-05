@@ -11,6 +11,27 @@ defmodule CommsIntegrations.PinnedHttpTest do
   @moduletag :unit
   @moduletag :external_delivery
 
+  test "APNs HTTP2 selection retains pinned address, hostname, CA trust and bounded deadline" do
+    for options <- [[], [protocols: [:http2]]] do
+      assert {:ok, %{status: 204}} =
+               PinnedHttp.MintTransport.request(
+                 Support.destination(),
+                 :post,
+                 [],
+                 "opaque",
+                 [timeout_ms: 200, connect_timeout_ms: 50, mint_http: Support.ProtocolCaptureMint] ++
+                   options
+               )
+
+      assert_received {:pinned_protocol_connect, {93, 184, 216, 34}, 443, actual}
+      assert actual[:protocols] == Keyword.get(options, :protocols, [:http1])
+      assert actual[:hostname] == "hooks.example.test"
+      assert is_list(actual[:transport_opts][:cacerts]) && actual[:transport_opts][:cacerts] != []
+      assert actual[:transport_opts][:timeout] in 1..50
+      assert actual[:transport_opts][:verify] != :verify_none
+    end
+  end
+
   test "the pinned transport enforces one total deadline across a slow response stream" do
     started_at = System.monotonic_time(:millisecond)
 

@@ -14,7 +14,7 @@ ROLLBACK_CAPABILITIES = (
     "instant_room_expiry_worker_v1,conversation_only_human_v1,"
     "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
     "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
-    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1,uc_recognition_summaries_v1,native_call_wake_v1,private_rooms_v1,workspace_federation_v1"
 )
 
 REQUIRED_FILES = (
@@ -272,6 +272,10 @@ def validate(root: Path) -> list[str]:
         errors.append("runtime.env.example must default to the local LiveKit standby")
     if runtime_values.get("K_COMMS_MANAGED_LIVEKIT_CONFIRMATION") != "":
         errors.append("runtime.env.example must not pre-confirm managed LiveKit")
+    if runtime_values.get("TELEPHONY_PROVISIONING_ENABLED") != "false":
+        errors.append("runtime.env.example must keep Phone provider management OFF")
+    if runtime_values.get("TELEPHONY_PROVISIONING_BINDINGS") != "{}":
+        errors.append("runtime.env.example must not supply tenant provider bindings")
 
     inventory = json.loads(read(root, "deploy/proxmox/inventory.json"))
     environments = inventory.get("environments", {})
@@ -565,6 +569,8 @@ def validate(root: Path) -> list[str]:
         )
         for preflight in preflights:
             for key, value in (("TELEPHONY_PROVIDER_MODE", "disabled"),
+                               ("TELEPHONY_PROVISIONING_ENABLED", "false"),
+                               ("TELEPHONY_PROVISIONING_BINDINGS", "{}"),
                                ("MEETING_ARTIFACTS_ENABLED", "false"),
                                ("LIVEKIT_EGRESS_ENABLED", "false"),
                                ("ARTIFACT_TRANSCRIPTION_ENABLED", "false")):

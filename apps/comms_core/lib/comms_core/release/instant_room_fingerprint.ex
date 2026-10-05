@@ -8,9 +8,12 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     Audit,
     Conversations,
     Messaging,
+    Notifications,
     Outbox,
     Release.Environment,
-    Repo
+    Repo,
+    SharedDocuments,
+    Telephony
   }
 
   @app :comms_core
@@ -30,8 +33,38 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :outbox_events,
     :calls,
     :call_participants,
+    :call_artifacts,
+    :call_artifact_consents,
+    :call_artifact_segments,
+    :call_artifact_summaries,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :shared_documents,
+    :shared_document_operations,
+    :telephony_calls,
+    :telephony_ivr_menus,
+    :telephony_ivr_runs,
+    :telephony_ivr_event_receipts,
+    :telephony_agent_states,
+    :workspace_domain_claims,
+    :calendar_connections,
+    :calendar_oauth_challenges,
+    :calendar_exports,
+    :calendar_event_mappings,
+    :calendar_sync_commands,
+    :calendar_erasure_receipts,
+    :phone_provisioning_commands,
+    :native_push_registrations,
+    :native_call_wakes,
+    :matrix_identities,
+    :matrix_client_sessions,
+    :private_matrix_rooms,
+    :opaque_private_events,
+    :federation_trusts,
+    :federation_rooms,
+    :federation_participants,
+    :federation_commands,
+    :federation_event_receipts
   ]
 
   def run do
@@ -62,11 +95,15 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
       tenant_id ->
         fragments = [
           Accounts.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Administration.workspace_domain_release_fingerprint_fragment(repo, tenant_id),
           Conversations.release_tenant_fingerprint_fragment(repo, tenant_id),
           Messaging.release_tenant_fingerprint_fragment(repo, tenant_id),
           Audit.release_tenant_fingerprint_fragment(repo, tenant_id),
           Outbox.release_tenant_fingerprint_fragment(repo, tenant_id),
-          AudioCalls.release_tenant_fingerprint_fragment(repo, tenant_id)
+          AudioCalls.release_tenant_fingerprint_fragment(repo, tenant_id),
+          SharedDocuments.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Telephony.release_tenant_fingerprint_fragment(repo, tenant_id),
+          Notifications.release_tenant_fingerprint_fragment(repo, tenant_id)
         ]
 
         build(tenant_id, merge_fragments(fragments))

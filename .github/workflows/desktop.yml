@@ -1,0 +1,74 @@
+name: Desktop unsigned evaluation
+on:
+  pull_request:
+    paths: ['clients/desktop/**', 'clients/web/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      K_COMMS_DESKTOP_QUALIFICATION_ONLY: 'true'
+      VITE_K_COMMS_RELEASE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.22.0'
+          cache: npm
+          cache-dependency-path: |
+            clients/web/package-lock.json
+            clients/desktop/package-lock.json
+      - name: Install pinned web packages
+        working-directory: clients/web
+        run: npm ci
+      - name: Lint actual existing web source
+        working-directory: clients/web
+        run: npm run lint
+      - name: Typecheck actual existing web source
+        working-directory: clients/web
+        run: npm run typecheck
+      - name: Test actual existing web source
+        working-directory: clients/web
+        run: npm exec -- vitest run --maxWorkers=1
+      - name: Test existing web asset controls
+        working-directory: clients/web
+        run: npm run test:assets
+      - name: Build qualified web UI
+        working-directory: clients/web
+        run: npm run build
+      - name: Install pinned Desktop packages
+        working-directory: clients/desktop
+        run: npm ci --ignore-scripts
+      - name: Desktop source policy gate
+        working-directory: clients/desktop
+        run: npm run check:source
+      - name: Desktop protocol and lifecycle tests
+        working-directory: clients/desktop
+        run: npm test
+      - name: Prepare qualified Desktop UI
+        working-directory: clients/desktop
+        run: npm run prepare:ui
+      - name: Package unsigned evaluation on the native platform
+        working-directory: clients/desktop
+        run: npm run package:unsigned
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-desktop-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            clients/desktop/artifacts/*.exe
+            clients/desktop/artifacts/*.dmg
+            clients/desktop/artifacts/*.AppImage
+            clients/desktop/artifacts/*.deb
+          if-no-files-found: error
+          retention-days: 7

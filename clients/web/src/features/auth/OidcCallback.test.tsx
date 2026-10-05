@@ -14,6 +14,7 @@ vi.mock("react-router", async (importOriginal) => ({
 }));
 
 beforeEach(() => {
+  Reflect.deleteProperty(window, "kCommsDesktop");
   vi.restoreAllMocks();
   for (const method of Object.values(mocks.api)) method.mockReset();
   mocks.setSession.mockReset(); mocks.navigate.mockReset();
@@ -23,6 +24,12 @@ beforeEach(() => {
 function showCallback() { render(<MemoryRouter><OidcCallback /></MemoryRouter>); }
 
 describe("corporate identity callback", () => {
+  it("desktop refuses an external login callback and scrubs one-use codes without consuming them", async () => {
+    Object.defineProperty(window, "kCommsDesktop", { configurable: true, value: { version: 1 } });
+    showCallback(); expect(await screen.findByRole("alert")).toHaveTextContent("no system-browser sign-in callback");
+    expect(window.location.search).toBe(""); expect(mocks.api.completeOidc).not.toHaveBeenCalled(); expect(mocks.api.completeOidcLink).not.toHaveBeenCalled(); expect(mocks.setSession).not.toHaveBeenCalled();
+    Reflect.deleteProperty(window, "kCommsDesktop");
+  });
   it("scrubs authorization credentials and preserves only recognized member navigation fields", async () => {
     const session = { access_token: "fixture-access", refresh_token: "fixture-refresh" };
     mocks.api.completeOidc.mockImplementation(async () => {

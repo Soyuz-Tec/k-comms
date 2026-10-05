@@ -7,11 +7,11 @@ contexts:
       collaboration_operations:
       - append/2
       - authorization_denied/3
-      - resource_history_page/1
-      - rollback_history_snapshot_hazard_count/0
       - list/1
       - record/1
       - release_tenant_fingerprint_fragment/2
+      - resource_history_page/1
+      - rollback_history_snapshot_hazard_count/0
       owner_internal_operations:
       - count/1
       - get_by/1
@@ -21,11 +21,16 @@ contexts:
       public_operations:
       - activity/3
       - artifact_playback/4
+      - artifact_summary/4
       - artifact_transcript/4
       - authorize_participant/3
+      - begin_calendar_authorization/3
       - cancel_meeting/3
       - claim_participant_eviction/2
+      - complete_calendar_authorization/1
       - consent_artifact/5
+      - consent_artifact_summary/5
+      - create_calendar_export/2
       - delete_artifact/4
       - deliver_meeting_reminder/3
       - end_call/6
@@ -35,17 +40,24 @@ contexts:
       - get_meeting/2
       - handle_artifact_callback/2
       - list_artifacts/3
+      - list_calendar_connections/1
+      - list_calendar_exports/2
       - list_meetings/2
       - list_participants/3
       - list_sessions/2
       - meeting_calendar/2
       - moderation_target/4
+      - native_wake_authority/3
+      - native_wake_recipients/3
+      - perform_calendar_command/3
       - process_artifact/2
       - reconcile_artifacts/1
+      - reconcile_calendar_commands/2
       - record_participant_eviction/4
       - record_participant_mute/3
       - remove_participant/4
       - request_artifact/4
+      - resolve_calendar_export/3
       - schedule_meeting/3
       - search_artifacts/2
       - search_meetings/2
@@ -54,19 +66,26 @@ contexts:
       - start_meeting/6
       - start_with_join_authorized/5
       - stop_artifact/4
+      - unlink_calendar_connection/3
       - update_meeting/3
       - usage_projection/2
+      - with_join_authorized/4
       - with_join_authorized/5
       collaboration_operations:
+      - calendar_governance_erasure_pending?/3
       - governance_erasure_pending?/3
       - meeting_governance_erasure_pending?/3
+      - prepare_calendar_governance_erasure/3
       - prepare_governance_erasure/3
       - prepare_meeting_governance_erasure/3
       - release_tenant_fingerprint_fragment/2
       - revoke_conversation_access/1
       - revoke_for_conversation/3
       - rollback_artifact_hazard_count/0
+      - rollback_calendar_erasure_hazard_count/0
+      - rollback_calendar_hazard_count/0
       - rollback_meeting_hazard_count/0
+      - rollback_recognition_summary_hazard_count/0
       owner_internal_operations:
       - activity/2
       - authorize_end/4
@@ -74,6 +93,8 @@ contexts:
       - can_end?/2
       - end_call/4
       - end_call/5
+      - fence_calendar_identity/1
+      - fence_calendar_tenant/1
       - list_sessions/1
       - revoke_for_call/3
       - revoke_for_device/3
@@ -89,7 +110,6 @@ contexts:
       - start/4
       - start_with_kind/3
       - start_with_kind/4
-      - with_join_authorized/4
     CommsCore.AudioCalls.LifecycleCoordinator:
       public_operations: []
       collaboration_operations:
@@ -97,6 +117,21 @@ contexts:
       - revoke_tenant_media/1
       owner_internal_operations: []
   collaboration:
+    CommsCore.SharedDocuments:
+      public_operations:
+      - apply_operation/3
+      - authorize/2
+      - copy/3
+      - create/3
+      - export/2
+      - get/2
+      - list/3
+      - replay/5
+      collaboration_operations:
+      - erase_for_governance/4
+      - release_tenant_fingerprint_fragment/2
+      - rollback_hazard_count/0
+      owner_internal_operations: []
     CommsCore.Whiteboards:
       public_operations:
       - activity/3
@@ -169,19 +204,23 @@ contexts:
       - put_draft/3
       - refresh_sender_labels/3
       - remove_reaction/3
+      - replay_private_events/3
       - save_message/2
       - saved_items/2
       - search_for_service/3
       - search_page/3
+      - send_private_event/3
       - unsave_message/2
       - usage_projection/2
       collaboration_operations:
       - delete_message/3
       - erase_personal_content/3
+      - erase_private_content/1
       - governance_impact/3
       - lock_for_erasure/3
       - release_tenant_fingerprint_fragment/2
       - retention_candidates/5
+      - rollback_private_event_hazard_count/0
       - rollback_rich_content_hazard_count/0
       - tombstone_for_erasure/3
       owner_internal_operations:
@@ -217,20 +256,31 @@ contexts:
       - authorize_read/2
       - authorize_send_message/2
       - authorize_use_whiteboard/2
+      - cancel_stale_federation_command/2
       - change_member_role_view/4
       - close_ephemeral_presence/1
+      - close_federation_room/3
       - convert_guest_account/2
       - create_ephemeral_room/2
+      - create_federation_room/3
       - create_guest_link_view/3
+      - create_private_room/2
       - create_view/2
+      - deliver_federation_command/3
       - discover_public_channel_views/2
       - ephemeral_room_for_conversation/2
       - expire_ephemeral_room/3
       - expire_guest_admission/2
+      - export_federation_metadata/2
+      - federation_consent/3
+      - federation_room/2
+      - federation_timeline/3
+      - federation_trusts/1
       - get_for_user_view/2
       - get_or_create_direct_view/2
       - guest_scope_for_session/1
       - heartbeat_ephemeral_presence/1
+      - invite_federation_participant/3
       - join_ephemeral_room/3
       - join_public_channel_view/2
       - leave_public_channel_view/3
@@ -238,17 +288,25 @@ contexts:
       - list_for_user_views/1
       - list_guest_link_views/2
       - list_member_views/2
+      - list_private_rooms/1
       - logout_guest_session/1
       - mark_read/3
       - open_ephemeral_presence/1
+      - prepare_federation_command/2
       - preview_ephemeral_room/1
       - preview_guest_link/1
+      - private_room/2
+      - put_federation_trust/2
       - reconcile_ephemeral_room/3
       - reconcile_ephemeral_rooms/1
+      - reconcile_federation_commands/1
+      - reconcile_private_room_purges/1
       - redeem_guest_link/2
       - remove_member_view/4
+      - remove_private_room_member/4
       - resolve_guest_access/2
       - revoke_guest_link_view/3
+      - send_federation_message/3
       - update_view/3
       - usage_projection/2
       collaboration_operations:
@@ -259,20 +317,29 @@ contexts:
       - admission_usage/1
       - archive_for_erasure/3
       - authorize_manage/2
+      - authorize_private_content_erasure/1
       - authorize_react_message/2
       - authorize_service_access/3
       - call_membership/3
       - create_initial_channel/1
+      - federation_erasure_pending?/3
+      - fence_federation_user/2
       - fetch_initial_channel/2
       - lock_call_conversation/3
       - lock_call_membership/3
+      - lock_private_room_grant/5
       - persisted_ephemeral_join_receipt_count/0
       - persisted_ephemeral_presence_lease_count/0
       - persisted_ephemeral_room_count/0
+      - prepare_federation_erasure/3
+      - prepare_private_room_erasure/3
+      - private_room_erasure_pending?/3
       - release_tenant_fingerprint_fragment/2
       - remove_user_memberships_for_erasure/3
       - reserve_message_slot/2
       - retention_scope_ids/1
+      - rollback_federation_hazard_count/0
+      - rollback_private_room_hazard_count/0
       - validate_active_members/3
       - validate_reference/2
       owner_internal_operations:
@@ -292,10 +359,17 @@ contexts:
       - leave_public_channel/3
       - list_for_user/1
       - list_members/2
+      - lock_private_room_grant/4
       - project/1
       - remove_member/4
       - revoke_guest_membership_call_access/4
       - update/3
+    CommsCore.Conversations.PrivateRoomEligibility:
+      public_operations: []
+      collaboration_operations:
+      - withdraw_user/1
+      owner_internal_operations:
+      - reconcile/0
   identity_access:
     CommsCore.Accounts:
       public_operations:
@@ -322,11 +396,14 @@ contexts:
       - list_session_views/1
       - list_tenant_user_views/1
       - list_user_session_views/2
+      - matrix_client_session/1
+      - matrix_upload_public_signing_keys/2
       - member_workspace_view/1
       - oidc_callback/3
       - oidc_start/2
       - password_sign_in/4
       - preview_user_role_change/3
+      - reconcile_matrix_devices/1
       - refresh_guest_session_view/1
       - refresh_session_view/1
       - replace_member_workspace/2
@@ -353,6 +430,7 @@ contexts:
       - audit_authorization_denial/3
       - authorize_invitation/1
       - authorize_view_platform_operations/1
+      - authorize_workspace_domain/1
       - bootstrap_tenant/1
       - bootstrap_tenant_once/1
       - convert_ephemeral_guest_account/2
@@ -365,16 +443,27 @@ contexts:
       - ensure_governance_erasure_allowed/3
       - ensure_invitation_identity_available/2
       - finalize_user_for_governance_erasure/1
+      - lock_access/2
       - lock_access_grant/1
       - lock_active_directory_users/1
       - lock_active_human_directory_users/2
+      - lock_calendar_actor/1
+      - lock_calendar_source_users/1
+      - lock_calendar_worker/1
       - lock_content_write_grant/2
+      - lock_federation_actor/1
       - lock_guest_identity_parents/1
+      - lock_matrix_participants/2
+      - lock_native_push_authority/2
       - lock_push_registration_identity/3
+      - matrix_client_session/2
+      - matrix_identity_erasure_pending?/2
+      - matrix_identity_view/2
       - notification_eligible_device_ids/3
       - persisted_conversation_only_human_count/0
       - persisted_guest_identity_count/0
       - preflight_user_lifecycle_change/3
+      - prepare_matrix_identity_erasure/2
       - provision_guest_identity/1
       - release_tenant_fingerprint_fragment/2
       - resolve_access/1
@@ -385,8 +474,10 @@ contexts:
       - resolve_user_views/2
       - resume_ephemeral_guest_identity/1
       - retention_actor_id/1
+      - revalidate_calendar_actor/1
       - revoke_guest_session/2
       - rollback_enterprise_identity_hazard_count/0
+      - rollback_matrix_identity_hazard_count/0
       - rollback_member_workspace_hazard_count/0
       - set_platform_role_from_console/3
       - validate_governance_user/2
@@ -457,8 +548,10 @@ contexts:
   notification_delivery:
     CommsCore.Notifications:
       public_operations:
+      - admit_native_call_wake/3
       - claim_intent/1
       - dismiss_in_app/2
+      - dispatch_native_call_wake/3
       - enqueue_for_event/1
       - get_preferences/1
       - list_attempts/2
@@ -468,17 +561,24 @@ contexts:
       - mark_all_in_app_read/1
       - mark_in_app_read/2
       - materialize_push_destination/3
+      - native_push_config/1
+      - native_push_registrations/1
       - push_config/1
       - push_status/0
+      - reconcile_native_push/2
       - record_delivery/2
       - record_push_provider_result/3
+      - register_native_push/2
       - register_push_subscription/2
       - retry_intent/2
+      - revoke_native_push/2
       - revoke_push_subscription/2
       - unread_count/1
       - update_preferences/2
       collaboration_operations:
       - execute/1
+      - release_tenant_fingerprint_fragment/2
+      - rollback_native_wake_hazards/0
       owner_internal_operations:
       - authorize_delivery_management/1
       - authorize_tenant_scope/1
@@ -555,15 +655,18 @@ contexts:
       public_operations: []
       collaboration_operations:
       - authorized_job_worker?/2
-      - job_worker_name!/1
-      owner_internal_operations:
       - job_worker!/1
+      - job_worker_name!/1
+      owner_internal_operations: []
   telephony:
     CommsCore.Telephony:
       public_operations:
       - admin_config/1
+      - advance_ivr/2
       - advance_route/2
+      - agent_queue_state/1
       - answer/3
+      - apply_phone_provisioning/3
       - bind_control/3
       - claim_cleanup/2
       - claim_control/2
@@ -574,6 +677,7 @@ contexts:
       - complete_cleanup/3
       - complete_control/3
       - complete_dispatch/3
+      - complete_phone_provisioning/3
       - complete_voicemail/3
       - config/1
       - control_capabilities/1
@@ -581,10 +685,14 @@ contexts:
       - delete_voicemail/2
       - end_call/2
       - enqueue_route_voicemail/2
+      - execute_ivr_claim/2
       - expire/2
       - expire_route/2
       - get_call/2
+      - handle_ivr_webhook/2
       - handle_webhook/2
+      - inspect_phone_provisioning/2
+      - ivr_config/1
       - join/3
       - list_calls/2
       - list_controls/2
@@ -592,25 +700,38 @@ contexts:
       - list_voicemails/2
       - mailbox_config/1
       - mark_voicemail_read/2
+      - native_wake_authority/2
+      - native_wake_recipients/2
+      - phone_provisioning_state/1
       - provision/2
       - purge_voicemail/2
+      - queue_supervisor_snapshot/1
       - reconcile_control/3
+      - reconcile_phone_provisioning/3
       - reject/2
       - request_control/3
+      - save_ivr/2
       - save_mailbox/2
       - save_route/2
+      - set_agent_queue_state/2
       - start_outbound/2
       - store_voicemail/3
       - usage_projection/2
       - voicemail_playback/2
       collaboration_operations:
+      - erase_agent_queue_state/2
       - governance_erasure_pending?/3
       - prepare_governance_erasure/3
+      - release_tenant_fingerprint_fragment/2
       - revoke_identity_access/1
       - revoke_tenant_media/1
+      - rollback_agent_state_hazard_count/0
       - rollback_control_hazard_count/0
+      - rollback_ivr_hazard_count/0
+      - rollback_phone_provisioning_hazard_count/0
       - rollback_voicemail_hazard_count/0
       owner_internal_operations:
+      - authorize_phone_provisioning_io/3
       - callback/2
       - list_calls/1
       - route_provider_request/2
@@ -620,12 +741,19 @@ contexts:
       - accept_invitation/1
       - active_tenant_by_slug/1
       - create_invitation/2
+      - create_workspace_domain/2
+      - discover_workspace_domain/1
       - get_tenant_settings_view/1
       - list_audit_events/2
       - list_invitations/2
+      - list_workspace_domains/1
       - member_capabilities/1
+      - renew_workspace_domain/3
       - revoke_invitation/3
+      - revoke_workspace_domain/3
       - update_tenant_settings_view/2
+      - update_workspace_domain_discovery/3
+      - verify_workspace_domain/3
       collaboration_operations:
       - active_tenant/1
       - any_tenant?/0
@@ -636,18 +764,28 @@ contexts:
       - create_bootstrap_tenant/1
       - delete_release_qualification_tenant/1
       - get_bootstrap_tenant_by_slug/1
+      - lock_calendar_policy/1
       - lock_call_policy/1
       - release_tenant_fingerprint_id/2
+      - retained_workspace_domain_claim_count/1
       - retention_defaults/1
       - retention_tenant_ids/1
+      - rollback_calendar_policy_hazard_count/0
+      - workspace_domain_release_fingerprint_fragment/2
       owner_internal_operations:
       - authorize_audit_tenant/1
       - authorize_manage_invitations/1
       - authorize_manage_settings/1
       - authorize_read_capabilities/1
+      - erase_workspace_domain_user_challenges/1
       - get_tenant_settings/1
       - list_invitations/1
       - update_tenant_settings/2
+    CommsCore.Administration.WorkspaceDomainErasure:
+      public_operations: []
+      collaboration_operations:
+      - erase_user_challenges/1
+      owner_internal_operations: []
     CommsCore.AdmissionQuotas:
       public_operations: []
       collaboration_operations:
@@ -676,8 +814,8 @@ contexts:
       - create_retention_policy_view/2
       - delete_message/2
       - deletion_request_timeline/3
-      - export_deletion_request_history/3
       - enqueue_due_retention/3
+      - export_deletion_request_history/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2
       - list_retention_policy_views/2
@@ -687,7 +825,8 @@ contexts:
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
-      collaboration_operations: []
+      collaboration_operations:
+      - lock_workspace_domain_fence/1
       owner_internal_operations:
       - authorize_governance/1
       - create_deletion_request/2
@@ -701,6 +840,31 @@ contexts:
       - transition_deletion_request/3
       - update_retention_policy/3
     CommsCore.Governance.ArtifactProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.CalendarProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/1
+      owner_internal_operations: []
+    CommsCore.Governance.DocumentProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.FederationProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.MatrixAccessProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/2
+      owner_internal_operations: []
+    CommsCore.Governance.PrivateRoomProtection:
       public_operations: []
       collaboration_operations:
       - protection/3

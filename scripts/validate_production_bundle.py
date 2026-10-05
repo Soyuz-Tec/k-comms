@@ -75,9 +75,40 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "shared_documents_v1": ("shared_documents", "shared_document_operations"),
+    "ivr_routing_v1": (
+        "telephony_ivr_menus",
+        "telephony_ivr_runs",
+        "telephony_ivr_event_receipts",
+        "telephony_agent_states",
+        "telephony_calls.routing_status=ivr/ivr_destination",
+        "CommsWorkers.TelephonyIvrWorker",
+    ),
+    "workspace_domain_discovery_v1": ("workspace_domain_claims",),
+    "calendar_sync_v1": ("calendar_connections", "calendar_oauth_challenges", "calendar_exports", "calendar_event_mappings",
+        "calendar_sync_commands", "CommsWorkers.CalendarSyncWorker", "CommsWorkers.CalendarSyncReconcilerWorker"),
+    "calendar_erasure_v1": ("calendar_erasure_receipts", "calendar_exports.tombstoned_at"),
+    "phone_provider_provisioning_v1": ("telephony_provisioning_commands",),
+    "uc_recognition_summaries_v1": ("call_artifact_summaries", "call_artifacts.summary_requested/recognition_provider_id", "call_artifact_consents.summary_policy_version", "CommsWorkers.CallSummaryWorker"),
+    "native_call_wake_v1": (
+        "native_push_registrations",
+        "native_call_wakes",
+        "CommsWorkers.NativeCallWakeWorker",
+        "CommsWorkers.NativePushReconcilerWorker",
+    ),
+    "private_rooms_v1": ("matrix_identities", "matrix_client_sessions", "private_matrix_rooms", "opaque_private_events", "CommsWorkers.MatrixDeviceReconcilerWorker", "CommsWorkers.PrivateRoomPurgeReconcilerWorker"),
+    "workspace_federation_v1": ("federation_trusts", "federation_rooms", "federation_participants", "federation_commands", "federation_event_receipts", "CommsWorkers.FederationCommandWorker", "CommsWorkers.FederationReconcilerWorker"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
+)
+# Exact immutable-parent receipts retain their own capability scope. Current
+# database hazards still decide whether a preceding image can be admitted.
+KNOWN_M1_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:12]
+)
+KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES = ",".join(
+    list(COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS)[:14]
 )
 DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
@@ -293,6 +324,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_oidc_issuer(data.get("OIDC_ISSUER"), errors)
     validate_livekit(data, errors)
     validate_instant_room_production_gate(data, errors)
+    validate_phone_provisioning_production_gate(data, errors)
     validate_database_tls(data, documents, errors)
 
     if public_origin:
@@ -350,6 +382,16 @@ def validate_instant_room_production_gate(
         errors.append(
             "ConfigMap k-comms-config: INSTANT_ROOM_TENANT_SLUG must be "
             "explicitly empty while the production instant-room gate is closed"
+        )
+
+
+def validate_phone_provisioning_production_gate(data: dict, errors: list[str]) -> None:
+    # Absent is the runtime's false default for an older approved bundle.
+    # Operator flags are not provider/carrier qualification evidence.
+    if data.get("TELEPHONY_PROVISIONING_ENABLED", "false") != "false":
+        errors.append(
+            "ConfigMap k-comms-config: TELEPHONY_PROVISIONING_ENABLED must remain false "
+            "until ADR-0107 provider effects and carrier routing are independently qualified"
         )
 
 
@@ -982,6 +1024,8 @@ def validate_guest_rollback_preflight(
         "K_COMMS_ROLLBACK_WRITES_QUIESCED": "true",
         "AUDIO_PROVIDER_MODE": "disabled",
         "TELEPHONY_PROVIDER_MODE": "disabled",
+        "TELEPHONY_PROVISIONING_ENABLED": "false",
+        "TELEPHONY_PROVISIONING_BINDINGS": "{}",
         "MEETING_ARTIFACTS_ENABLED": "false",
         "LIVEKIT_EGRESS_ENABLED": "false",
         "ARTIFACT_TRANSCRIPTION_ENABLED": "false",
@@ -1009,16 +1053,18 @@ def validate_guest_rollback_preflight(
     m1_capabilities = (
         "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
     )
+    member_history_capabilities = m1_capabilities + ",member_workspace_v1,governance_history_v1"
     allowed_capabilities = {
         None,
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
+        KNOWN_MEMBER_HISTORY_ROLLBACK_CAPABILITIES,
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target, the known M1 set, or the exact communication-compatible capability set"
+            "empty for a legacy target, a known M1 or Member/History set, or the exact communication-compatible capability set"
         )
 
 

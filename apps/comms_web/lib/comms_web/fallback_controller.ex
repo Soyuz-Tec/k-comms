@@ -25,7 +25,143 @@ defmodule CommsWeb.FallbackController do
        when reason in [:invalid_credentials, :invalid_refresh_token, :invalid_access_token],
        do: {401, "unauthenticated", "Authentication failed"}
 
+  defp error(reason) when reason in [:invalid_document_operation, :unknown_document_atom],
+    do: {422, Atom.to_string(reason), "The document edit is invalid; reload its current text"}
+
+  defp error(reason) when reason in [:document_capacity_exceeded, :stale_document_generation],
+    do: {409, Atom.to_string(reason), "This document changed or reached its collaboration limit"}
+
+  defp error(reason) when reason in [:document_lineage_unknown, :document_protection_unavailable],
+    do:
+      {503, Atom.to_string(reason), "Document protection verification is temporarily unavailable"}
+
   defp error(:forbidden), do: {403, "forbidden", "This operation is not permitted"}
+
+  defp error(reason)
+       when reason in [:calendar_legal_hold, :calendar_export_blocked, :calendar_export_disabled],
+       do:
+         {403, Atom.to_string(reason), "Calendar export is unavailable under the current policy"}
+
+  defp error(reason)
+       when reason in [
+              :calendar_cleanup_pending,
+              :calendar_export_terminal,
+              :calendar_occurrence_terminal,
+              :calendar_cleanup_principal_mismatch
+            ],
+       do:
+         {409, Atom.to_string(reason),
+          "Calendar cleanup is pending or the source changed. Reload its status"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_calendar_provider,
+              :invalid_calendar_purpose,
+              :invalid_calendar_decision,
+              :invalid_meeting_id
+            ],
+       do: {422, Atom.to_string(reason), "Choose a valid calendar provider and explicit action"}
+
+  defp error(reason)
+       when reason in [
+              :calendar_provider_not_configured,
+              :calendar_worker_unavailable,
+              :calendar_protection_unavailable,
+              :calendar_secret_keyring_not_configured
+            ],
+       do:
+         {503, Atom.to_string(reason),
+          "Calendar synchronization is not configured for this deployment"}
+
+  defp error(:telephony_provisioning_disabled),
+    do: {503, "telephony_provisioning_disabled", "Phone provider management is unavailable"}
+
+  defp error(:invalid_provisioning_request),
+    do: {422, "invalid_provisioning_request", "The provider setup request is invalid"}
+
+  defp error(:provider_binding_forbidden),
+    do:
+      {403, "provider_binding_forbidden", "This provider binding is unavailable to the workspace"}
+
+  defp error(:telephony_outcome_unknown),
+    do:
+      {409, "telephony_outcome_unknown",
+       "Reconcile the original provider outcome before starting another effect"}
+
+  defp error(reason)
+       when reason in [
+              :provider_inspection_stale,
+              :telephony_lease_expired,
+              :telephony_effect_in_progress,
+              :telephony_reconciliation_unavailable,
+              :telephony_provider_management_required
+            ],
+       do: {409, Atom.to_string(reason), "Refresh the provider setup receipt before continuing"}
+
+  defp error(:private_operation_timeout),
+    do:
+      {504, "private_operation_timeout",
+       "The operation budget expired; check the retained intent before retrying"}
+
+  defp error(:private_room_requires_encrypted_client),
+    do:
+      {409, "private_room_requires_encrypted_client",
+       "Open this conversation in Private rooms; plaintext features are unavailable"}
+
+  defp error(reason)
+       when reason in [
+              :matrix_provisioning_unavailable,
+              :private_rooms_unavailable,
+              :private_room_provider_unavailable,
+              :private_event_provider_unavailable,
+              :private_room_owned_protocol_unconfirmed,
+              :private_control_crypto_keys_forbidden,
+              :private_room_provider_binding_invalid,
+              :private_provider_room_identity_unconfirmed,
+              :private_room_purge_unconfirmed,
+              :private_member_removal_unconfirmed
+            ],
+       do:
+         {503, Atom.to_string(reason),
+          "Private room providers are unavailable for this deployment"}
+
+  defp error(reason)
+       when reason in [
+              :private_room_generation_stale,
+              :private_room_rekey_pending,
+              :matrix_provisioning_busy,
+              :private_room_id_conflict,
+              :private_room_creation_outcome_unknown,
+              :matrix_public_signing_identity_reset_forbidden
+            ],
+       do:
+         {409, Atom.to_string(reason),
+          "Private room state changed; resolve the retained intent before retrying"}
+
+  defp error(:matrix_member_enrollment_required),
+    do:
+      {428, "matrix_member_enrollment_required",
+       "Each participant must enroll their Matrix device in Private rooms first"}
+
+  defp error(reason)
+       when reason in [
+              :private_room_withdrawn,
+              :matrix_device_withdrawn,
+              :matrix_identity_withdrawn
+            ],
+       do: {403, Atom.to_string(reason), "Private authority has been withdrawn"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_opaque_private_event,
+              :invalid_private_generation,
+              :invalid_private_cursor,
+              :invalid_private_title,
+              :invalid_private_room_id,
+              :invalid_membership_epoch,
+              :invalid_public_signing_keys
+            ],
+       do: {422, Atom.to_string(reason), "Invalid bounded private room input"}
 
   defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],
     do: {401, Atom.to_string(reason), "The authenticator or recovery code is invalid or expired"}
@@ -127,10 +263,38 @@ defmodule CommsWeb.FallbackController do
             ],
        do: {422, Atom.to_string(reason), "The meeting schedule is invalid"}
 
+  defp error(:invalid_workspace_domain),
+    do: {422, "invalid_workspace_domain", "Enter an exact ASCII domain and valid settings"}
+
+  defp error(reason)
+       when reason in [:domain_limit_reached, :domain_already_claimed, :domain_in_use],
+       do: {409, Atom.to_string(reason), "The workspace domain claim cannot be added or verified"}
+
+  defp error(reason) when reason in [:domain_challenge_expired, :domain_proof_missing],
+    do: {409, Atom.to_string(reason), "The current DNS challenge has not been verified"}
+
+  defp error(reason)
+       when reason in [
+              :dns_timeout,
+              :dns_unavailable,
+              :domain_identity_unavailable,
+              :domain_governance_unavailable,
+              :domain_write_failed
+            ],
+       do:
+         {503, Atom.to_string(reason), "Workspace domain verification is temporarily unavailable"}
+
   defp error(:platform_role_console_only),
     do: {403, "platform_role_console_only", "Platform roles are managed outside tenant APIs"}
 
   defp error(:not_found), do: {404, "not_found", "The requested resource was not found"}
+
+  defp error(:native_push_unavailable),
+    do: {409, "native_push_unavailable", "This native call notification is unavailable"}
+
+  defp error(:native_push_version_conflict),
+    do:
+      {409, "native_push_version_conflict", "Refresh this device registration before changing it"}
 
   defp error(:contact_unavailable),
     do: {409, "contact_unavailable", "A selected person is no longer available in this workspace"}
@@ -172,6 +336,24 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:stale_version),
     do: {409, "stale_version", "The resource changed; reload it before retrying"}
+
+  defp error(reason) when reason in [:invalid_telephony_ivr, :invalid_agent_state],
+    do: {422, Atom.to_string(reason), "Review the caller menu or queue disposition fields"}
+
+  defp error(:telephony_agent_not_assigned),
+    do: {403, "telephony_agent_not_assigned", "Current queue membership is required"}
+
+  defp error(reason)
+       when reason in [:telephony_ivr_prompt_unapproved, :telephony_ivr_target_unavailable],
+       do:
+         {409, Atom.to_string(reason),
+          "The prompt or destination is not currently approved and available"}
+
+  defp error(:telephony_ivr_unavailable),
+    do: {503, "telephony_ivr_unavailable", "Qualified caller menu service is unavailable"}
+
+  defp error(:telephony_ivr_event_capacity),
+    do: {429, "telephony_ivr_event_capacity", "The caller event limit was reached"}
 
   defp error(reason)
        when reason in [:stale_draft, :stale_board_version],

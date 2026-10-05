@@ -10,17 +10,81 @@ defmodule CommsCore.Telephony do
     CredentialRequest,
     Lifecycle,
     ProviderCommand,
+    ProvisioningRequest,
     ProviderWebhookPort,
     VerifiedProviderEvent
   }
 
   @type response :: {:ok, map() | CallView.t()} | {:error, atom() | CommsCore.ValidationError.t()}
+  @type provisioning_response ::
+          {:ok, {map(), ProvisioningRequest.t() | nil}}
+          | {:error, atom() | CommsCore.ValidationError.t()}
+
+  @doc "Current-owner Phone provider setup; no carrier purchase or client credentials."
+  @spec phone_provisioning_state(map()) :: response()
+  defdelegate phone_provisioning_state(subject), to: CommsCore.Telephony.Provisioning, as: :state
+
+  @spec inspect_phone_provisioning(map(), map()) :: provisioning_response()
+  defdelegate inspect_phone_provisioning(attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :inspect
+
+  @spec apply_phone_provisioning(String.t(), map(), map()) :: provisioning_response()
+  defdelegate apply_phone_provisioning(id, attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :apply_configuration
+
+  @spec reconcile_phone_provisioning(String.t(), map(), map()) :: provisioning_response()
+  defdelegate reconcile_phone_provisioning(id, attrs, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :reconcile
+
+  @spec authorize_phone_provisioning_io(ProvisioningRequest.t(), :read | :effect, module()) ::
+          :ok | {:error, atom()}
+  defdelegate authorize_phone_provisioning_io(request, mode, caller),
+    to: CommsCore.Telephony.Provisioning,
+    as: :authorize_io
+
+  @spec complete_phone_provisioning(
+          ProvisioningRequest.t(),
+          {:ok, map()} | {:error, atom()},
+          map()
+        ) ::
+          response()
+  defdelegate complete_phone_provisioning(request, result, subject),
+    to: CommsCore.Telephony.Provisioning,
+    as: :complete
+
+  @spec rollback_phone_provisioning_hazard_count() :: non_neg_integer()
+  defdelegate rollback_phone_provisioning_hazard_count(),
+    to: CommsCore.Telephony.Provisioning,
+    as: :rollback_hazard_count
+
   @doc false
   @spec rollback_voicemail_hazard_count() :: non_neg_integer()
   defdelegate rollback_voicemail_hazard_count(), to: CommsCore.Telephony.Mailboxes
   @doc false
   @spec rollback_control_hazard_count() :: non_neg_integer()
   defdelegate rollback_control_hazard_count(), to: CommsCore.Telephony.Controls
+
+  @doc false
+  @spec release_tenant_fingerprint_fragment(module(), binary()) :: %{
+          phone_provisioning_commands: [binary()],
+          telephony_calls: [binary()],
+          telephony_ivr_menus: [binary()],
+          telephony_ivr_runs: [binary()],
+          telephony_ivr_event_receipts: [binary()],
+          telephony_agent_states: [binary()]
+        }
+  def release_tenant_fingerprint_fragment(repo, tenant_id) do
+    phone = CommsCore.Telephony.Provisioning.release_tenant_fingerprint_fragment(repo, tenant_id)
+    ivr = CommsCore.Telephony.ReleaseInventory.tenant_fingerprint_fragment(repo, tenant_id)
+
+    unless MapSet.disjoint?(MapSet.new(Map.keys(phone)), MapSet.new(Map.keys(ivr))),
+      do: raise("telephony fingerprint owner fragments contain overlapping categories")
+
+    Map.merge(phone, ivr)
+  end
 
   @spec config(map()) :: response()
   defdelegate config(subject), to: Lifecycle
@@ -34,6 +98,12 @@ defmodule CommsCore.Telephony do
   defdelegate list_calls(subject, params), to: Lifecycle
   @spec get_call(String.t(), map()) :: response()
   defdelegate get_call(id, subject), to: Lifecycle
+
+  @doc "Retain current exact ringing offer eligibility without claiming or answering a phone call."
+  @spec native_wake_authority(binary(), map()) :: {:ok, DateTime.t()} | {:error, atom()}
+  defdelegate native_wake_authority(id, subject), to: Lifecycle
+  @spec native_wake_recipients(binary(), binary()) :: {:ok, [binary()]} | {:error, atom()}
+  defdelegate native_wake_recipients(tenant, id), to: Lifecycle
 
   @spec start_outbound(map(), map()) ::
           {:ok, CallView.t(), :created | :replayed}
@@ -221,4 +291,57 @@ defmodule CommsCore.Telephony do
           {:ok, CommsCore.Telephony.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
   defdelegate usage_projection(query, subject), to: CommsCore.Telephony.UsageReports, as: :project
+
+  @spec ivr_config(map()) ::
+          {:ok, CommsCore.Telephony.IvrConfigView.t()} | {:error, atom()}
+  defdelegate ivr_config(subject), to: CommsCore.Telephony.Ivr, as: :config
+
+  @spec save_ivr(map(), map()) ::
+          {:ok, CommsCore.Telephony.IvrMenuView.t()}
+          | {:error, atom() | CommsCore.ValidationError.t()}
+  defdelegate save_ivr(attrs, subject), to: CommsCore.Telephony.Ivr, as: :save
+  @spec handle_ivr_webhook(binary(), binary()) :: {:ok, atom()} | {:error, atom()}
+  defdelegate handle_ivr_webhook(body, authorization),
+    to: CommsCore.Telephony.Ivr,
+    as: :handle_webhook
+
+  @spec advance_ivr(String.t(), module()) ::
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
+  defdelegate advance_ivr(id, caller), to: CommsCore.Telephony.Ivr, as: :advance
+
+  @spec execute_ivr_claim(CommsCore.Telephony.IvrEffectClaim.t(), module()) ::
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
+  defdelegate execute_ivr_claim(claim, caller), to: CommsCore.Telephony.Ivr, as: :execute_claim
+  @spec rollback_ivr_hazard_count() :: non_neg_integer()
+  defdelegate rollback_ivr_hazard_count(), to: CommsCore.Telephony.Ivr, as: :rollback_hazard_count
+
+  @spec agent_queue_state(map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
+  defdelegate agent_queue_state(subject), to: CommsCore.Telephony.ContactCenter, as: :agent_state
+
+  @spec set_agent_queue_state(map(), map()) ::
+          {:ok, CommsCore.Telephony.AgentQueueStateView.t()} | {:error, atom()}
+  defdelegate set_agent_queue_state(attrs, subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :set_agent_state
+
+  @spec queue_supervisor_snapshot(map()) ::
+          {:ok, CommsCore.Telephony.QueueSupervisorSnapshot.t()} | {:error, atom()}
+  defdelegate queue_supervisor_snapshot(subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :queue_snapshot
+
+  @spec rollback_agent_state_hazard_count() :: non_neg_integer()
+  defdelegate rollback_agent_state_hazard_count(),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :rollback_hazard_count
+
+  @spec erase_agent_queue_state(String.t(), String.t()) :: {:ok, non_neg_integer()}
+  defdelegate erase_agent_queue_state(tenant_id, user_id),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :erase_user!
 end

@@ -22,7 +22,20 @@ defmodule CommsIntegrations.MeetingArtifacts.WhisperTranscription do
            Base.encode16(:crypto.hash(:sha256, media), case: :lower) ==
              String.downcase(command.object.verified_checksum_sha256),
          {:ok, response} <- submit(media, config, requester) do
-      TranscriptResponse.normalize(response)
+      with {:ok, transcript} <- TranscriptResponse.normalize(response),
+           :ok <- verify_recognition_proof(response, command, config) do
+        if config.model_sha256 do
+          {:ok,
+           %{
+             transcript
+             | provider_id: response["id"],
+               model_sha256: response["model_sha256"],
+               source_sha256: response["source_sha256"]
+           }}
+        else
+          {:ok, transcript}
+        end
+      end
     else
       {:error, _} = error -> error
       _ -> {:error, :artifact_source_media_unavailable}
@@ -93,6 +106,11 @@ defmodule CommsIntegrations.MeetingArtifacts.WhisperTranscription do
       {"accept", "application/json"}
     ]
 
+    headers =
+      if config.bearer_token,
+        do: [{"authorization", "Bearer " <> config.bearer_token} | headers],
+        else: headers
+
     uri = URI.parse(config.origin)
 
     with {:ok, %{status: status, body: response}}
@@ -110,6 +128,19 @@ defmodule CommsIntegrations.MeetingArtifacts.WhisperTranscription do
       _ -> {:error, :artifact_transcription_unavailable}
     end
   end
+
+  defp verify_recognition_proof(response, command, %{model_sha256: expected})
+       when is_binary(expected) do
+    id = response["id"]
+
+    if response["model_sha256"] == expected and
+         response["source_sha256"] == command.object.verified_checksum_sha256 and
+         is_binary(id) and byte_size(id) in 1..200 and response["mode"] == "post_recording",
+       do: :ok,
+       else: {:error, :invalid_artifact_transcript}
+  end
+
+  defp verify_recognition_proof(_, _, _), do: :ok
 
   defp request(method, url, headers, body, options),
     do: CommsIntegrations.PinnedHttp.request(method, url, headers, body, options)

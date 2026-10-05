@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "serviceOrigin": null,
+  "mediaOrigins": [],
+  "resourceOrigins": [],
+  "qualificationOnly": true,
+  "updates": "disabled",
+  "unsigned": true
+}

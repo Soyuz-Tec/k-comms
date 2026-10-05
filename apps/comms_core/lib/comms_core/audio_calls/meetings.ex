@@ -2,6 +2,7 @@ defmodule CommsCore.AudioCalls.Meetings do
   @moduledoc false
   import Ecto.Query
   alias CommsCore.{Accounts, Audit, Conversations, Outbox, Repo, RuntimePorts}
+  alias CommsCore.AudioCalls.CalendarSync.{Budget, SourceContributionQuery, SourceContributions}
 
   alias CommsCore.AudioCalls.{
     AudioCall,
@@ -88,6 +89,13 @@ defmodule CommsCore.AudioCalls.Meetings do
          {:ok, expected} <- expected_version(attrs),
          {:ok, validated, occurrences} <- MeetingSchedule.validate(attrs) do
       transaction(fn ->
+        contribution =
+          SourceContributions.prepare!(%SourceContributionQuery{
+            subject: subject,
+            meeting_id: initial.id,
+            deadline_ms: Budget.deadline()
+          })
+
         initial = MeetingErasure.guard_meeting!(initial, [value(subject, :user_id)])
         access = access!(subject, initial.conversation_id, :update)
         meeting = meeting!(id, initial.tenant_id, "FOR UPDATE")
@@ -109,6 +117,7 @@ defmodule CommsCore.AudioCalls.Meetings do
           |> update!()
 
         materialize!(meeting, occurrences)
+        SourceContributions.record!(contribution, meeting)
         record!(meeting, subject, "updated")
         view(meeting, access.user_id, access.membership_role)
       end)
@@ -120,6 +129,13 @@ defmodule CommsCore.AudioCalls.Meetings do
          {:ok, initial} <- accessible(id, subject),
          {:ok, expected} <- expected_version(attrs) do
       transaction(fn ->
+        contribution =
+          SourceContributions.prepare!(%SourceContributionQuery{
+            subject: subject,
+            meeting_id: initial.id,
+            deadline_ms: Budget.deadline()
+          })
+
         initial = MeetingErasure.guard_meeting!(initial, [value(subject, :user_id)])
         access = access!(subject, initial.conversation_id, :update)
         meeting = meeting!(id, initial.tenant_id, "FOR UPDATE")
@@ -151,6 +167,7 @@ defmodule CommsCore.AudioCalls.Meetings do
             |> Meeting.changeset(%{status: :cancelled, version: meeting.version + 1})
             |> update!()
 
+          SourceContributions.record!(contribution, meeting)
           record!(meeting, subject, "cancelled")
           view(meeting, access.user_id, access.membership_role)
         else

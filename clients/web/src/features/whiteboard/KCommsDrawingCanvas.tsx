@@ -14,7 +14,7 @@ type DrawingEngineProps = ComponentProps<typeof DrawingEngine>;
 
 export type KCommsDrawingCanvasProps = Omit<
   DrawingEngineProps,
-  "children" | "UIOptions"
+  "children" | "UIOptions" | "langCode"
 > & {
   UIOptions?: DrawingEngineProps["UIOptions"];
 };
@@ -148,7 +148,7 @@ export function KCommsDrawingCanvas({
       onClickCapture={stopUnsupportedVendorAction}
       onKeyDownCapture={stopVendorHelpAndCommandMenus}
     >
-      <DrawingEngine {...drawingProps} UIOptions={mergedUIOptions}>
+      <DrawingEngine {...drawingProps} langCode="en" UIOptions={mergedUIOptions}>
         <DrawingMenu>
           <DrawingMenu.DefaultItems.ToggleTheme />
           <DrawingMenu.DefaultItems.ChangeCanvasBackground />

@@ -6,6 +6,7 @@ defmodule CommsWeb.UserSocket do
 
   channel("conversation:*", CommsWeb.ConversationChannel)
   channel("whiteboard:*", CommsWeb.WhiteboardChannel)
+  channel("document:*", CommsWeb.DocumentChannel)
   channel("call:*", CommsWeb.CallChannel)
   channel("user:*", CommsWeb.UserChannel)
 

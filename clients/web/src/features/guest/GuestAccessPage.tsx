@@ -7,6 +7,7 @@ import {
   storeGuestSession
 } from "../../api";
 import { useSession } from "../../app/session";
+import { subscribeDesktopIdentityChange } from "../../desktop/session";
 import type { GuestSession } from "../../types";
 import {
   guestTokenFromFragment,
@@ -100,6 +101,12 @@ export function GuestAccessPage() {
       : null
   );
   const apiRef = useRef<GuestApiClient | null>(null);
+
+  useEffect(() => subscribeDesktopIdentityChange(() => {
+    const next = loadStoredGuestSession();
+    apiRef.current?.setSession(next);
+    setGuestSessionState(next);
+  }), []);
 
   const setGuestSession = useCallback((
     session: GuestSession | null,

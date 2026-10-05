@@ -26,7 +26,8 @@ defmodule CommsIntegrations.MixProject do
       {:comms_observability, in_umbrella: true},
       {:finch, "~> 0.20"},
       {:mint, "~> 1.10.2"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:jose, "~> 1.11"}
     ]
   end
 end

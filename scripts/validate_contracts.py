@@ -12,6 +12,8 @@ import yaml
 from jsonschema.validators import validator_for
 from openapi_spec_validator import validate as validate_openapi
 
+from validate_phone_provisioning_contracts import validate_phone_provisioning_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts"
@@ -2388,6 +2390,369 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+
+def validate_shared_document_contract(openapi: dict[str, Any], payloads: dict[str, Any], asyncapi: dict[str, Any] | None = None) -> None:
+    schemas = openapi["components"]["schemas"]
+    names = {"SharedDocumentAtom", "SharedDocumentChange", "SharedDocumentCreation", "SharedDocumentEdit", "SharedDocumentSummary", "SharedDocumentSnapshot", "SharedDocumentOperation", "SharedDocumentReplay", "SharedDocumentPresence"}
+    if not names <= set(schemas):
+        raise ValueError("shared document owner schemas are incomplete")
+    required_paths = {
+        "/api/v1/conversations/{conversationId}/documents": {"get", "post"},
+        "/api/v1/documents/{documentId}": {"get"},
+        "/api/v1/documents/{documentId}/copies": {"post"},
+        "/api/v1/documents/{documentId}/operations": {"get", "post"},
+        "/api/v1/documents/{documentId}/export": {"get"},
+    }
+    for path, methods in required_paths.items():
+        for method in methods:
+            operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+            if operation.get("security") != [{"bearerAuth": []}]:
+                raise ValueError("shared document authority cannot become public")
+            successes = {status: response for status, response in operation.get("responses", {}).items() if status in {"200", "201"}}
+            if not successes or any(response.get("headers", {}).get("Cache-Control", {}).get("schema", {}).get("const") != "no-store" for response in successes.values()):
+                raise ValueError("shared document responses must remain private")
+            if method == "post" and not operation.get("requestBody", {}).get("required"):
+                raise ValueError("shared document mutations require a bounded body")
+    expected_fields = {
+        "SharedDocumentAtom": {"id", "after_id", "text", "deleted", "order"},
+        "SharedDocumentChange": {"after_id", "delete_ids", "insert"},
+        "SharedDocumentCreation": {"client_document_id", "title"},
+        "SharedDocumentSummary": {"id", "conversation_id", "title", "excerpt", "generation", "version", "updated_at", "readonly"},
+        "SharedDocumentSnapshot": {"id", "conversation_id", "title", "content", "atoms", "generation", "version", "updated_at", "readonly"},
+        "SharedDocumentOperation": {"document_id", "conversation_id", "client_operation_id", "generation", "version", "kind", "title", "inserted_atoms", "deleted_atom_ids", "inserted_at"},
+        "SharedDocumentReplay": {"data", "page"},
+        "SharedDocumentPresence": {"user_id", "device_id", "generation", "anchor_id", "head_id"},
+    }
+    for name, fields in expected_fields.items():
+        if schemas[name].get("additionalProperties") is not False or set(schemas[name].get("properties", {})) != fields or set(schemas[name].get("required", [])) != fields:
+            raise ValueError("shared document DTOs require exact server-owned fields")
+    variants = schemas["SharedDocumentEdit"].get("oneOf", [])
+    if len(variants) != 2:
+        raise ValueError("shared document edits require bounded edit and rename variants")
+    for variant, kind, extra in zip(variants, ["edit", "rename"], ["changes", "title"]):
+        fields = {"client_operation_id", "generation", "base_version", "kind", extra}
+        if variant.get("additionalProperties") is not False or set(variant.get("properties", {})) != fields or set(variant.get("required", [])) != fields or variant["properties"]["kind"].get("const") != kind:
+            raise ValueError("shared document edits cannot accept opaque state or client lineage")
+    if variants[0]["properties"]["changes"].get("maxItems") != 32:
+        raise ValueError("shared document operation intents must remain bounded")
+    if schemas["SharedDocumentSnapshot"]["properties"]["atoms"].get("maxItems") != 32000 or schemas["SharedDocumentSnapshot"]["properties"]["content"].get("maxLength") != 16000:
+        raise ValueError("shared document snapshot limits drifted")
+    if schemas["SharedDocumentChange"]["properties"]["delete_ids"].get("maxItems") != 4096 or schemas["SharedDocumentChange"]["properties"]["insert"].get("maxLength") != 2048:
+        raise ValueError("shared document edit limits drifted")
+    if schemas["SharedDocumentReplay"]["properties"]["data"].get("maxItems") != 100:
+        raise ValueError("shared document replay must remain bounded")
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+    standalone = payloads.get("shared-document.v1.json", {})
+    if standalone.get("$defs") != {name: portable(schemas[name]) for name in names}:
+        raise ValueError("standalone shared document schemas diverged from owner OpenAPI")
+    if asyncapi is not None:
+        channel = asyncapi.get("channels", {}).get("document", {})
+        if channel.get("address") != "document:{documentId}" or set(channel.get("messages", {})) != {"operationApplied", "presenceCommand", "presence"}:
+            raise ValueError("shared document current-authority socket contract drifted")
+        for name in ["SharedDocumentAtom", "SharedDocumentOperation", "SharedDocumentPresence"]:
+            if asyncapi.get("components", {}).get("schemas", {}).get(name) != schemas[name]:
+                raise ValueError("shared document socket payload diverged from the committed owner receipt")
+
+
+def validate_ivr_contract(
+    openapi: dict[str, Any], schemas: dict[str, dict[str, Any]]
+) -> None:
+    """Freeze the bounded caller protocol and minimal human projections."""
+    contract = schemas.get("telephony-ivr.v1.json")
+    if not isinstance(contract, dict):
+        raise ValueError("bounded IVR JSON Schema contract is required")
+    definitions = contract.get("$defs", {})
+    expected_names = {
+        "IvrTarget", "IvrMenu", "IvrMenuRequest", "IvrConfiguration",
+        "AgentQueueState", "AgentQueueStateRequest", "CurrentQueueRoute",
+        "CurrentQueueSnapshot", "IvrWebhookEvent",
+    }
+    if set(definitions) != expected_names:
+        raise ValueError("bounded IVR must retain its exact nine minimal contracts")
+
+    def openapi_refs(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (item.replace("#/$defs/", "#/components/schemas/")
+                      if key == "$ref" and isinstance(item, str)
+                      else openapi_refs(item))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [openapi_refs(item) for item in value]
+        return value
+
+    published = openapi.get("components", {}).get("schemas", {})
+    for name in sorted(expected_names):
+        if published.get(name) != openapi_refs(definitions[name]):
+            raise ValueError(f"IVR OpenAPI and JSON Schema differ for {name}")
+    for name in ("IvrMenu", "IvrMenuRequest"):
+        choices = definitions[name]["properties"]["choices"]
+        if (choices.get("propertyNames") != {"pattern": "^[1-9]$"}
+                or choices.get("minProperties") != 1
+                or choices.get("maxProperties") != 9):
+            raise ValueError("IVR menu choices must remain one to nine single digits")
+    operations = {
+        "/api/v1/admin/telephony/ivr": {"get", "put"},
+        "/api/v1/telephony/agent-state": {"get", "put"},
+        "/api/v1/admin/telephony/queues/current": {"get"},
+        "/api/v1/telephony/ivr/webhook": {"post"},
+    }
+    paths = openapi.get("paths", {})
+    for path, methods in operations.items():
+        resource = paths.get(path, {})
+        if set(resource) != methods:
+            raise ValueError(f"IVR route operation inventory differs for {path}")
+        for method in methods:
+            expected_security = (
+                [{"telephonyIvrHmac": []}] if path.endswith("/webhook")
+                else [{"bearerAuth": []}]
+            )
+            if resource[method].get("security") != expected_security:
+                raise ValueError(f"IVR caller/human authority differs for {path}")
+    signature = openapi["components"].get("securitySchemes", {}).get("telephonyIvrHmac")
+    if not isinstance(signature, dict) or any(
+        signature.get(key) != expected
+        for key, expected in {"type": "apiKey", "in": "header", "name": "Authorization"}.items()
+    ):
+        raise ValueError("IVR events require the separate exact-body Authorization HMAC")
+
+
+def validate_workspace_domain_contract(openapi: dict[str, Any]) -> None:
+    """Keep anonymous disclosure neutral and retained owner mutations bounded."""
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    public = paths.get("/api/v1/workspaces/discover", {}).get("post", {})
+    if public.get("security") != [] or set(public.get("responses", {})) != {"200", "403", "429"}:
+        raise ValueError("workspace discovery requires anonymous neutral disclosure")
+    if {"$ref": "#/components/parameters/RequiredTrustedOrigin"} not in public.get("parameters", []):
+        raise ValueError("workspace discovery requires trusted Origin")
+    request = schemas.get("WorkspaceDomainDiscoveryRequest", {})
+    if (request.get("additionalProperties") is not False or request.get("required") != ["domain"]
+            or set(request.get("properties", {})) != {"domain"}
+            or request["properties"]["domain"].get("type") != "string"
+            or request["properties"]["domain"].get("maxLength") != 254):
+        raise ValueError("workspace discovery accepts exactly one bounded domain, never email")
+    data = schemas.get("WorkspaceDomainDiscoveryResponse", {}).get("properties", {}).get("data", {})
+    expected_pattern = r"^/sign-in\?tenant_slug=[a-z0-9]+(?:-[a-z0-9]+)*$"
+    if (data.get("additionalProperties") is not False
+            or set(data.get("required", [])) != {"available", "sign_in_path"}
+            or set(data.get("properties", {})) != {"available", "sign_in_path"}
+            or data["properties"]["sign_in_path"].get("pattern") != expected_pattern):
+        raise ValueError("workspace discovery exposes only a safe relative workspace hint")
+    validator = validator_for(data)(data)
+    if not validator.is_valid({"available": False, "sign_in_path": None}) or not validator.is_valid(
+            {"available": True, "sign_in_path": "/sign-in?tenant_slug=example-team"}):
+        raise ValueError("workspace discovery must admit its neutral and explicit-hint views")
+    for unsafe in ({"available": True, "sign_in_path": None},
+                   {"available": False, "sign_in_path": "/sign-in?tenant_slug=private"},
+                   {"available": True, "sign_in_path": "https://outside.example/sign-in"}):
+        if validator.is_valid(unsafe):
+            raise ValueError("workspace discovery cannot expose inconsistent or external hints")
+    base = "/api/v1/admin/workspace-domains"
+    expected_operations = {base: {"get", "post"}, base + "/{id}": {"patch", "delete"},
+                           base + "/{id}/challenge": {"post"}, base + "/{id}/verify": {"post"}}
+    for path, methods in expected_operations.items():
+        item = paths.get(path, {})
+        if {key for key in item if key != "parameters"} != methods:
+            raise ValueError("workspace domain owner routes must retain their exact lifecycle")
+        for method in methods:
+            operation = item[method]
+            if (operation.get("security") != [{"bearerAuth": []}]
+                    or not {"401", "403", "428", "503"}.issubset(operation.get("responses", {}))):
+                raise ValueError("workspace domain administration requires current recent human authority")
+            if method == "get":
+                inventory = operation["responses"]["200"]["content"]["application/json"]["schema"]
+                if (inventory["properties"]["data"].get("maxItems") != 8
+                        or inventory["properties"]["limits"]["properties"]["domains"].get("const") != 8):
+                    raise ValueError("workspace domain inventory is bounded to eight retained rows")
+                continue
+            body = operation.get("requestBody", {})
+            schema = body.get("content", {}).get("application/json", {}).get("schema", {})
+            if "$ref" in schema:
+                schema = schemas.get(schema["$ref"].rsplit("/", 1)[-1], {})
+            version = schema.get("properties", {}).get("version", {})
+            creation = path == base
+            if (body.get("required") is not True or schema.get("additionalProperties") is not False
+                    or "version" not in schema.get("required", [])
+                    or version.get("type") != "integer"
+                    or (version.get("const") != 0 if creation else version.get("minimum") != 1)):
+                raise ValueError("workspace domain mutations require exact creation/current versions")
+            if creation and schema["properties"].get("discovery_enabled", {}).get("default") is not False:
+                raise ValueError("workspace domain discovery must default off")
+            if not {"409", "422"}.issubset(operation.get("responses", {})):
+                raise ValueError("workspace domain mutations must disclose CAS/input refusal")
+    claim = schemas.get("WorkspaceDomainClaim", {})
+    fields = {"id", "domain", "version", "status", "discovery_enabled", "challenge_name",
+              "challenge_value", "challenge_expires_at", "verified_at", "proof_expires_at"}
+    if (claim.get("additionalProperties") is not False or set(claim.get("required", [])) != fields
+            or set(claim.get("properties", {})) != fields):
+        raise ValueError("workspace domain claim receipts expose only exact privileged proof fields")
+
+
+def validate_calendar_contract(openapi: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Keep the delegated Calendar surface private, scoped and version checked."""
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    operations = {
+        ("/api/v1/calendar/connections", "get"): ("200", "CalendarConnectionsResponse", None),
+        ("/api/v1/calendar/oauth/{provider}/authorize", "post"): ("200", "CalendarAuthorizationResponse", "CalendarAuthorizationRequest"),
+        ("/api/v1/calendar/connections/{connection_id}/unlink", "post"): ("200", "CalendarConnectionResponse", "CalendarUnlinkRequest"),
+        ("/api/v1/calendar/exports", "get"): ("200", "CalendarExportsResponse", None),
+        ("/api/v1/calendar/exports", "post"): ("201", "CalendarExportResponse", "CalendarExportRequest"),
+        ("/api/v1/calendar/exports/{export_id}/resolve", "post"): ("200", "CalendarExportResponse", "CalendarExportResolveRequest"),
+    }
+    for (path, method), (status, response_name, body_name) in operations.items():
+        operation = paths.get(path, {}).get(method, {})
+        response = operation.get("responses", {}).get(status, {})
+        if operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError("Calendar owner operations require explicit current human authentication")
+        if response.get("headers", {}).get("Cache-Control", {}).get("schema") != {"type": "string", "const": "private, no-store"}:
+            raise ValueError("Calendar owner responses require private no-store receipts")
+        if response.get("content", {}).get("application/json", {}).get("schema") != {"$ref": "#/components/schemas/" + response_name}:
+            raise ValueError("Calendar operations must return their safe owner projection")
+        if body_name:
+            body = operation.get("requestBody", {})
+            if body.get("required") is not True or body.get("content", {}).get("application/json", {}).get("schema") != {"$ref": "#/components/schemas/" + body_name}:
+                raise ValueError("Calendar mutations require their bounded JSON compare-and-set body")
+
+    fields = {
+        "CalendarConnection": {"id", "provider", "version", "status", "consent_generation", "new_exports_allowed", "permission_status", "provider_grant_revocation", "managed_events_pending_removal", "last_success_at", "safe_reason"},
+        "CalendarExport": {"id", "connection_id", "meeting_id", "version", "status", "desired_meeting_version", "applied_meeting_version", "occurrence_count", "safe_reason"},
+        "CalendarAuthorization": {"provider", "authorization_url", "expires_at"},
+        "CalendarProviderCapability": {"provider", "configured", "qualified", "safe_reason"},
+        "CalendarExportRequest": {"connection_id", "meeting_id", "meeting_version"},
+        "CalendarUnlinkRequest": {"version"},
+    }
+    for name, expected in fields.items():
+        value = schemas.get(name, {})
+        if value.get("additionalProperties") is not False or set(value.get("properties", {})) != expected or set(value.get("required", [])) != expected:
+            raise ValueError("Calendar public objects must retain exact content-free fields and exclude credentials/browser binding")
+    for name, keys in {"CalendarExportRequest": ["meeting_version"], "CalendarUnlinkRequest": ["version"], "CalendarExportResolveRequest": ["version", "meeting_version"], "CalendarAuthorizationRequest": ["export_policy_version"]}.items():
+        for key in keys:
+            if schemas.get(name, {}).get("properties", {}).get(key) != {"type": "integer", "minimum": 1}:
+                raise ValueError("Calendar authority and source versions must remain positive integers")
+    resolve = schemas.get("CalendarExportResolveRequest", {})
+    expected_condition = [{"if": {"properties": {"decision": {"const": "reexport_current"}}, "required": ["decision"]}, "then": {"required": ["meeting_version"]}}]
+    if resolve.get("additionalProperties") is not False or set(resolve.get("required", [])) != {"version", "decision"} or set(resolve.get("properties", {})) != {"version", "decision", "meeting_version"} or resolve.get("properties", {}).get("decision", {}).get("enum") != ["reexport_current", "stop_syncing"] or resolve.get("allOf") != expected_condition:
+        raise ValueError("Calendar conflict resolution requires an explicit decision and current meeting version for reexport")
+    capability = schemas.get("CalendarProviderCapability", {}).get("properties", {})
+    if capability.get("configured") != {"type": "boolean"} or capability.get("qualified") != {"type": "boolean"}:
+        raise ValueError("Calendar configured and qualified must remain separate facts")
+    callback = paths.get("/api/v1/calendar/oauth/{provider}/callback", {}).get("get", {})
+    redirect = callback.get("responses", {}).get("303", {}).get("headers", {})
+    if callback.get("security") != [] or redirect.get("Location", {}).get("schema", {}).get("pattern") != r"^/app/you\?section=calendar&calendar_result=(connected|rejected)(?![\s\S])" or redirect.get("Cache-Control", {}).get("schema", {}).get("const") != "private, no-store":
+        raise ValueError("Calendar callback must retain one bound public exchange and a fixed private profile redirect")
+    if schemas.get("CalendarConnectionsResponse", {}).get("properties", {}).get("data", {}).get("maxItems") != 2 or schemas.get("CalendarExportsResponse", {}).get("properties", {}).get("data", {}).get("maxItems") != 100:
+        raise ValueError("Calendar own-connection/export collections must remain bounded")
+
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+
+    expected = {name: portable(value) for name, value in schemas.items() if name.startswith("Calendar")}
+    roots = {"CalendarConnection", "CalendarExport", "CalendarAuthorization", "CalendarConnectionsResponse", "CalendarExportsResponse"}
+    if payload.get("$defs") != expected or {item.get("$ref") for item in payload.get("oneOf", [])} != {"#/$defs/" + name for name in roots}:
+        raise ValueError("Standalone Calendar schema must match every canonical safe wire definition")
+
+def validate_native_call_wake_contract(openapi: dict[str, Any], standalone: dict[str, Any]) -> None:
+    participant_operation = openapi.get("paths", {}).get("/api/v1/conversations/{conversationId}/calls/{callId}/participants", {}).get("get", {})
+    admission = [parameter for parameter in participant_operation.get("parameters", []) if parameter.get("name") == "current_admission"]
+    if len(admission) != 1 or admission[0].get("in") != "query" or admission[0].get("required") is not False or admission[0].get("schema") != {"type": "boolean", "default": False}:
+        raise ValueError("Native media requires an exact optional current-session admission query")
+    expected = {
+        ("/api/v1/me/native-push/config", "get"): ("nativePushConfiguration", "NativePushConfigurationResponse", None),
+        ("/api/v1/me/native-push/registration", "get"): ("nativePushRegistrations", "NativePushRegistrationList", None),
+        ("/api/v1/me/native-push/registration", "put"): ("registerNativePush", "NativePushRegistrationResponse", "NativePushRegistrationRequest"),
+        ("/api/v1/me/native-push/registration", "delete"): ("revokeNativePush", "NativePushRevokeResponse", "NativePushRevokeRequest"),
+        ("/api/v1/native-call-wakes/{wakeId}/admit", "post"): ("admitNativeCallWake", "NativeCallWakeAdmission", None),
+    }
+    for (path, method), (name, response, request) in expected.items():
+        operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+        if operation.get("operationId") != name or operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError("Native wake routes require exact current member bearer authority")
+        actual = operation.get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema")
+        if actual != {"$ref": f"#/components/schemas/{response}"}:
+            raise ValueError("Native wake routes require exact safe owner response schemas")
+        if request and operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema") != {"$ref": f"#/components/schemas/{request}"}:
+            raise ValueError("Native registration and revocation require exact bounded bodies")
+    schemas = openapi["components"]["schemas"]
+    hint = schemas["NativeCallWakeHint"]
+    if hint.get("additionalProperties") is not False or set(hint.get("required", [])) != {"protocol_version", "wake_id", "expires_at", "kind"} or set(hint.get("properties", {})) != set(hint["required"]):
+        raise ValueError("Native wake hint must contain only opaque protocol fields")
+    if schemas["NativePushRegistrationRequest"]["properties"]["token"].get("writeOnly") is not True:
+        raise ValueError("Native provider tokens must be write-only")
+    if set(schemas["NativePushRegistration"]["properties"]) & {"token", "token_hash", "ciphertext", "nonce", "tag", "key_id", "user_id", "session_id"}:
+        raise ValueError("Native registration projection exposes private transport or identity material")
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+    for name, contract in standalone.get("$defs", {}).items():
+        if contract != portable(schemas.get(name)):
+            raise ValueError(f"Standalone native wake schema diverges from canonical OpenAPI: {name}")
+
+
+def validate_federation_contract(openapi: dict[str, Any], payload: dict[str, Any] | None = None) -> None:
+    schemas = openapi.get("components", {}).get("schemas", {})
+    base = "/api/v1/conversations/{conversationId}/federation"
+    routes = {
+        "/api/v1/admin/federation/trusts": {"get", "put"},
+        base: {"get", "post", "delete"},
+        base + "/consent": {"put"}, base + "/invitations": {"post"},
+        base + "/messages": {"get", "post"}, base + "/export": {"get"},
+    }
+    for path, methods in routes.items():
+        for method in methods:
+            operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+            if operation.get("security") != [{"bearerAuth": []}]:
+                raise ValueError("Federation requires current authenticated owner routes")
+            success = "202" if method in {"post", "delete"} else "200"
+            headers = operation.get("responses", {}).get(success, {}).get("headers", {})
+            if headers.get("Cache-Control", {}).get("schema") != {"const": "private, no-store"} or headers.get("Pragma", {}).get("schema") != {"const": "no-cache"}:
+                raise ValueError("Federation metadata and queued effects require private no-store receipts")
+    expected = {
+        "FederationRoom": {"id", "conversation_id", "domain", "residency", "status", "version", "consent", "remote_cleanup_state"},
+        "FederationTrust": {"id", "domain", "residency", "cross_border_reason", "enabled", "version", "residency_verified"},
+        "FederationSendRequest": {"version", "body", "idempotency_key"},
+        "FederationTimelineEvent": {"id", "sender", "body", "timestamp", "disclosure"},
+    }
+    for name, fields in expected.items():
+        definition = schemas.get(name, {})
+        if set(definition.get("properties", {})) != fields or set(definition.get("required", [])) != fields or definition.get("additionalProperties") is not False:
+            raise ValueError("Federation exact owner wire fields cannot expose credentials or private provider lineage")
+    if schemas["FederationCreateRequest"]["properties"]["plaintext_disclosure_accepted"] != {"const": True} or schemas["FederationTimelineEvent"]["properties"]["disclosure"] != {"const": "plaintext_bridge"}:
+        raise ValueError("Federation requires explicit plaintext disclosure; encrypted rooms are refused")
+    if schemas["FederationTimeline"]["properties"]["remote_deletion_confirmed"] != {"const": False} or schemas["FederationMetadataExport"]["properties"]["remote_deletion_confirmed"] != {"const": False} or schemas["FederationTrust"]["properties"]["residency_verified"] != {"const": False}:
+        raise ValueError("Matrix local observations cannot attest remote deletion or verified geography")
+    if schemas["FederationMetadataExport"]["properties"]["export_scope"] != {"const": "local_metadata_only"} or schemas["FederationMetadataExport"]["properties"]["incoming_content_persisted_locally"] != {"const": False}:
+        raise ValueError("Federation metadata export must disclose its bounded local scope")
+    if schemas["FederationTimeline"]["properties"]["events"].get("maxItems") != 50 or schemas["FederationTimeline"]["properties"]["cursor"].get("maxLength") != 4096:
+        raise ValueError("Federation observation requires bounded room history and opaque owner cursor")
+    if payload is not None:
+        def portable(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [portable(item) for item in value]
+            return value
+        for name, value in payload.get("$defs", {}).items():
+            if name not in schemas or value != portable(schemas[name]):
+                raise ValueError("Standalone Federation mirror must preserve exact canonical wire semantics")
+        if set(payload.get("$defs", {})) != {name for name in schemas if name.startswith("Federation")}:
+            raise ValueError("Standalone Federation mirror must close every owner definition")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2408,11 +2773,17 @@ def main() -> None:
     validate_message_contract(schemas["message-created.v1.json"], openapi)
     validate_call_contract(openapi)
     validate_telephony_contract(openapi)
+    validate_phone_provisioning_contract(openapi, schemas["phone-provider-provisioning.v1.json"])
     validate_instant_room_contract(openapi)
     validate_guest_contract(openapi)
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_ivr_contract(openapi, schemas)
+    validate_workspace_domain_contract(openapi)
+    validate_calendar_contract(openapi, schemas["calendar-sync.v1.json"])
+    validate_native_call_wake_contract(openapi, schemas["native-call-wake.v1.json"])
+    validate_federation_contract(openapi, schemas["federation.v1.json"])
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)
@@ -2422,6 +2793,7 @@ def main() -> None:
         if required not in asyncapi:
             raise ValueError(f"AsyncAPI contract is missing {required}")
     validate_refs(asyncapi, asyncapi_path)
+    validate_shared_document_contract(openapi, schemas, asyncapi)
     validate_guest_realtime_contract(asyncapi)
     validate_instant_room_realtime_contract(asyncapi)
     validate_call_realtime_contract(asyncapi)

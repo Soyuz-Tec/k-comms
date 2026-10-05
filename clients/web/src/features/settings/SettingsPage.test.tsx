@@ -138,6 +138,126 @@ describe("profile settings", () => {
     expect(harness.currentSession?.user.display_name).toBe("Updated Name");
   });
 
+  it("hydrates a pristine display name from the current same-identity profile", async () => {
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    expect(screen.getByLabelText("Display name")).toHaveValue("Original Name");
+
+    harness.currentSession = {
+      ...harness.initialSession,
+      user: { ...harness.initialSession.user, display_name: "Reviewed in another browser" }
+    };
+    view.rerender(<SettingsPage />);
+
+    await waitFor(() => expect(screen.getByLabelText("Display name"))
+      .toHaveValue("Reviewed in another browser"));
+  });
+
+  it("preserves a pending profile edit when the same actor receives fresh profile and role data", async () => {
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "Pending local edit");
+
+    harness.currentSession = {
+      ...harness.initialSession,
+      user: { ...harness.initialSession.user, display_name: "Reviewed in another browser", role: "owner" }
+    };
+    harness.api.updateProfile.mockResolvedValue({
+      ...harness.currentSession.user,
+      display_name: "Pending local edit"
+    });
+    view.rerender(<SettingsPage />);
+
+    expect(screen.getByLabelText("Display name")).toHaveValue("Pending local edit");
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile)
+      .toHaveBeenCalledWith({ display_name: "Pending local edit" }));
+    expect(harness.currentSession?.user.role).toBe("owner");
+  });
+
+  it.each(["user", "tenant"] as const)("clears a pending profile edit across a %s identity switch", async (changedIdentity) => {
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "First identity's pending edit");
+
+    const next = structuredClone(harness.initialSession);
+    next.user.display_name = "Other identity's current name";
+    if (changedIdentity === "user") {
+      next.user.id = "user-2";
+      next.device.user_id = "user-2";
+    } else {
+      next.tenant.id = "tenant-2";
+      next.user.tenant_id = "tenant-2";
+    }
+    harness.currentSession = next;
+    view.rerender(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Display name"))
+      .toHaveValue("Other identity's current name"));
+
+    harness.currentSession = structuredClone(harness.initialSession);
+    view.rerender(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Display name"))
+      .toHaveValue("Original Name"));
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+  });
+
+  it("accepts a canonical saved name and then hydrates later profile data after a padded submission", async () => {
+    const pending = deferred<Session["user"]>();
+    harness.api.updateProfile.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "  Canonical Name  ");
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile)
+      .toHaveBeenCalledWith({ display_name: "Canonical Name" }));
+
+    pending.resolve({ ...harness.initialSession.user, display_name: "Canonical Name" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile updated."));
+    expect(screen.getByLabelText("Display name")).toHaveValue("Canonical Name");
+
+    harness.currentSession = {
+      ...harness.initialSession,
+      user: { ...harness.initialSession.user, display_name: "Later current profile" }
+    };
+    view.rerender(<SettingsPage />);
+    await waitFor(() => expect(screen.getByLabelText("Display name"))
+      .toHaveValue("Later current profile"));
+  });
+
+  it("keeps a newer pending edit when an earlier submitted profile response completes", async () => {
+    const pending = deferred<Session["user"]>();
+    harness.api.updateProfile.mockReturnValue(pending.promise);
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "  Earlier submission  ");
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(harness.api.updateProfile)
+      .toHaveBeenCalledWith({ display_name: "Earlier submission" }));
+    await user.clear(screen.getByLabelText("Display name"));
+    await user.type(screen.getByLabelText("Display name"), "Newer pending edit");
+
+    pending.resolve({ ...harness.initialSession.user, display_name: "Earlier submission" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile updated."));
+    expect(screen.getByLabelText("Display name")).toHaveValue("Newer pending edit");
+
+    harness.currentSession = {
+      ...harness.initialSession,
+      user: { ...harness.initialSession.user, display_name: "Later current profile" }
+    };
+    view.rerender(<SettingsPage />);
+    expect(screen.getByLabelText("Display name")).toHaveValue("Newer pending edit");
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+  });
+
   it("keeps personal profile content before workspace and role tools", async () => {
     render(<SettingsPage roleTools={<aside aria-label="Workspace tools">Workspace tools</aside>} />);
 

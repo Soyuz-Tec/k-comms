@@ -8,6 +8,7 @@ import { ActionDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { ServiceAccountsPanel } from "./ServiceAccountsPanel";
 import "./IntegrationsPanel.css";
+import { FederationPolicyPanel } from "../federation/FederationPolicyPanel";
 
 type PendingEndpointAction = { kind: "rotate" | "disable" | "enable"; endpoint: WebhookEndpoint };
 const webhookEvents = [
@@ -152,6 +153,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
   const endpointById = new Map(endpoints.map((endpoint) => [endpoint.id, endpoint]));
   const visibleDeliveries = deliveries.filter((delivery) => (!deliveryEndpoint || delivery.endpoint_id === deliveryEndpoint) && (!deliveryStatus || delivery.status === deliveryStatus));
   return <>
+    <FederationPolicyPanel api={api} />
     {error && <div className="inline-notice error" role="alert">{error}<button className="button ghost compact" type="button" disabled={Boolean(busy)} onClick={() => void refresh()}>Reload integrations</button><button type="button" aria-label="Dismiss integrations error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
     {pendingAction && <ActionDialog
       title={pendingAction.kind === "rotate" ? "Rotate signing secret?" : pendingAction.kind === "enable" ? "Enable webhook endpoint?" : "Disable webhook endpoint?"}

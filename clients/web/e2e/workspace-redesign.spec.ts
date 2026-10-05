@@ -209,9 +209,9 @@ for (const width of [320, 390]) {
     expect(content).not.toBeNull();
     expect(content!.y, "The first administration task must begin within 320px of the viewport top").toBeLessThanOrEqual(320);
     const sections = page.getByRole("navigation", { name: "Administration sections" }).getByRole("button");
-    await expect(sections).toHaveCount(8);
+    await expect(sections).toHaveCount(9);
     await expect(sections).toHaveText([
-      "Workspace", "Phone", "People", "Safety", "Governance", "Integrations", "Audit", "Usage"
+      "Workspace", "Domains", "Phone", "People", "Safety", "Governance", "Integrations", "Audit", "Usage"
     ]);
     for (const section of await sections.all()) {
       await expect(section).toBeVisible();

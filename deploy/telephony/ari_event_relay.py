@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Authenticated ARI WSS consent-notice event relay with a durable bounded spool.
+"""One authenticated ARI WSS stream for voicemail notices and caller-only IVR.
 
-Only PlaybackFinished for K-Comms voicemail notices is forwarded. The application
+Only exact K-Comms notice, IVR playback, caller DTMF and disconnect events are forwarded. The application
 reconciles recording completion separately through the exact ARI stored recording.
 No SIP caller input becomes an authenticated application identity.
 """
@@ -13,6 +13,7 @@ import fcntl
 import hmac
 import http.client
 import ipaddress
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,11 @@ import ssl
 import struct
 import time
 from urllib.parse import urlencode, urlsplit
+
+_ivr_spec = importlib.util.spec_from_file_location(
+    "ari_ivr_event_relay", Path(__file__).with_name("ari_ivr_event_relay.py"))
+_ivr = importlib.util.module_from_spec(_ivr_spec)
+_ivr_spec.loader.exec_module(_ivr)
 
 MAX_BODY = 262_144
 MAX_SPOOL = 1_000
@@ -187,16 +193,27 @@ def spool_event(directory: Path, event: bytes) -> Path:
     return path
 
 
-def deliver(directory: Path, host: str, path: str, signing_secret: str):
+def deliver(directory: Path, host: str, path: str, signing_secret: str,
+            ivr_path: str = "/api/v1/telephony/ivr/webhook"):
     for filename in sorted(directory.glob("*.json"))[:MAX_SPOOL]:
         body = filename.read_bytes()
         if len(body) > MAX_BODY:
             raise OSError("relay spool record exceeds bound")
+        event = json.loads(body)
+        playback_id = event.get("playback", {}).get("id", "")
+        is_ivr = event.get("type") in ("ChannelDtmfReceived", "ChannelDestroyed") or (
+            isinstance(playback_id, str) and playback_id.startswith("kc_ivr_"))
+        if is_ivr:
+            age = time.time() - _ivr.event_timestamp(event.get("timestamp")).timestamp()
+            if age > _ivr.MAX_EVENT_AGE:
+                filename.unlink()
+                continue
+        destination = ivr_path if is_ivr else path
         timestamp = str(int(time.time()))
         signature = hmac.new(signing_secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
         connection = PinnedHTTPS(host, timeout=10)
         try:
-            connection.request("POST", path, body, {"authorization": "v1:" + timestamp + ":" + signature,
+            connection.request("POST", destination, body, {"authorization": "v1:" + timestamp + ":" + signature,
                                                    "content-type": "application/json"})
             response = connection.getresponse()
             response.read(MAX_BODY + 1)
@@ -213,6 +230,12 @@ def deliver(directory: Path, host: str, path: str, signing_secret: str):
 def run():
     ari_host, _ = configured_url(os.environ["ARI_ORIGIN"])
     webhook_host, webhook_path = configured_url(os.environ["KCOMMS_WEBHOOK_URL"], "/api/v1/telephony/pbx/webhook")
+    ivr_url = os.environ.get("KCOMMS_IVR_WEBHOOK_URL")
+    ivr_path = "/api/v1/telephony/ivr/webhook"
+    if ivr_url:
+        ivr_host, ivr_path = configured_url(ivr_url, ivr_path)
+        if ivr_host != webhook_host:
+            raise ValueError("IVR and voicemail webhook origins must match")
     username = secret("ARI_USERNAME", 1)
     password = secret("ARI_PASSWORD", 24)
     signing_secret = secret("KCOMMS_PBX_WEBHOOK_SECRET", 32)
@@ -233,16 +256,17 @@ def run():
     while True:
         connection = None
         try:
-            deliver(directory, webhook_host, webhook_path, signing_secret)
+            deliver(directory, webhook_host, webhook_path, signing_secret, ivr_path)
             connection = websocket(ari_host, username, password, application)
             delay = 1
             fragments = bytearray()
             message_open = False
+            fragment_count = 0
             while True:
                 try:
                     complete, opcode, payload = receive_frame(connection)
                 except socket.timeout:
-                    deliver(directory, webhook_host, webhook_path, signing_secret)
+                    deliver(directory, webhook_host, webhook_path, signing_secret, ivr_path)
                     # A timeout may occur mid-frame; reconnect rather than
                     # parsing a truncated frame as a new message.
                     raise OSError("ARI event stream idle")
@@ -252,7 +276,7 @@ def run():
                     connection.sendall(client_frame(10, payload))
                     continue
                 if opcode == 10:
-                    deliver(directory, webhook_host, webhook_path, signing_secret)
+                    deliver(directory, webhook_host, webhook_path, signing_secret, ivr_path)
                     continue
                 if opcode == 1:
                     if message_open:
@@ -264,14 +288,17 @@ def run():
                     message_open = not complete
                 else:
                     raise OSError("unsupported ARI event message")
-                if len(fragments) > MAX_BODY:
+                fragment_count += 1
+                if len(fragments) > MAX_BODY or fragment_count > _ivr.MAX_FRAGMENTS:
                     raise OSError("ARI event exceeds bound")
                 if complete:
-                    event = notice_event(bytes(fragments))
+                    raw = bytes(fragments)
+                    event = notice_event(raw) or _ivr.ivr_event(raw)
                     fragments.clear()
+                    fragment_count = 0
                     if event:
                         spool_event(directory, event)
-                        deliver(directory, webhook_host, webhook_path, signing_secret)
+                        deliver(directory, webhook_host, webhook_path, signing_secret, ivr_path)
         except (OSError, ValueError, json.JSONDecodeError):
             # No URLs, provider frames or credential-bearing exceptions are logged.
             print("ARI relay unavailable; durable notices remain fail closed.", flush=True)

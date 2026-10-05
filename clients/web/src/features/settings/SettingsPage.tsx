@@ -58,6 +58,16 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
+  const profileIdentity = session ? `${session.tenant.id}:${session.user.id}` : "";
+  const profileDisplayName = session?.user.display_name ?? "";
+  const [profileDraft, setProfileDraft] = useState(() => ({
+    identity: profileIdentity,
+    value: profileDisplayName,
+    dirty: false
+  }));
+  const displayName = profileDraft.identity === profileIdentity && profileDraft.dirty
+    ? profileDraft.value
+    : profileDisplayName;
   const [revocationError, setRevocationError] = useState<string | null>(null);
   const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -71,6 +81,12 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
     next.set("section", value);
     setSearchParams(next);
   }
+
+  useEffect(() => {
+    setProfileDraft((current) => current.identity === profileIdentity
+      ? current
+      : { identity: profileIdentity, value: profileDisplayName, dirty: false });
+  }, [profileIdentity, profileDisplayName]);
 
   async function refreshSecurity() {
     const [deviceResult, sessionResult] = await Promise.allSettled([
@@ -134,10 +150,12 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   async function updateProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const submittedDraftValue = values.get("display_name");
+    const submittedDisplayName = stringValue(values, "display_name");
     setBusy("profile");
     setError(null);
     try {
-      const user = await api.updateProfile({ display_name: stringValue(values, "display_name") });
+      const user = await api.updateProfile({ display_name: submittedDisplayName });
       setSession((latest) => {
         if (!latest) return null;
 
@@ -147,6 +165,9 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
         return sameIdentity ? { ...latest, user } : latest;
       });
+      setProfileDraft((draft) => draft.identity === profileIdentity && draft.value === submittedDraftValue
+        ? { identity: profileIdentity, value: user.display_name, dirty: false }
+        : draft);
       setNotice("Profile updated.");
       announceMemberWorkspaceChange();
     } catch (reason: unknown) {
@@ -351,7 +372,11 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
             <AvatarBadge name={session.user.display_name} />
             <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name}</small></div>
           </div>
-          <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
+          <label className="field">Display name<input name="display_name" value={displayName} onChange={(event) => setProfileDraft({
+            identity: profileIdentity,
+            value: event.currentTarget.value,
+            dirty: event.currentTarget.value !== profileDisplayName
+          })} maxLength={120} required /></label>
           <dl className="profile-account-details"><div><dt>Email address</dt><dd>{session.user.email || "Not supplied"}<small>Verified account email</small></dd></div></dl>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>

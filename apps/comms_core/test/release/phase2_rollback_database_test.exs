@@ -1,7 +1,7 @@
 defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Audit, Release, Repo, RuntimePorts}
+  alias CommsCore.{Accounts, Audit, Release, Repo, RuntimePorts, SharedDocuments}
   alias CommsCore.Accounts.{MemberWorkspace, User}
   alias CommsCore.Audit.{ResourceHistoryQuery, ResourceHistorySnapshot}
   alias CommsTestSupport.Fixtures
@@ -57,13 +57,64 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
     end
   end
 
-  test "only active exact-worker true-boolean history purge continuations are rollback hazards" do
+  test "retained document payloads and erased fences both block the exact Member14 target" do
+    account = Fixtures.account_fixture()
+
+    {:ok, document} =
+      SharedDocuments.create(
+        account.conversation.id,
+        %{client_document_id: Ecto.UUID.generate(), title: "Rollback-owned content"},
+        Fixtures.subject(account)
+      )
+
+    member14 = %{
+      target_revision: "qualified-member14-parent",
+      capabilities:
+        @m1_capabilities
+        |> MapSet.put("member_workspace_v1")
+        |> MapSet.put("governance_history_v1")
+    }
+
+    for expected_count <- [2, 1] do
+      hazards =
+        clean_hazards() |> Map.put(:shared_documents, SharedDocuments.rollback_hazard_count())
+
+      assert hazards.shared_documents == expected_count
+
+      assert_raise RuntimeError, ~r/shared_documents_v1.*shared_documents=/, fn ->
+        Release.assert_communication_rollback_hazards!(hazards, member14)
+      end
+
+      capable = %{
+        member14
+        | capabilities: MapSet.put(member14.capabilities, "shared_documents_v1")
+      }
+
+      assert ^hazards = Release.assert_communication_rollback_hazards!(hazards, capable)
+
+      if expected_count == 2 do
+        assert {:ok, {:ok, %{documents_erased: 1, operations_deleted: 1}}} =
+                 Repo.transaction(fn ->
+                   SharedDocuments.erase_for_governance(
+                     account.tenant.id,
+                     :conversation,
+                     account.conversation.id,
+                     DateTime.utc_now()
+                   )
+                 end)
+
+        assert {:error, :not_found} = SharedDocuments.get(document.id, Fixtures.subject(account))
+      end
+    end
+  end
+
+  test "the continuation utility counts only exact-worker true-boolean jobs in five incomplete states" do
     worker = RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
     other_worker = "CommsWorkers.UnrelatedHistoryRollbackProbe"
     timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     initial = Repo.active_continuation_oban_job_count!(worker)
     initial_other = Repo.active_continuation_oban_job_count!(other_worker)
-    active_states = ~w(available scheduled executing retryable)
+    active_states = ~w(available scheduled executing retryable suspended)
 
     continuations =
       for state <- active_states do
@@ -81,10 +132,10 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
 
     insert_job(other_worker, "available", %{"continue" => true}, timestamp)
 
-    assert Repo.active_continuation_oban_job_count!(worker) == initial + 4
+    assert Repo.active_continuation_oban_job_count!(worker) == initial + 5
     assert Repo.active_continuation_oban_job_count!(other_worker) == initial_other + 1
 
-    hazards = clean_hazards() |> Map.put(:active_history_purge_jobs, initial + 4)
+    hazards = clean_hazards() |> Map.put(:active_history_purge_jobs, initial + 5)
 
     assert_raise RuntimeError,
                  ~r/governance_history_v1.*active_history_purge_jobs=/,
@@ -96,6 +147,45 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
     ids = Enum.map(continuations, & &1.id)
     Repo.update_all(from(job in Oban.Job, where: job.id in ^ids), set: [state: "completed"])
     assert Repo.active_continuation_oban_job_count!(worker) == initial
+  end
+
+  test "active exact IVR jobs remain hazards even without a retained call or run" do
+    worker = RuntimePorts.job_worker_name!(:telephony_ivr)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    initial = Repo.active_oban_job_count!(worker)
+
+    for state <- ~w(available scheduled executing retryable) do
+      insert_job(worker, state, %{"run_id" => Ecto.UUID.generate()}, timestamp)
+    end
+
+    for state <- ~w(completed discarded cancelled) do
+      insert_job(worker, state, %{"run_id" => Ecto.UUID.generate()}, timestamp)
+    end
+
+    insert_job("CommsWorkers.UnrelatedIvrRollbackProbe", "available", %{}, timestamp)
+    assert Repo.active_oban_job_count!(worker) == initial + 4
+    hazards = Map.put(clean_hazards(), :active_ivr_jobs, initial + 4)
+
+    member_history = %{
+      m1_target()
+      | capabilities:
+          @m1_capabilities
+          |> MapSet.put("member_workspace_v1")
+          |> MapSet.put("governance_history_v1")
+    }
+
+    assert_raise RuntimeError, ~r/ivr_routing_v1.*active_ivr_jobs=/, fn ->
+      Release.assert_communication_rollback_hazards!(hazards, member_history)
+    end
+
+    assert ^hazards =
+             Release.assert_communication_rollback_hazards!(
+               hazards,
+               %{
+                 member_history
+                 | capabilities: MapSet.put(member_history.capabilities, "ivr_routing_v1")
+               }
+             )
   end
 
   test "all persisted private workspace rows remain hazards when their identity becomes unusable" do
@@ -318,7 +408,28 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :rich_whiteboards,
         :member_workspaces,
         :governance_history_snapshots,
-        :active_history_purge_jobs
+        :active_history_purge_jobs,
+        :shared_documents,
+        :ivr_state,
+        :agent_queue_states,
+        :active_ivr_jobs,
+        :workspace_domain_claims,
+        :calendar_owner_state,
+        :active_calendar_jobs,
+        :calendar_erasure_state,
+        :retained_phone_provisioning_commands,
+        :recognition_summary_state,
+        :active_summary_jobs,
+        :native_push_registrations,
+        :native_call_wake_intents,
+        :active_native_call_wake_jobs,
+        :matrix_identities,
+        :private_matrix_rooms,
+        :opaque_private_events,
+        :active_matrix_device_jobs,
+        :active_private_purge_jobs,
+        :federation_state,
+        :active_federation_jobs
       ],
       &{&1, 0}
     )

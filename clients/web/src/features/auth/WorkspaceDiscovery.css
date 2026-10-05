@@ -1,0 +1,5 @@
+.workspace-discovery { margin-block-start: 16px; border-block-start: 1px solid var(--border-default); padding-block-start: 8px; min-width: 0; }
+.workspace-discovery > summary { min-height: 44px; align-content: center; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.workspace-discovery p { overflow-wrap: anywhere; }
+.workspace-discovery form { display: grid; gap: 12px; }
+.workspace-discovery input, .workspace-discovery button { min-height: 44px; min-width: 0; max-width: 100%; }

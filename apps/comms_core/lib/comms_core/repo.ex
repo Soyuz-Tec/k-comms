@@ -43,7 +43,7 @@ defmodule CommsCore.Repo do
         """,
         [
           worker_name,
-          ["available", "scheduled", "executing", "retryable"]
+          ["available", "scheduled", "executing", "retryable", "suspended"]
         ]
       ).rows
 
@@ -64,7 +64,7 @@ defmodule CommsCore.Repo do
         WHERE worker = $1 AND state::text = ANY($2::text[])
           AND args @> '{"continue":true}'::jsonb
         """,
-        [worker_name, ["available", "scheduled", "executing", "retryable"]]
+        [worker_name, ["available", "scheduled", "executing", "retryable", "suspended"]]
       ).rows
 
     case rows do

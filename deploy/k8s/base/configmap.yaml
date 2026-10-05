@@ -5,6 +5,11 @@ metadata:
   labels:
     app.kubernetes.io/component: configuration
 data:
+  FEDERATION_ENABLED: "false"
+  FEDERATION_PROVIDER_QUALIFIED: "false"
+  # ADR-0107 provider effects require separate qualification; keep OFF.
+  TELEPHONY_PROVISIONING_ENABLED: "false"
+  TELEPHONY_PROVISIONING_BINDINGS: "{}"
   PORT: "4000"
   PHX_HOST: k-comms.example.invalid
   PUBLIC_APP_URL: https://k-comms.example.invalid
@@ -31,6 +36,8 @@ data:
   CSP_CONNECT_SOURCES: "'self' wss://k-comms.example.invalid https://k-comms.example.invalid https://objects.example.invalid"
   # Compatibility-named provider settings govern both audio and video calls.
   # The portable base deliberately carries no SFU or TURN workload.
+  TELEPHONY_IVR_QUALIFIED: "false"
+  TELEPHONY_IVR_PROMPT_ALLOWLIST: ""
   AUDIO_PROVIDER_MODE: disabled
   LIVEKIT_SERVER_URL: ""
   LIVEKIT_API_URL: ""
@@ -58,8 +65,19 @@ data:
   SCIM_PROVIDER_NAME: ""
   NOTIFICATION_PROVIDER_MODE: disabled
   PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID: primary
+  NATIVE_PUSH_ENABLED: "false"
+  NATIVE_PUSH_PROVIDER_ENABLED: "false"
+  NATIVE_PUSH_PLATFORM_CONFIGS_JSON: "[]"
+  NATIVE_PUSH_ENCRYPTION_KEY_ID: primary
   WEB_PUSH_VAPID_PUBLIC_KEY: ""
   ATTACHMENT_SCANNER_MODE: disabled
   WEBHOOK_PROVIDER_MODE: disabled
   WEBHOOK_ALLOWED_HOSTS: ""
   WEBHOOK_SECRET_ENCRYPTION_KEY_ID: primary
+  # Optional hosted Calendar export; provider credentials belong in provider Secrets.
+  CALENDAR_ENCRYPTION_KEY_ID: primary
+  CALENDAR_GOOGLE_ENABLED: "false"
+  CALENDAR_GOOGLE_CLIENT_ID: ""
+  CALENDAR_MICROSOFT_ENABLED: "false"
+  CALENDAR_MICROSOFT_CLIENT_ID: ""
+  CALENDAR_MICROSOFT_TENANT_ID: ""

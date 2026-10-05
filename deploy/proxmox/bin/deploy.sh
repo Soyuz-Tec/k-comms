@@ -79,7 +79,11 @@ recovery_compatible() {
     --env PUBLIC_APP_URL=https://localhost \
     --env AUDIO_PROVIDER_MODE=disabled \
     --env TELEPHONY_PROVIDER_MODE=disabled \
+    --env TELEPHONY_PROVISIONING_ENABLED=false \
+    --env TELEPHONY_PROVISIONING_BINDINGS={} \
     --env MEETING_ARTIFACTS_ENABLED=false \
+  --env FEDERATION_ENABLED=false \
+  --env FEDERATION_PROVIDER_QUALIFIED=false \
     --env LIVEKIT_EGRESS_ENABLED=false \
     --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
     --env LIVEKIT_SERVER_URL= \
@@ -247,7 +251,11 @@ run_one_shot \
   --env PUBLIC_APP_URL=https://localhost \
   --env AUDIO_PROVIDER_MODE=disabled \
   --env TELEPHONY_PROVIDER_MODE=disabled \
+  --env TELEPHONY_PROVISIONING_ENABLED=false \
+  --env TELEPHONY_PROVISIONING_BINDINGS={} \
   --env MEETING_ARTIFACTS_ENABLED=false \
+  --env FEDERATION_ENABLED=false \
+  --env FEDERATION_PROVIDER_QUALIFIED=false \
   --env LIVEKIT_EGRESS_ENABLED=false \
   --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
   --env LIVEKIT_SERVER_URL= \
@@ -271,7 +279,11 @@ if [[ "$bootstrap" == true ]]; then
     --env PUBLIC_APP_URL=https://localhost \
     --env AUDIO_PROVIDER_MODE=disabled \
     --env TELEPHONY_PROVIDER_MODE=disabled \
+    --env TELEPHONY_PROVISIONING_ENABLED=false \
+    --env TELEPHONY_PROVISIONING_BINDINGS={} \
     --env MEETING_ARTIFACTS_ENABLED=false \
+  --env FEDERATION_ENABLED=false \
+  --env FEDERATION_PROVIDER_QUALIFIED=false \
     --env LIVEKIT_EGRESS_ENABLED=false \
     --env ARTIFACT_TRANSCRIPTION_ENABLED=false \
     --env LIVEKIT_SERVER_URL= \

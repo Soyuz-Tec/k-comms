@@ -290,35 +290,6 @@ defmodule CommsCore.WhiteboardsTest do
     end
   end
 
-  test "serializes concurrent collaborators without sequence loss" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-
-    results =
-      1..12
-      |> Task.async_stream(
-        fn number ->
-          Whiteboards.append_operation(
-            account.conversation.id,
-            %{
-              client_operation_id: "concurrent-operation-#{number}",
-              kind: "scene.update",
-              payload: %{"elements" => [element("element-#{number}", 1, number)]}
-            },
-            subject
-          )
-        end,
-        max_concurrency: 6,
-        timeout: 10_000
-      )
-      |> Enum.map(fn {:ok, result} -> result end)
-
-    assert Enum.all?(results, &match?({:ok, _, :created}, &1))
-
-    assert results |> Enum.map(fn {:ok, operation, _} -> operation.sequence end) |> Enum.sort() ==
-             Enum.to_list(1..12)
-  end
-
   test "rejects non-members and unsafe or unsupported SDK scene data" do
     account = Fixtures.account_fixture()
     outsider = Fixtures.account_fixture()

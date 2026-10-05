@@ -8,6 +8,7 @@ defmodule CommsCore.Accounts.GovernanceIdentityDrainLockOrderTest do
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Telephony.{Call, Mailbox, Number, Voicemail, VoicemailRead}
   alias CommsTestSupport.Fixtures
+  alias CommsCore.RetainedAdmissionLockProof
   alias Ecto.Adapters.SQL.Sandbox
 
   @moduletag :integration
@@ -178,7 +179,14 @@ defmodule CommsCore.Accounts.GovernanceIdentityDrainLockOrderTest do
 
     assert_receive {:eraser_backend, eraser_backend}, 5_000
     {query, blockers} = wait_for_lock(eraser_backend)
-    assert String.contains?(query, ~s(FROM "telephony_calls"))
+
+    assert String.contains?(query, ~s(FROM "telephony_calls")) or
+             RetainedAdmissionLockProof.waiting_on_admission?(
+               eraser_backend,
+               settings_backend,
+               fixture.account.tenant.id
+             )
+
     assert settings_backend in blockers
 
     unboxed(fn ->

@@ -1,3 +1,4 @@
+import { createSharedDocumentsApi, type SharedDocumentsApi } from "./api/domains/sharedDocuments";
 import type {
   AccountSession,
   Call,
@@ -91,6 +92,7 @@ import { createNotificationsApi } from "./api/domains/notifications";
 import { createIntegrationsApi } from "./api/domains/integrations";
 import { createCallsApi } from "./api/domains/calls";
 import { createTelephonyApi } from "./api/domains/telephony";
+import type { PhoneProvisioningInput, PhoneProvisioningAction } from "./features/telephony/provisioning-types";
 import type { TelephonyApi } from "./api/domains/telephony";
 import type { PhoneNumberInput } from "./features/telephony/types";
 import { createMessagingApi } from "./api/domains/messaging";
@@ -100,6 +102,7 @@ import { createWhiteboardsApi } from "./api/domains/whiteboards";
 import type { DeletionHistoryExportFile, DeletionHistoryPage, DeletionHistoryQuery } from "./types/deletionHistory";
 import type { FixedRolePermission, UserRoleChangePreview } from "./types/rolePermissions";
 import type { UsageExportFile, UsageQuery, UsageReport } from "./types/usage";
+import type { WorkspaceDiscoveryResult, WorkspaceDomainClaim, WorkspaceDomainCreateInput, WorkspaceDomainInventory } from "./types/workspaceDiscovery";
 export type { AuditExportFile, AuditExportInput, BootstrapInput, CreateConversationInput, CreateServiceAccountInput, LoginInput, SendMessageInput, UpdateTenantInput } from "./api/contracts";
 export { ApiError } from "./api/errors";
 export { GuestApiClient } from "./api/guest/GuestApiClient";
@@ -125,9 +128,16 @@ import { createMeetingArtifactsApi, type MeetingArtifactsApi } from "./api/domai
 
 import { createRichContentApi, type RichContentApi } from "./api/domains/rich-content";
 import { createVoicemailApi, type VoicemailApi } from "./api/domains/voicemail";
+import { createPrivateRoomApi } from "./api/domains/private-rooms";
+import type { PrivateRoomApi } from "./features/private-rooms/types";
+
+import { createCalendarApi, type CalendarApi } from "./api/domains/calendar";
+import { createFederationApi, type FederationApi } from "./api/domains/federation";
 
 export class ApiClient {
+  private readonly federationApi: FederationApi;
   private readonly transport: MemberSessionTransport;
+  readonly privateRoomApi: PrivateRoomApi;
   private readonly accountsApi: AccountsApi;
   private readonly richContentApi: RichContentApi;
   private readonly voicemailApi: VoicemailApi;
@@ -139,11 +149,13 @@ export class ApiClient {
   private readonly integrationsApi: IntegrationsApi;
   private readonly callsApi: CallsApi;
   private readonly meetingsApi: MeetingsApi;
+  private readonly calendarApi: CalendarApi;
   private readonly telephonyApi: TelephonyApi;
   private readonly messagingApi: MessagingApi;
   private readonly filesApi: FilesApi;
   private readonly systemApi: SystemApi;
   private readonly whiteboardsApi: WhiteboardsApi;
+  readonly sharedDocuments: SharedDocumentsApi;
 
   constructor(
     baseUrl: string,
@@ -157,6 +169,7 @@ export class ApiClient {
     );
 
     const request: ApiRequest = this.transport.request;
+    this.privateRoomApi = createPrivateRoomApi(request);
     this.richContentApi = createRichContentApi(request);
     this.voicemailApi = createVoicemailApi(request);
     const download = this.transport.download;
@@ -172,14 +185,34 @@ export class ApiClient {
     this.administrationApi = createAdministrationApi(request, download, { operationId });
     this.notificationsApi = createNotificationsApi(request);
     this.integrationsApi = createIntegrationsApi(request);
+    this.federationApi = createFederationApi(request);
     this.callsApi = createCallsApi(request);
+    this.calendarApi = createCalendarApi(request);
     this.meetingsApi = createMeetingsApi(request);
     this.telephonyApi = createTelephonyApi(request);
     this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
     this.filesApi = createFilesApi(request, { attachmentContentType });
     this.systemApi = createSystemApi(request);
     this.whiteboardsApi = createWhiteboardsApi(request);
+    this.sharedDocuments = createSharedDocumentsApi(request);
   }
+
+  calendarConnections(...args: Parameters<CalendarApi["calendarConnections"]>) { return this.calendarApi.calendarConnections(...args); }
+  authorizeCalendar(...args: Parameters<CalendarApi["authorizeCalendar"]>) { return this.calendarApi.authorizeCalendar(...args); }
+  unlinkCalendar(...args: Parameters<CalendarApi["unlinkCalendar"]>) { return this.calendarApi.unlinkCalendar(...args); }
+  calendarExports(...args: Parameters<CalendarApi["calendarExports"]>) { return this.calendarApi.calendarExports(...args); }
+  createCalendarExport(...args: Parameters<CalendarApi["createCalendarExport"]>) { return this.calendarApi.createCalendarExport(...args); }
+  resolveCalendarExport(...args: Parameters<CalendarApi["resolveCalendarExport"]>) { return this.calendarApi.resolveCalendarExport(...args); }
+  federationTrusts(...args: Parameters<FederationApi["federationTrusts"]>) { return this.federationApi.federationTrusts(...args); }
+  putFederationTrust(...args: Parameters<FederationApi["putFederationTrust"]>) { return this.federationApi.putFederationTrust(...args); }
+  federationRoom(...args: Parameters<FederationApi["federationRoom"]>) { return this.federationApi.federationRoom(...args); }
+  createFederationRoom(...args: Parameters<FederationApi["createFederationRoom"]>) { return this.federationApi.createFederationRoom(...args); }
+  federationConsent(...args: Parameters<FederationApi["federationConsent"]>) { return this.federationApi.federationConsent(...args); }
+  inviteFederationParticipant(...args: Parameters<FederationApi["inviteFederationParticipant"]>) { return this.federationApi.inviteFederationParticipant(...args); }
+  sendFederationMessage(...args: Parameters<FederationApi["sendFederationMessage"]>) { return this.federationApi.sendFederationMessage(...args); }
+  federationTimeline(...args: Parameters<FederationApi["federationTimeline"]>) { return this.federationApi.federationTimeline(...args); }
+  exportFederationMetadata(...args: Parameters<FederationApi["exportFederationMetadata"]>) { return this.federationApi.exportFederationMetadata(...args); }
+  closeFederationRoom(...args: Parameters<FederationApi["closeFederationRoom"]>) { return this.federationApi.closeFederationRoom(...args); }
 
   meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }
   createMeeting(conversationId: string, input: MeetingInput): Promise<Meeting> { return this.meetingsApi.createMeeting(conversationId, input); }
@@ -205,6 +238,9 @@ export class ApiClient {
   meetingArtifacts(...args: Parameters<MeetingArtifactsApi["meetingArtifacts"]>) { return this.meetingArtifactsApi.meetingArtifacts(...args); }
   requestRecording(...args: Parameters<MeetingArtifactsApi["requestRecording"]>) { return this.meetingArtifactsApi.requestRecording(...args); }
   requestTranscript(...args: Parameters<MeetingArtifactsApi["requestTranscript"]>) { return this.meetingArtifactsApi.requestTranscript(...args); }
+  requestSummary(...args: Parameters<MeetingArtifactsApi["requestSummary"]>) { return this.meetingArtifactsApi.requestSummary(...args); }
+  consentSummary(...args: Parameters<MeetingArtifactsApi["consentSummary"]>) { return this.meetingArtifactsApi.consentSummary(...args); }
+  artifactSummary(...args: Parameters<MeetingArtifactsApi["artifactSummary"]>) { return this.meetingArtifactsApi.artifactSummary(...args); }
   consentRecording(...args: Parameters<MeetingArtifactsApi["consentRecording"]>) { return this.meetingArtifactsApi.consentRecording(...args); }
   startRecording(...args: Parameters<MeetingArtifactsApi["startRecording"]>) { return this.meetingArtifactsApi.startRecording(...args); }
   stopRecording(...args: Parameters<MeetingArtifactsApi["stopRecording"]>) { return this.meetingArtifactsApi.stopRecording(...args); }
@@ -218,6 +254,11 @@ export class ApiClient {
   reconcilePhoneControl(...args: Parameters<TelephonyApi["reconcilePhoneControl"]>) { return this.telephonyApi.reconcilePhoneControl(...args); }
   phoneRoutes(...args: Parameters<TelephonyApi["phoneRoutes"]>) { return this.telephonyApi.phoneRoutes(...args); }
   savePhoneRoute(...args: Parameters<TelephonyApi["savePhoneRoute"]>) { return this.telephonyApi.savePhoneRoute(...args); }
+  phoneIvrConfiguration(...args: Parameters<TelephonyApi["phoneIvrConfiguration"]>) { return this.telephonyApi.phoneIvrConfiguration(...args); }
+  savePhoneIvr(...args: Parameters<TelephonyApi["savePhoneIvr"]>) { return this.telephonyApi.savePhoneIvr(...args); }
+  phoneAgentState(...args: Parameters<TelephonyApi["phoneAgentState"]>) { return this.telephonyApi.phoneAgentState(...args); }
+  setPhoneAgentState(...args: Parameters<TelephonyApi["setPhoneAgentState"]>) { return this.telephonyApi.setPhoneAgentState(...args); }
+  phoneQueueSnapshot(...args: Parameters<TelephonyApi["phoneQueueSnapshot"]>) { return this.telephonyApi.phoneQueueSnapshot(...args); }
   voicemails(...args: Parameters<VoicemailApi["voicemails"]>) { return this.voicemailApi.voicemails(...args); }
   voicemailPlayback(...args: Parameters<VoicemailApi["voicemailPlayback"]>) { return this.voicemailApi.voicemailPlayback(...args); }
   markVoicemailRead(...args: Parameters<VoicemailApi["markVoicemailRead"]>) { return this.voicemailApi.markVoicemailRead(...args); }
@@ -251,6 +292,34 @@ export class ApiClient {
 
   login(input: LoginInput): Promise<Session>{
     return this.accountsApi.login(input);
+  }
+
+  discoverWorkspace(domain: string): Promise<WorkspaceDiscoveryResult> {
+    return this.accountsApi.discoverWorkspace(domain);
+  }
+
+  workspaceDomains(): Promise<WorkspaceDomainInventory> {
+    return this.administrationApi.workspaceDomains();
+  }
+
+  createWorkspaceDomain(input: WorkspaceDomainCreateInput): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.createWorkspaceDomain(input);
+  }
+
+  renewWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.renewWorkspaceDomain(id, version);
+  }
+
+  verifyWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.verifyWorkspaceDomain(id, version);
+  }
+
+  updateWorkspaceDomainDiscovery(id: string, version: number, discoveryEnabled: boolean): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.updateWorkspaceDomainDiscovery(id, version, discoveryEnabled);
+  }
+
+  removeWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+    return this.administrationApi.removeWorkspaceDomain(id, version);
   }
 
   requestPasswordRecovery(input: { tenant_slug: string; email: string }): Promise<void>{
@@ -622,6 +691,10 @@ export class ApiClient {
 
   phoneConfiguration() { return this.telephonyApi.phoneConfiguration(); }
   phoneAdminConfiguration() { return this.telephonyApi.phoneAdminConfiguration(); }
+  phoneProvisioningState() { return this.telephonyApi.phoneProvisioningState(); }
+  inspectPhoneProvisioning(input: PhoneProvisioningInput) { return this.telephonyApi.inspectPhoneProvisioning(input); }
+  applyPhoneProvisioning(id: string, input: PhoneProvisioningAction) { return this.telephonyApi.applyPhoneProvisioning(id, input); }
+  reconcilePhoneProvisioning(id: string, input: PhoneProvisioningAction) { return this.telephonyApi.reconcilePhoneProvisioning(id, input); }
   phoneNumberAssignment() { return this.telephonyApi.phoneNumberAssignment(); }
   updatePhoneNumber(input: PhoneNumberInput) { return this.telephonyApi.updatePhoneNumber(input); }
   phoneCalls(options: Parameters<TelephonyApi["phoneCalls"]>[0] = {}) { return this.telephonyApi.phoneCalls(options); }

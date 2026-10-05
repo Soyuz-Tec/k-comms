@@ -152,10 +152,62 @@ defmodule CommsCore.Notifications do
   defdelegate list_attempts(subject, opts \\ %{}), to: Deliveries
 
   def enqueue_for_event(event) do
-    Fanout.enqueue_for_event(event, fn availability ->
-      AvailabilityNotifier.notify(availability)
-    end)
+    with :ok <- CommsCore.Notifications.NativePush.enqueue(event) do
+      Fanout.enqueue_for_event(event, fn availability ->
+        AvailabilityNotifier.notify(availability)
+      end)
+    end
   end
+
+  @spec native_push_config(map()) :: {:ok, map()} | {:error, atom()}
+  defdelegate native_push_config(subject), to: CommsCore.Notifications.NativePush, as: :config
+
+  @spec native_push_registrations(map()) ::
+          {:ok, [CommsCore.Notifications.NativePushView.t()]} | {:error, atom()}
+  defdelegate native_push_registrations(subject),
+    to: CommsCore.Notifications.NativePush,
+    as: :registrations
+
+  @spec register_native_push(map(), map()) :: {:ok, map()} | {:error, atom()}
+  defdelegate register_native_push(attrs, subject),
+    to: CommsCore.Notifications.NativePush,
+    as: :register
+
+  @spec revoke_native_push(map(), map()) ::
+          {:ok, CommsCore.Notifications.NativePushView.t()} | {:error, atom()}
+  defdelegate revoke_native_push(attrs, subject),
+    to: CommsCore.Notifications.NativePush,
+    as: :revoke
+
+  @spec admit_native_call_wake(binary(), map(), function()) :: {:ok, map()} | {:error, atom()}
+  defdelegate admit_native_call_wake(id, subject, issuer),
+    to: CommsCore.Notifications.NativePush,
+    as: :admit
+
+  @spec dispatch_native_call_wake(binary(), pos_integer(), module()) ::
+          {:ok, atom()} | {:error, atom()}
+  defdelegate dispatch_native_call_wake(id, version, caller),
+    to: CommsCore.Notifications.NativePush,
+    as: :dispatch
+
+  @spec reconcile_native_push(module(), map()) :: :ok | {:error, atom()}
+  defdelegate reconcile_native_push(caller, args),
+    to: CommsCore.Notifications.NativePush,
+    as: :reconcile
+
+  @doc false
+  @spec release_tenant_fingerprint_fragment(module(), binary()) :: public_map()
+  defdelegate release_tenant_fingerprint_fragment(repo, tenant),
+    to: CommsCore.Notifications.NativePush,
+    as: :tenant_fingerprint_fragment
+
+  @spec rollback_native_wake_hazards() :: %{
+          native_push_registrations: non_neg_integer(),
+          native_call_wake_intents: non_neg_integer()
+        }
+  defdelegate rollback_native_wake_hazards(),
+    to: CommsCore.Notifications.NativePush,
+    as: :rollback_hazards
 
   defdelegate create_intent(attrs), to: Intents, as: :create
   defdelegate claim_intent(id), to: Deliveries, as: :claim

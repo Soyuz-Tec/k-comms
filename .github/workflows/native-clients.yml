@@ -1,0 +1,89 @@
+name: Native clients
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'clients/android/**'
+      - '.github/workflows/native-clients.yml'
+      - 'docs/02-architecture/adr/0100-*'
+      - 'docs/02-architecture/adr/0106-*'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ios/**'
+      - 'clients/android/**'
+      - '.github/workflows/native-clients.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the pinned Xcode and simulator
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun swift --version
+          xcrun simctl list devices available
+      - name: Resolve the exact LiveKit Swift dependency
+        run: xcodebuild -resolvePackageDependencies -project clients/ios/KComms.xcodeproj -scheme KComms
+      - name: Build the unsigned iOS application
+        run: >-
+          xcodebuild -project clients/ios/KComms.xcodeproj -scheme KComms
+          -configuration Release -destination 'generic/platform=iOS'
+          -derivedDataPath '${{ runner.temp }}/kcomms-ios-device'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Preserve unsigned app permissions in an archive
+        run: ditto -c -k --sequesterRsrc --keepParent '${{ runner.temp }}/kcomms-ios-device/Build/Products/Release-iphoneos/KComms.app' '${{ runner.temp }}/kcomms-ios-unsigned.zip'
+      - name: Run protocol, replay, identity and expiry XCTest cases
+        run: >-
+          xcodebuild -project clients/ios/KComms.xcodeproj -scheme KComms
+          -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.5'
+          -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1
+          -derivedDataPath '${{ runner.temp }}/kcomms-ios-tests'
+          -resultBundlePath '${{ runner.temp }}/kcomms-ios-tests.xcresult'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ios-unsigned-and-test-evidence
+          path: |
+            ${{ runner.temp }}/kcomms-ios-unsigned.zip
+            ${{ runner.temp }}/kcomms-ios-tests.xcresult
+            clients/ios/KComms.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if-no-files-found: warn
+          retention-days: 14
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select JDK 17 and pinned Android packages
+        run: |
+          set -euo pipefail
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_17_X64/bin/java" -version
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Test, build and lint Android
+        working-directory: clients/android
+        run: ./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: android-unsigned-and-test-evidence
+          path: |
+            clients/android/app/build/outputs/apk/release/*unsigned.apk
+            clients/android/app/build/outputs/apk/debug/*.apk
+            clients/android/app/build/test-results/
+            clients/android/app/build/reports/
+          if-no-files-found: warn
+          retention-days: 14

@@ -35,7 +35,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
       deadline,
       configured_connect_timeout,
       response_limits,
-      mint_http
+      mint_http,
+      Keyword.get(opts, :protocols, [:http1])
     )
   end
 
@@ -48,7 +49,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
          _deadline,
          _configured_connect_timeout,
          _response_limits,
-         _mint_http
+         _mint_http,
+         _protocols
        ),
        do: {:error, :outbound_transport_error}
 
@@ -61,7 +63,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
          deadline,
          configured_connect_timeout,
          response_limits,
-         mint_http
+         mint_http,
+         protocols
        ) do
     case request_address(
            destination,
@@ -72,7 +75,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
            deadline,
            configured_connect_timeout,
            response_limits,
-           mint_http
+           mint_http,
+           protocols
          ) do
       {:ok, _response} = success ->
         success
@@ -88,7 +92,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
             deadline,
             configured_connect_timeout,
             response_limits,
-            mint_http
+            mint_http,
+            protocols
           )
         else
           {:error, reason}
@@ -108,7 +113,8 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
          deadline,
          configured_connect_timeout,
          response_limits,
-         mint_http
+         mint_http,
+         protocols
        ) do
     remaining = remaining_ms(deadline)
 
@@ -121,7 +127,7 @@ defmodule CommsIntegrations.PinnedHttp.MintTransport do
       connect_opts = [
         hostname: destination.host,
         mode: :passive,
-        protocols: [:http1],
+        protocols: protocols,
         transport_opts: [
           cacerts: :public_key.cacerts_get(),
           timeout: connect_timeout,

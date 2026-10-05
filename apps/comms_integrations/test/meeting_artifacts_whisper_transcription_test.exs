@@ -197,6 +197,50 @@ defmodule CommsIntegrations.MeetingArtifacts.WhisperTranscriptionTest do
     end
   end
 
+  test "pinned recognition authenticates and requires actual source, model and post-recording proofs" do
+    options = Application.fetch_env!(:comms_integrations, :artifact_transcription)
+    token = String.duplicate("synthetic-bearer-", 3)
+    model_hash = String.duplicate("c", 64)
+
+    Application.put_env(
+      :comms_integrations,
+      :artifact_transcription,
+      options |> Keyword.put(:bearer_token, token) |> Keyword.put(:model_sha256, model_hash)
+    )
+
+    fetcher = fn _, _ -> {:ok, @media} end
+
+    good =
+      response()
+      |> Map.merge(%{
+        "id" => "actual-synthetic-computation",
+        "mode" => "post_recording",
+        "model_sha256" => model_hash,
+        "source_sha256" => @checksum
+      })
+
+    requester = fn :post, _, headers, _, _ ->
+      assert {"authorization", "Bearer " <> token} in headers
+      {:ok, %{status: 200, body: Jason.encode!(good)}}
+    end
+
+    assert {:ok, transcript} = WhisperTranscription.transcribe(command(), requester, fetcher)
+    assert transcript.model_sha256 == model_hash
+    assert transcript.source_sha256 == @checksum
+
+    for response <- [
+          Map.put(good, "source_sha256", String.duplicate("b", 64)),
+          Map.put(good, "model_sha256", String.duplicate("a", 64)),
+          Map.put(good, "mode", "live"),
+          Map.delete(good, "id")
+        ] do
+      bad = fn _, _, _, _, _ -> {:ok, %{status: 200, body: Jason.encode!(response)}} end
+
+      assert {:error, :invalid_artifact_transcript} =
+               WhisperTranscription.transcribe(command(), bad, fetcher)
+    end
+  end
+
   defp command do
     %ArtifactTranscriptionRequest{
       tenant_id: "tenant-exact",

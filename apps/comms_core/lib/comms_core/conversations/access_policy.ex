@@ -51,24 +51,24 @@ defmodule CommsCore.Conversations.AccessPolicy do
     do: authorize_public_channel(:leave, conversation_id, subject)
 
   def authorize_read(conversation_id, subject),
-    do: authorize_active_membership(conversation_id, subject)
+    do: authorize_plaintext_membership(conversation_id, subject)
 
   def authorize_send_message(conversation_id, subject),
-    do: authorize_active_membership(conversation_id, subject)
+    do: authorize_plaintext_membership(conversation_id, subject)
 
   def authorize_mark_read(conversation_id, subject),
-    do: authorize_active_membership(conversation_id, subject)
+    do: authorize_plaintext_membership(conversation_id, subject)
 
   def authorize_react_message(conversation_id, subject),
-    do: authorize_active_membership(conversation_id, subject)
+    do: authorize_plaintext_membership(conversation_id, subject)
 
   def authorize_upload_attachment(conversation_id, subject),
-    do: authorize_active_membership(conversation_id, subject)
+    do: authorize_plaintext_membership(conversation_id, subject)
 
   def authorize_use_whiteboard(conversation_id, subject) do
     case Accounts.access_grant(subject) do
       {:ok, %{account_type: :human, access_scope: :workspace}} ->
-        authorize_active_membership(conversation_id, subject)
+        authorize_plaintext_membership(conversation_id, subject)
 
       {:ok, %{account_type: account_type, access_scope: :conversation_only} = grant}
       when account_type in [:guest, :human] ->
@@ -152,7 +152,8 @@ defmodule CommsCore.Conversations.AccessPolicy do
         membership.conversation_id == conversation.id and
           membership.tenant_id == conversation.tenant_id,
       where:
-        conversation.tenant_id == ^tenant_id and membership.user_id == ^user_id and
+        conversation.tenant_id == ^tenant_id and conversation.content_mode == :server_readable and
+          membership.user_id == ^user_id and
           is_nil(membership.left_at) and is_nil(conversation.archived_at) and
           conversation.id not in subquery(unavailable_conversations),
       select: %{
@@ -197,6 +198,20 @@ defmodule CommsCore.Conversations.AccessPolicy do
   defp authorize_active_membership(_conversation_id, _subject),
     do: {:error, :forbidden}
 
+  defp authorize_plaintext_membership(id, subject) do
+    with :ok <- authorize_active_membership(id, subject),
+         %Conversation{content_mode: :server_readable} <-
+           Repo.get_by(Conversation, id: id, tenant_id: value(subject, :tenant_id)) do
+      :ok
+    else
+      %Conversation{content_mode: :matrix_e2ee} ->
+        {:error, :private_room_requires_encrypted_client}
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
   defp authorize_active_ephemeral_membership(conversation_id, grant)
        when is_binary(conversation_id) do
     with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
@@ -228,7 +243,7 @@ defmodule CommsCore.Conversations.AccessPolicy do
     with {:ok, grant} <- Accounts.access_grant(subject) do
       authorization =
         with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
-             %Conversation{} = conversation <-
+             %Conversation{content_mode: :server_readable} = conversation <-
                Repo.get_by(Conversation,
                  id: conversation_id,
                  tenant_id: grant.tenant_id
@@ -322,7 +337,7 @@ defmodule CommsCore.Conversations.AccessPolicy do
           membership.tenant_id == ^value(subject, :tenant_id) and
             membership.user_id == ^value(subject, :user_id) and
             membership.conversation_id == ^conversation_id and is_nil(membership.left_at) and
-            is_nil(conversation.archived_at)
+            is_nil(conversation.archived_at) and conversation.content_mode == :server_readable
       )
     )
   end

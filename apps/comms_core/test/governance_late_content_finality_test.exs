@@ -11,6 +11,7 @@ defmodule CommsCore.GovernanceLateContentFinalityTest do
   alias CommsCore.Messaging.{Message, MessageRevision}
   alias CommsCore.Whiteboards.WriteFence
   alias CommsCore.TrustGovernanceTestSupport
+  alias CommsCore.RetainedAdmissionLockProof
   alias CommsTestSupport.Fixtures
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -104,6 +105,7 @@ defmodule CommsCore.GovernanceLateContentFinalityTest do
           await_erasure_blocker(
             eraser_backend,
             writer_backend,
+            fixture.account.tenant.id,
             System.monotonic_time(:millisecond) + 5_000
           )
 
@@ -143,7 +145,7 @@ defmodule CommsCore.GovernanceLateContentFinalityTest do
 
         # Check final state first so the old order demonstrates the actual
         # surviving-content failure rather than only a query-order mismatch.
-        assert blocker == :identity
+        assert blocker in [:identity, :identity_admission]
       after
         send(writer.pid, {:write_and_commit, release})
         Task.shutdown(eraser, :brutal_kill)
@@ -386,7 +388,7 @@ defmodule CommsCore.GovernanceLateContentFinalityTest do
     fixture
   end
 
-  defp await_erasure_blocker(eraser_backend, writer_backend, deadline) do
+  defp await_erasure_blocker(eraser_backend, writer_backend, tenant, deadline) do
     %{rows: rows} =
       unboxed(fn ->
         Ecto.Adapters.SQL.query!(
@@ -400,30 +402,36 @@ defmodule CommsCore.GovernanceLateContentFinalityTest do
       [["Lock", query, blockers]] when is_binary(query) and is_list(blockers) ->
         cond do
           writer_backend not in blockers ->
-            retry_blocker(eraser_backend, writer_backend, deadline)
+            retry_blocker(eraser_backend, writer_backend, tenant, deadline)
 
           String.contains?(query, ~s(FROM "users")) or
               String.contains?(query, ~s(UPDATE "sessions")) ->
             :identity
 
           String.contains?(query, "pg_advisory_xact_lock") ->
-            :late_author
+            if RetainedAdmissionLockProof.waiting_on_admission?(
+                 eraser_backend,
+                 writer_backend,
+                 tenant
+               ),
+               do: :identity_admission,
+               else: :late_author
 
           true ->
-            retry_blocker(eraser_backend, writer_backend, deadline)
+            retry_blocker(eraser_backend, writer_backend, tenant, deadline)
         end
 
       _ ->
-        retry_blocker(eraser_backend, writer_backend, deadline)
+        retry_blocker(eraser_backend, writer_backend, tenant, deadline)
     end
   end
 
-  defp retry_blocker(eraser_backend, writer_backend, deadline) do
+  defp retry_blocker(eraser_backend, writer_backend, tenant, deadline) do
     if System.monotonic_time(:millisecond) >= deadline do
       flunk("eraser did not wait on the retained writer's real identity/author fence")
     else
       Process.sleep(10)
-      await_erasure_blocker(eraser_backend, writer_backend, deadline)
+      await_erasure_blocker(eraser_backend, writer_backend, tenant, deadline)
     end
   end
 

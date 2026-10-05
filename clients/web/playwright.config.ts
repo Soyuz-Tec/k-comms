@@ -5,7 +5,8 @@ const liveVideoE2E = process.env.K_COMMS_LIVE_VIDEO_E2E === "true";
 const liveMediaE2E = liveAudioE2E || liveVideoE2E;
 const liveWhiteboardE2E =
   process.env.K_COMMS_LIVE_WHITEBOARD_E2E === "true";
-const liveBackendE2E = liveMediaE2E || liveWhiteboardE2E;
+const livePrivateE2E = process.env.K_COMMS_LIVE_PRIVATE_E2EE === "true";
+const liveBackendE2E = liveMediaE2E || liveWhiteboardE2E || livePrivateE2E || process.env.K_COMMS_LIVE_DOCUMENTS_E2E === "true";
 const externalServer = process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
 /*
  * WebKit runs in CI only.
@@ -36,7 +37,7 @@ if (!runWebKit && process.env.TEST_WORKER_INDEX === undefined) {
 
 const mockedBaseURL =
   process.env.K_COMMS_E2E_BASE_URL || "http://127.0.0.1:4178";
-const liveBackendBaseURL = liveVideoE2E
+const liveBackendBaseURL = livePrivateE2E ? process.env.K_COMMS_LIVE_PRIVATE_BASE_URL || "https://127.0.0.1:4178" : liveVideoE2E
   ? process.env.K_COMMS_LIVE_VIDEO_BASE_URL || "http://127.0.0.1:4178"
   : liveAudioE2E
     ? process.env.K_COMMS_LIVE_AUDIO_BASE_URL || "http://127.0.0.1:4178"
@@ -103,7 +104,7 @@ export default defineConfig({
             // A deliberate subset keeps the cross-engine gate bounded. Device
             // emulation does not qualify physical iOS media or backgrounding.
             name: "mobile-webkit",
-            testMatch: /(?:client-recovery|mobile-webkit|whiteboard|full-uc-member-setup|full-uc-usage-report)\.spec\.ts/,
+            testMatch: /(?:client-recovery|mobile-webkit|whiteboard|full-uc-member-setup|full-uc-usage-report|workspace-discovery)\.spec\.ts/,
             use: { ...devices["iPhone 13"] }
           }
         ]
@@ -120,7 +121,9 @@ export default defineConfig({
       ? {
           VITE_DISABLE_REALTIME: "false",
           VITE_PROXY_TARGET:
-            (liveVideoE2E
+            (livePrivateE2E
+              ? process.env.K_COMMS_LIVE_PRIVATE_API_URL
+              : liveVideoE2E
               ? process.env.K_COMMS_LIVE_VIDEO_API_URL
               : liveAudioE2E
                 ? process.env.K_COMMS_LIVE_AUDIO_API_URL

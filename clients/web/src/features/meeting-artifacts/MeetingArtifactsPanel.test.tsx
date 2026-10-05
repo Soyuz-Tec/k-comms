@@ -8,7 +8,7 @@ import { MeetingArtifactsPanel } from "./MeetingArtifactsPanel";
 const recording: MeetingArtifact = { id: "recording-1", call_id: "call-1", conversation_id: "conversation-1", kind: "recording", status: "pending_consent", created_at: "2026-10-04T12:00:00Z", expires_at: "2026-11-04T12:00:00Z", consent_required_count: 2, consent_accepted_count: 0, my_consent: false, can_manage: true, content_type: "video/mp4" };
 function page(data: MeetingArtifact[], enabled = true): MeetingArtifactPage { return { data, capabilities: { recording: enabled, recording_reason: "privacy_opt_in_required", participant_consent_required: true, persistent_transcript: enabled, persistent_transcript_reason: "qualified_provider_required", captions: "provider_events_only", automatic_capture: false } }; }
 function api(response: MeetingArtifactPage): MeetingArtifactsApi {
-  return { meetingArtifacts: vi.fn().mockResolvedValue(response), requestRecording: vi.fn().mockResolvedValue(recording), requestTranscript: vi.fn().mockResolvedValue(recording), consentRecording: vi.fn().mockResolvedValue(recording), startRecording: vi.fn().mockResolvedValue(recording), stopRecording: vi.fn().mockResolvedValue(recording), artifactPlayback: vi.fn(), artifactTranscript: vi.fn(), deleteMeetingArtifact: vi.fn().mockResolvedValue(recording) };
+  return { meetingArtifacts: vi.fn().mockResolvedValue(response), requestRecording: vi.fn().mockResolvedValue(recording), requestTranscript: vi.fn().mockResolvedValue(recording), requestSummary: vi.fn().mockResolvedValue(recording), consentSummary: vi.fn().mockResolvedValue(recording), artifactSummary: vi.fn(), consentRecording: vi.fn().mockResolvedValue(recording), startRecording: vi.fn().mockResolvedValue(recording), stopRecording: vi.fn().mockResolvedValue(recording), artifactPlayback: vi.fn(), artifactTranscript: vi.fn(), deleteMeetingArtifact: vi.fn().mockResolvedValue(recording) };
 }
 
 describe("meeting artifacts", () => {
@@ -84,4 +84,29 @@ describe("meeting artifacts", () => {
     expect(document.querySelector("video")).toBeNull();
     expect(screen.getByRole("button", { name: "Request recording consent" })).toBeDisabled();
   });
+  it("requires a separate summary choice before capture and never reuses recording consent", async () => {
+    const capture = { ...recording, my_consent: true, consent_accepted_count: 2, summary_requested: true, summary_policy_version: "meeting-summary-v1" as const, summary_consent_required_count: 2, summary_consent_accepted_count: 0, my_summary_consent: false };
+    const client = api(page([capture]));
+    render(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" joined canManage />);
+    expect(await screen.findByRole("button", { name: "Start recording" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "I separately consent to selected-quote summaries" }));
+    await waitFor(() => expect(client.consentSummary).toHaveBeenCalledWith("conversation-1", "call-1", "recording-1", true));
+    expect(client.startRecording).not.toHaveBeenCalled();
+    expect(client.consentRecording).not.toHaveBeenCalled();
+  });
+
+  it("escapes selected quotes and clears them when current access cannot be refreshed", async () => {
+    const artifact = { ...recording, id: "summary-1", kind: "summary" as const, status: "available" as const, source_artifact_id: "transcript-1" };
+    const client = api(page([artifact]));
+    vi.mocked(client.artifactSummary).mockResolvedValue({ data: artifact, summary: { method: "extractive_quotes", text: "<script>Restricted quote</script>", source_artifact_id: "transcript-1", source_sha256: "a".repeat(64), summary_sha256: "b".repeat(64), policy_version: "meeting-summary-v1" } });
+    render(<MeetingArtifactsPanel api={client} conversationId="conversation-1" callId="call-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Read selected-quote summary" }));
+    expect(await screen.findByText("<script>Restricted quote</script>")).toBeVisible();
+    expect(document.querySelector(".meeting-artifacts script")).toBeNull();
+    vi.mocked(client.meetingArtifacts).mockRejectedValue(new Error("Current authority revoked"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete summary" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Current authority revoked");
+    expect(screen.queryByText("<script>Restricted quote</script>")).not.toBeInTheDocument();
+  });
+
 });

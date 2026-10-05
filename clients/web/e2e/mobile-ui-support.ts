@@ -207,6 +207,7 @@ export async function installWorkspace(
       display_name: "Ada Lovelace",
       email: "ada@example.test",
       account_type: "human",
+      access_scope: "workspace",
       role: "owner",
       platform_role: "platform_operator",
       platform_role_expires_at: "2099-01-01T00:00:00Z",

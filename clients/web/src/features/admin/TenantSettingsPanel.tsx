@@ -10,6 +10,7 @@ interface WorkspaceDraft {
   name: string;
   allow_audio_calls: boolean;
   allow_video_calls: boolean;
+  allow_calendar_export: boolean;
   allow_public_channels: boolean;
   message_edit_window_minutes: string;
   max_attachment_mb: string;
@@ -24,6 +25,7 @@ function workspaceDraft(state: TenantAdministration): WorkspaceDraft {
     name: state.tenant.name,
     allow_audio_calls: state.settings.allow_audio_calls,
     allow_video_calls: state.settings.allow_video_calls,
+    allow_calendar_export: state.settings.allow_calendar_export ?? false,
     allow_public_channels: state.settings.allow_public_channels,
     message_edit_window_minutes: String(state.settings.message_edit_window_seconds / 60),
     max_attachment_mb: String(state.settings.max_attachment_bytes / 1_000_000),
@@ -54,6 +56,7 @@ function wholeUnits(value: string, scale: number, label: string, minimum: number
 const impacts: Record<keyof WorkspaceDraft, { label: string; impact: string; unit?: string }> = {
   name: { label: "Workspace name", impact: "Updates the workspace name shown to members." },
   allow_audio_calls: { label: "Audio calls", impact: "Members' access to audio calls follows this setting." },
+  allow_calendar_export: { label: "Calendar export", impact: "Allows explicit per-meeting export to a connected calendar. Disabling withdraws consent and queues managed event cleanup." },
   allow_video_calls: { label: "Video calls", impact: "Members' access to video calls follows this setting." },
   allow_public_channels: { label: "Public channels", impact: "Controls whether members can create workspace-visible public channels." },
   message_edit_window_minutes: { label: "Message edit window", unit: "minutes", impact: "Changes how long members can edit their messages." },
@@ -105,6 +108,7 @@ export function TenantSettingsPanel({ api, onUpdated }: { api: ApiClient; onUpda
         name: draft.name.trim(),
         allow_audio_calls: draft.allow_audio_calls,
         allow_video_calls: draft.allow_video_calls,
+        ...(draft.allow_calendar_export !== original.allow_calendar_export ? { allow_calendar_export: draft.allow_calendar_export } : {}),
         allow_public_channels: draft.allow_public_channels,
         message_edit_window_seconds: draft.message_edit_window_minutes === original.message_edit_window_minutes
           ? state.settings.message_edit_window_seconds
@@ -143,6 +147,7 @@ export function TenantSettingsPanel({ api, onUpdated }: { api: ApiClient; onUpda
         <label className="field">Attachment limit (MB)<input name="max_attachment_mb" type="number" min={0.000001} max={1073.741824} step="any" value={draft.max_attachment_mb} onChange={(event) => updateDraft("max_attachment_mb", event.target.value)} required /><small>1 MB = 1,000,000 bytes. Saved limit: {formatBytes(state.settings.max_attachment_bytes)}.</small></label>
       </div>
       <label className="checkbox-field"><input name="allow_audio_calls" type="checkbox" checked={draft.allow_audio_calls} onChange={(event) => updateDraft("allow_audio_calls", event.target.checked)} />Allow members to start and join audio calls</label>
+      <label className="checkbox-field"><input name="allow_calendar_export" type="checkbox" checked={draft.allow_calendar_export} onChange={event => updateDraft("allow_calendar_export", event.target.checked)} />Allow explicit export of hosted meetings to connected calendars</label>
       <label className="checkbox-field"><input name="allow_video_calls" type="checkbox" checked={draft.allow_video_calls} onChange={(event) => updateDraft("allow_video_calls", event.target.checked)} />Allow members to start and join video calls</label>
       <label className="checkbox-field"><input name="allow_public_channels" type="checkbox" checked={draft.allow_public_channels} onChange={(event) => updateDraft("allow_public_channels", event.target.checked)} />Allow workspace-visible public channels</label>
     </fieldset>

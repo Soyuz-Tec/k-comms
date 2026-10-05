@@ -5,6 +5,13 @@ defmodule CommsCore.Conversations.Conversation do
     field(:tenant_id, Ecto.UUID)
     field(:created_by_user_id, Ecto.UUID)
     field(:kind, Ecto.Enum, values: [:direct, :group, :channel], default: :group)
+    # Deliberately absent from the ordinary changeset's cast list: only the
+    # explicit new-private-room command may choose encryption mode.
+    field(:content_mode, Ecto.Enum,
+      values: [:server_readable, :matrix_e2ee],
+      default: :server_readable
+    )
+
     field(:title, :string)
     field(:visibility, Ecto.Enum, values: [:private, :tenant], default: :private)
     field(:direct_key, :string)

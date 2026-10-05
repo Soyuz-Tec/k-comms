@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/recognition-summary.v1.json",
+  "title": "recognition-summary.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ArtifactSummary"
+    },
+    {
+      "$ref": "#/$defs/SummaryConsent"
+    },
+    {
+      "$ref": "#/$defs/SummaryRequest"
+    }
+  ],
+  "$defs": {
+    "SummaryConsent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "policy_version"
+      ],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "policy_version": {
+          "const": "meeting-summary-v1"
+        }
+      }
+    },
+    "ArtifactSummaryView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "text",
+        "source_artifact_id",
+        "source_sha256",
+        "summary_sha256",
+        "policy_version"
+      ],
+      "properties": {
+        "method": {
+          "const": "extractive_quotes"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "description": "Selected unchanged transcript quotes; UTF-8 <=16384 bytes, no inferred facts."
+        },
+        "source_artifact_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "summary_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "policy_version": {
+          "const": "meeting-summary-v1"
+        }
+      }
+    },
+    "ArtifactSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "summary"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "meeting-artifact.v1.json#/$defs/MeetingArtifact"
+        },
+        "summary": {
+          "$ref": "#/$defs/ArtifactSummaryView"
+        }
+      }
+    },
+    "SummaryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_artifact_id",
+        "idempotency_key"
+      ],
+      "properties": {
+        "kind": {
+          "const": "summary"
+        },
+        "source_artifact_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 120
+        }
+      }
+    }
+  }
+}

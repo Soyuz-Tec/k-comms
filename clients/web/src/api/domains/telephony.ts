@@ -1,10 +1,21 @@
 import type { ApiRequest } from "../contracts";
+import type { PhoneProvisioningState, PhoneProvisioningInput, PhoneProvisioningAction, PhoneProvisioningCommand } from "../../features/telephony/provisioning-types";
 import type { DataResponse } from "../../types";
 import type { PhoneCapabilities, PhoneControlInput, PhoneControlReceipt, PhoneRoute, PhoneRouteInput, PhoneCall, PhoneCallsPage, PhoneConfiguration, PhoneNumberInput, PhoneSession } from "../../features/telephony/types";
+import type { AgentQueueState, AgentQueueStateInput, IvrConfiguration, IvrMenu, IvrMenuInput, QueueSnapshot } from "../../features/telephony/ivrTypes";
 
 export function createTelephonyApi(request: ApiRequest) {
   const callPath = (id: string) => `/api/v1/telephony/calls/${encodeURIComponent(id)}`;
   return {
+    phoneIvrConfiguration: () => request<DataResponse<IvrConfiguration>>("/api/v1/admin/telephony/ivr").then(({ data }) => data),
+    savePhoneIvr: (input: IvrMenuInput) => request<DataResponse<IvrMenu>>("/api/v1/admin/telephony/ivr", { method: "PUT", body: JSON.stringify(input) }).then(({ data }) => data),
+    phoneAgentState: () => request<DataResponse<AgentQueueState>>("/api/v1/telephony/agent-state").then(({ data }) => data),
+    setPhoneAgentState: (input: AgentQueueStateInput) => request<DataResponse<AgentQueueState>>("/api/v1/telephony/agent-state", { method: "PUT", body: JSON.stringify(input) }).then(({ data }) => data),
+    phoneQueueSnapshot: () => request<DataResponse<QueueSnapshot>>("/api/v1/admin/telephony/queues/current").then(({ data }) => data),
+    phoneProvisioningState: () => request<DataResponse<PhoneProvisioningState>>("/api/v1/admin/telephony/provisioning").then(({ data }) => data),
+    inspectPhoneProvisioning: (input: PhoneProvisioningInput) => request<DataResponse<PhoneProvisioningCommand>>("/api/v1/admin/telephony/provisioning/inspect", { method: "POST", body: JSON.stringify(input) }).then(({ data }) => data),
+    applyPhoneProvisioning: (id: string, input: PhoneProvisioningAction) => request<DataResponse<PhoneProvisioningCommand>>(`/api/v1/admin/telephony/provisioning/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify(input) }).then(({ data }) => data),
+    reconcilePhoneProvisioning: (id: string, input: PhoneProvisioningAction) => request<DataResponse<PhoneProvisioningCommand>>(`/api/v1/admin/telephony/provisioning/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(input) }).then(({ data }) => data),
     phoneRoutes: () => request<{ data: PhoneRoute[]; limit: number }>("/api/v1/admin/telephony/routes"),
     savePhoneRoute: (input: PhoneRouteInput) => request<DataResponse<PhoneRoute>>("/api/v1/admin/telephony/routes", { method: "PUT", body: JSON.stringify(input) }).then(({ data }) => data),
     phoneCapabilities: () => request<DataResponse<PhoneCapabilities>>("/api/v1/telephony/capabilities").then(({ data }) => data),

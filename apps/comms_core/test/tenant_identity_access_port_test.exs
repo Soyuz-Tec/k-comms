@@ -9,6 +9,9 @@ defmodule CommsCore.Administration.IdentityAccessPortTest do
     @behaviour CommsCore.Administration.IdentityAccessPort
 
     @impl true
+    def lock_access(subject, _deadline), do: resolve_access(subject)
+
+    @impl true
     def resolve_access(_subject) do
       {:ok,
        %IdentityGrant{

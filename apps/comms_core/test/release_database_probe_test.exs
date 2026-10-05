@@ -101,6 +101,75 @@ defmodule CommsCore.ReleaseDatabaseProbeTest do
     end
   end
 
+  @tag :suspended_rollback_job
+  test "platform persistence counts a suspended exact-worker obligation without terminal or unrelated jobs" do
+    assert :suspended in Oban.Job.unique_states(:incomplete)
+    worker_name = RuntimePorts.job_worker_name!(:guest_admission_expiry)
+    other_worker = worker_name <> "UnrelatedSuspendedProbe"
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    initial_worker_count = Repo.active_oban_job_count!(worker_name)
+    initial_other_worker_count = Repo.active_oban_job_count!(other_worker)
+
+    suspended =
+      Oban.Job.new(%{"probe" => Ecto.UUID.generate()},
+        worker: worker_name,
+        state: "suspended",
+        queue: "default"
+      )
+      |> Repo.insert!()
+
+    terminals =
+      for state <- ~w(completed discarded cancelled) do
+        insert_job(worker_name, state, timestamp)
+      end
+
+    unrelated = insert_job(other_worker, "suspended", timestamp)
+
+    assert Repo.active_oban_job_count!(worker_name) == initial_worker_count + 1
+    assert Repo.active_oban_job_count!(other_worker) == initial_other_worker_count + 1
+    assert Repo.get!(Oban.Job, suspended.id).state == "suspended"
+    assert Repo.get!(Oban.Job, unrelated.id).state == "suspended"
+
+    assert Enum.map(terminals, &Repo.get!(Oban.Job, &1.id).state) ==
+             ~w(completed discarded cancelled)
+  end
+
+  @tag :suspended_rollback_job
+  test "history continuation probes retain only suspended exact-worker true continuations" do
+    assert :suspended in Oban.Job.unique_states(:incomplete)
+    worker_name = RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
+    other_worker = worker_name <> "UnrelatedSuspendedContinuation"
+    initial_count = Repo.active_continuation_oban_job_count!(worker_name)
+    initial_other_count = Repo.active_continuation_oban_job_count!(other_worker)
+
+    insert = fn worker, state, args ->
+      Oban.Job.new(args, worker: worker, state: state, queue: "default")
+      |> Repo.insert!()
+    end
+
+    continuation = insert.(worker_name, "suspended", %{"continue" => true})
+    not_continuation = insert.(worker_name, "suspended", %{"continue" => false})
+    missing = insert.(worker_name, "suspended", %{})
+    malformed = insert.(worker_name, "suspended", %{"continue" => "true"})
+
+    terminals =
+      for state <- ~w(completed discarded cancelled) do
+        insert.(worker_name, state, %{"continue" => true})
+      end
+
+    unrelated = insert.(other_worker, "suspended", %{"continue" => true})
+
+    assert Repo.active_continuation_oban_job_count!(worker_name) == initial_count + 1
+    assert Repo.active_continuation_oban_job_count!(other_worker) == initial_other_count + 1
+
+    for job <- [continuation, not_continuation, missing, malformed, unrelated] ++ terminals do
+      persisted = Repo.get!(Oban.Job, job.id)
+      assert persisted.state == job.state
+      assert persisted.worker == job.worker
+      assert persisted.args == job.args
+    end
+  end
+
   defp insert_job(worker_name, state, timestamp) do
     %Oban.Job{}
     |> Ecto.Changeset.change(%{

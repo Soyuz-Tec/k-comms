@@ -48,11 +48,23 @@ spec:
               value: worker
             - name: K_COMMS_RUNTIME_PURPOSE
               value: one_shot
+            - name: CALENDAR_GOOGLE_ENABLED
+              value: "false"
+            - name: CALENDAR_MICROSOFT_ENABLED
+              value: "false"
             - name: AUDIO_PROVIDER_MODE
               value: "disabled"
+            - name: TELEPHONY_PROVISIONING_ENABLED
+              value: "false"
+            - name: TELEPHONY_PROVISIONING_BINDINGS
+              value: "{}"
             - name: TELEPHONY_PROVIDER_MODE
               value: "disabled"
             - name: MEETING_ARTIFACTS_ENABLED
+              value: "false"
+            - name: FEDERATION_ENABLED
+              value: "false"
+            - name: FEDERATION_PROVIDER_QUALIFIED
               value: "false"
             - name: LIVEKIT_EGRESS_ENABLED
               value: "false"
