@@ -491,6 +491,7 @@ defmodule CommsCore.Conversations do
   @spec usage_projection(CommsCore.Conversations.UsageQuery.t(), map()) ::
           {:ok, CommsCore.Conversations.UsageProjection.t()}
           | {:error, :invalid_usage_query | :forbidden | :step_up_required}
-  defdelegate usage_projection(query, subject), to: CommsCore.Conversations.UsageReports, as: :project
-
+  defdelegate usage_projection(query, subject),
+    to: CommsCore.Conversations.UsageReports,
+    as: :project
 end

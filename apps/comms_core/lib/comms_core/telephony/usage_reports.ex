@@ -99,7 +99,8 @@ defmodule CommsCore.Telephony.UsageReports do
       Repo.all(
         from(row in Call,
           where:
-            row.tenant_id == ^tenant_id and row.started_at >= ^start_at and row.started_at < ^end_at,
+            row.tenant_id == ^tenant_id and row.started_at >= ^start_at and
+              row.started_at < ^end_at,
           group_by: [fragment("?::date", row.started_at), row.status, row.direction],
           select: {fragment("?::date", row.started_at), row.status, row.direction, count(row.id)}
         )

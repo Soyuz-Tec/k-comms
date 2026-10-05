@@ -2232,6 +2232,162 @@ def validate_enterprise_identity_contract(openapi: dict[str, Any]) -> None:
         raise ValueError("MFA recovery code receipt must contain exactly ten one-use codes")
 
 
+def validate_member_workflow_contract(
+    openapi: dict[str, Any], payloads: dict[str, dict[str, Any]] | None = None
+) -> None:
+    """Retain private CAS, advisory roles and content-free retained evidence."""
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    operations = {
+        ("/api/v1/me/workspace", "get"): ("MemberWorkspaceResponse", None),
+        ("/api/v1/me/workspace", "put"): ("MemberWorkspaceResponse", "ReplaceMemberWorkspaceRequest"),
+        ("/api/v1/me/onboarding", "patch"): ("MemberWorkspaceResponse", "UpdateMemberOnboardingRequest"),
+        ("/api/v1/admin/role-permissions", "get"): ("FixedRolePermissionResponse", None),
+        ("/api/v1/admin/users/{userId}/role-preview", "post"): ("UserRoleChangePreviewResponse", "PreviewUserRoleRequest"),
+        ("/api/v1/admin/usage", "get"): ("UsageReportResponse", None),
+        ("/api/v1/admin/usage/export", "get"): (None, None),
+        ("/api/v1/admin/deletion-requests/{requestId}/timeline", "get"): ("DeletionRequestTimelineResponse", None),
+        ("/api/v1/admin/deletion-requests/{requestId}/timeline/export", "get"): (None, None),
+    }
+    for (path, method), (response, request) in operations.items():
+        operation = paths.get(path, {}).get(method, {})
+        if operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError(f"Member workflow requires current human bearerAuth: {method.upper()} {path}")
+        content = operation.get("responses", {}).get("200", {}).get("content", {})
+        if response and content.get("application/json", {}).get("schema") != {"$ref": f"#/components/schemas/{response}"}:
+            raise ValueError(f"Member workflow has the wrong response projection: {path}")
+        if request:
+            body = operation.get("requestBody", {})
+            if body.get("required") is not True or body.get("content", {}).get("application/json", {}).get("schema") != {"$ref": f"#/components/schemas/{request}"}:
+                raise ValueError(f"Member workflow requires its versioned request body: {path}")
+            if not {"409", "422", "428"} <= set(operation.get("responses", {})):
+                raise ValueError(f"Member workflow requires CAS, invalid-input and proof/version errors: {path}")
+        elif response is None and set(content) != {"text/csv"}:
+            raise ValueError(f"Member workflow export requires text/csv: {path}")
+
+    def exact_object(name: str, fields: set[str], required: set[str] | None = None) -> dict[str, Any]:
+        value = schemas.get(name, {})
+        if value.get("type") != "object" or value.get("additionalProperties") is not False or set(value.get("properties", {})) != fields or set(value.get("required", [])) != (fields if required is None else required):
+            raise ValueError(f"{name} must retain its exact private/allowlisted projection")
+        return value["properties"]
+
+    exact_object("PrivateContact", {"id", "display_name"})
+    group = exact_object("PrivateContactGroup", {"id", "name", "member_ids"})
+    if group["name"].get("maxLength") != 80 or group["member_ids"].get("maxItems") != 50 or group["member_ids"].get("uniqueItems") is not True:
+        raise ValueError("Private groups must retain bounded names and unique members")
+    workspace = exact_object("MemberWorkspace", {"version", "contacts", "groups", "onboarding", "limits", "observed_at"})
+    replacement = exact_object("ReplaceMemberWorkspaceRequest", {"version", "contact_ids", "groups"})
+    onboarding = exact_object("UpdateMemberOnboardingRequest", {"version", "action"})
+    for value in (workspace, replacement, onboarding):
+        if value["version"] != {"type": "integer", "minimum": 0}:
+            raise ValueError("Private workspace CAS must require the observed integer version including zero")
+    if workspace["contacts"].get("maxItems") != 500 or replacement["contact_ids"].get("maxItems") != 500 or replacement["contact_ids"].get("uniqueItems") is not True or workspace["groups"].get("maxItems") != 20 or replacement["groups"].get("maxItems") != 20:
+        raise ValueError("Private workspace inventory must retain contacts/groups bounds")
+    if set(onboarding["action"].get("enum", [])) != {"dismiss", "resume", "reset"}:
+        raise ValueError("Onboarding cannot invent profile completion authority")
+    limits = exact_object("MemberWorkspaceLimits", {"contacts", "groups", "members_per_group"})
+    if {name: value.get("const") for name, value in limits.items()} != {"contacts": 500, "groups": 20, "members_per_group": 50}:
+        raise ValueError("Private workspace limits must match the retained owner bounds")
+
+    if set(schemas.get("FixedTenantRole", {}).get("enum", [])) != {"member", "moderator", "admin", "compliance_admin", "security_admin", "owner"}:
+        raise ValueError("Fixed roles cannot add custom or platform authority")
+    capability = exact_object("RoleCapabilityFact", {"capability", "scope", "conditions"})
+    if capability["scope"] != {"const": "tenant"} or set(capability["capability"].get("enum", [])) != {"administer_users", "manage_user_lifecycle", "manage_sessions", "manage_tenant_settings", "manage_invitations", "audit_tenant", "govern_tenant"} or set(capability["conditions"].get("items", {}).get("enum", [])) != {"active_tenant", "active_identity", "current_session", "recent_step_up", "workspace_access"}:
+        raise ValueError("Role capability facts must retain tenant eligibility and current conditions")
+    required_conditions = {"active_tenant", "active_identity", "current_session", "workspace_access"}
+    if capability["conditions"].get("minItems") != 4 or {item.get("contains", {}).get("const") for item in capability["conditions"].get("allOf", [])} != required_conditions:
+        raise ValueError("Role eligibility cannot omit current tenant, identity, session or workspace conditions")
+    catalog = exact_object("FixedRolePermissionResponse", {"data"})["data"]
+    role_set = set(schemas["FixedTenantRole"]["enum"])
+    if catalog.get("minItems") != 6 or catalog.get("maxItems") != 6 or {item.get("contains", {}).get("properties", {}).get("role", {}).get("const") for item in catalog.get("allOf", [])} != role_set or any(item.get("minContains") != 1 or item.get("maxContains") != 1 for item in catalog.get("allOf", [])):
+        raise ValueError("Fixed-role catalog must return each of the six existing roles exactly once")
+    preview = exact_object("UserRoleChangePreview", {"target_id", "current_role", "requested_role", "current_version", "target_status", "target_access_scope", "role_policy_allows", "blockers", "added", "removed", "advisory", "scope", "governance_review_required"})
+    if preview["advisory"] != {"const": True} or preview["scope"] != {"const": "tenant"} or preview["governance_review_required"] != {"const": True} or set(preview["blockers"].get("items", {}).get("enum", [])) != {"forbidden", "last_owner_required"}:
+        raise ValueError("Role preview must remain advisory with eligible last-owner/policy blockers")
+    exact_object("PreviewUserRoleRequest", {"role", "version"})
+
+    report = exact_object("UsageReport", {"range", "observed_at", "coverage", "lifetime_complete", "sources"})
+    if report["coverage"] != {"const": "currently_retained_records"} or report["lifetime_complete"] != {"const": False}:
+        raise ValueError("Usage must state retained coverage and deny lifetime completeness")
+    range_properties = exact_object("UsageReportRange", {"from", "through", "time_zone"})
+    if range_properties["time_zone"] != {"const": "UTC"}:
+        raise ValueError("Usage daily buckets must use UTC")
+    metrics = {
+        "identity": ({"active_humans", "active_services"}, {"humans_created", "services_created"}),
+        "conversations": ({"active_conversations"}, {"direct_created", "group_created", "channel_created"}),
+        "messages": ({"retained_messages"}, {"created", "current_active", "current_deleted", "current_moderated"}),
+        "attachments": ({"ready_retained_count", "ready_retained_bytes"}, {"created", "ready_count", "ready_bytes"}),
+        "calls": ({"current_active", "current_ending"}, {"started", "audio_started", "video_started", "status_active", "status_ending", "status_ended", "observed_room_seconds"}),
+        "telephony": ({"current_ringing", "current_answered"}, {"started", "inbound_started", "outbound_started", "status_ringing", "status_answered", "status_declined", "status_no_answer", "status_cancelled", "status_failed", "status_ended", "status_busy", "observed_answered_seconds"}),
+    }
+    sources = exact_object("UsageReportSources", set(metrics))
+    for source, (current, daily) in metrics.items():
+        name = f"Usage{source.title()}"
+        if sources[source] != {"$ref": f"#/components/schemas/{name}Source"}:
+            raise ValueError("Usage requires exactly six canonical owner sources")
+        variants = schemas.get(name + "Source", {}).get("oneOf", [])
+        expected = [
+            {"type": "object", "additionalProperties": False, "required": ["status", "data"], "properties": {"status": {"const": "available"}, "data": {"$ref": f"#/components/schemas/{name}Projection"}}},
+            {"type": "object", "additionalProperties": False, "required": ["status", "data"], "properties": {"status": {"const": "unavailable"}, "data": {"type": "null"}}},
+        ]
+        if variants != expected:
+            raise ValueError("Unavailable usage sources must contain null data, never invented zero totals")
+        projection = exact_object(name + "Projection", {"observed_at", "earliest_retained_at", "current", "daily"})
+        if projection["daily"].get("maxItems") != 31:
+            raise ValueError("Usage daily projection must retain its 31-day bound")
+        for suffix, fields in (("Current", current), ("DailyMetrics", daily)):
+            values = exact_object(name + suffix, fields)
+            if any(value != {"type": "integer", "minimum": 0} for value in values.values()):
+                raise ValueError("Usage must expose only nonnegative content-free owner metrics")
+
+    proof_keys = {"derived_erasure_version", "media_erasure_version", "meeting_erasure_version", "writer_fence_erasure_version"}
+    count_keys = {"messages_tombstoned", "attachments_deleted", "deleted_object_count"}
+    for name, fields in (("DeletionHistoryProofVersions", proof_keys), ("DeletionHistoryCounts", count_keys), ("DeletionHistoryEvidence", proof_keys | count_keys)):
+        values = exact_object(name, fields, set())
+        if any(value != {"type": "integer", "minimum": 0, "maximum": 9_007_199_254_740_991} for value in values.values()):
+            raise ValueError("History proof/count facts must be bounded allowlisted integers")
+    event = exact_object("DeletionHistoryEvent", {"id", "actor", "inserted_at", "action", "status", "attempt", "error_code", "version", "proof_versions", "counts"})
+    if set(event["error_code"].get("enum", [])) != {"provider_failure", "verification_pending", "unavailable", None}:
+        raise ValueError("History cannot disclose raw provider or worker errors")
+    timeline = exact_object("DeletionRequestTimeline", {"request", "events", "limit", "next_cursor", "snapshot", "observed_at", "snapshot_observed_at", "coverage"})
+    coverage = exact_object("DeletionHistoryCoverage", {"state", "retained_only", "version_lineage", "origin_present", "earliest_at", "snapshot_truncated", "captured_count", "retained_count", "maximum_events"})
+    if coverage["retained_only"] != {"const": True} or coverage["version_lineage"] != {"const": "unproven"} or coverage["maximum_events"] != {"const": 5000} or timeline["events"].get("maxItems") != 50 or timeline["snapshot"].get("maxLength") != 12000:
+        raise ValueError("History must retain bounded signed positions and explicit unproven retained coverage")
+
+    exports = {
+        "/api/v1/admin/usage/export": ({"Cache-Control", "Content-Disposition", "x-usage-from", "x-usage-through", "x-usage-time-zone", "x-usage-observed-at", "x-usage-unavailable-sources"}, "source,status,date,metric,value,observed_at,earliest_retained_at,coverage,range_from,range_through,time_zone"),
+        "/api/v1/admin/deletion-requests/{requestId}/timeline/export": ({"Cache-Control", "Pragma", "Content-Disposition", "x-export-row-count", "x-export-truncated", "x-export-maximum-rows", "x-history-snapshot", "x-history-coverage", "x-history-retained-only", "x-history-observed-at"}, "inserted_at,actor_user_id,actor_kind,actor,action,status,attempt,error_code,version,proof_versions,counts"),
+    }
+    for path, (required_headers, columns) in exports.items():
+        response = paths[path]["get"]["responses"]["200"]
+        headers = response.get("headers", {})
+        if set(headers) != required_headers or any(value.get("required") is not True for value in headers.values()):
+            raise ValueError("CSV exports must retain every private range/snapshot/coverage/truncation receipt header")
+        if response.get("x-csv-columns") != columns.split(","):
+            raise ValueError("CSV exports must retain the exact allowlisted column order")
+
+    if payloads is not None:
+        families = {
+            "member-workspace.v1.json": {"MemberWorkspaceResponse", "ReplaceMemberWorkspaceRequest", "UpdateMemberOnboardingRequest"},
+            "role-permissions.v1.json": {"FixedRolePermissionResponse", "PreviewUserRoleRequest", "UserRoleChangePreviewResponse"},
+            "usage-report.v1.json": {"UsageReportResponse"},
+            "deletion-request-history.v1.json": {"DeletionRequestTimelineResponse"},
+        }
+        def portable(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [portable(item) for item in value]
+            return value
+        for filename, roots in families.items():
+            payload = payloads.get(filename, {})
+            if {item.get("$ref") for item in payload.get("oneOf", [])} != {"#/$defs/" + name for name in roots} or not roots <= set(payload.get("$defs", {})):
+                raise ValueError(f"Standalone member workflow payload roots are incomplete: {filename}")
+            for name, definition in payload.get("$defs", {}).items():
+                if name not in schemas or definition != portable(schemas[name]):
+                    raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2256,6 +2412,7 @@ def main() -> None:
     validate_guest_contract(openapi)
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
+    validate_member_workflow_contract(openapi, schemas)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

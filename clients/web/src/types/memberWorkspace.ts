@@ -1,4 +1,7 @@
-import type { DirectoryPerson } from "./identity";
+export interface MemberContact {
+  id: string;
+  display_name: string;
+}
 
 export interface PrivateContactGroup {
   id: string;
@@ -8,7 +11,7 @@ export interface PrivateContactGroup {
 
 export interface MemberWorkspace {
   version: number;
-  contacts: DirectoryPerson[];
+  contacts: MemberContact[];
   groups: PrivateContactGroup[];
   onboarding: {
     dismissed_at: string | null;

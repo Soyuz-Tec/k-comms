@@ -83,7 +83,7 @@ defmodule CommsCore.Governance.DeletionRequestHistoryAuthorityWaitTest do
     assert query =~ "pg_advisory_xact_lock"
     assert holder_backend in blockers
 
-    assert {:ok, _} =
+    assert :ok =
              unboxed(fn ->
                Accounts.revoke_session(ctx.account.session.id, ctx.account.user.id)
              end)
@@ -95,7 +95,7 @@ defmodule CommsCore.Governance.DeletionRequestHistoryAuthorityWaitTest do
     assert unboxed(fn ->
              Repo.query!(
                "SELECT count(*) FROM audit_resource_history_snapshots WHERE tenant_id = $1::uuid",
-               [ctx.account.tenant.id]
+               [Ecto.UUID.dump!(ctx.account.tenant.id)]
              ).rows
            end) == [[0]]
   end
@@ -154,7 +154,7 @@ defmodule CommsCore.Governance.DeletionRequestHistoryAuthorityWaitTest do
       assert unboxed(fn ->
                Repo.query!(
                  "SELECT count(*) FROM audit_resource_history_snapshots WHERE tenant_id = $1::uuid",
-                 [ctx.account.tenant.id]
+                 [Ecto.UUID.dump!(ctx.account.tenant.id)]
                ).rows
              end) == [[0]]
     end

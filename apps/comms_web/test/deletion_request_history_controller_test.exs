@@ -108,11 +108,32 @@ defmodule CommsWeb.DeletionRequestHistoryControllerTest do
     for header <- ~w(x-history-snapshot x-history-coverage x-export-truncated x-export-row-count),
         do: assert(exposed =~ header)
 
-    assert {:ok, _} = Accounts.revoke_session(ctx.account.session.id, ctx.account.user.id)
+    assert :ok = Accounts.revoke_session(ctx.account.session.id, ctx.account.user.id)
 
-    assert auth(ctx.token)
-           |> get("/api/v1/admin/deletion-requests/#{ctx.request.id}/timeline")
-           |> response(401)
+    denied = auth(ctx.token) |> get("/api/v1/admin/deletion-requests/#{ctx.request.id}/timeline")
+    assert response(denied, 401)
+    assert get_resp_header(denied, "cache-control") == ["no-store"]
+    assert get_resp_header(denied, "pragma") == ["no-cache"]
+  end
+
+  test "missing and invalid credentials deny private history and export before capture with no caching",
+       ctx do
+    initial = CommsCore.Audit.rollback_history_snapshot_hazard_count()
+
+    for suffix <- ["timeline", "timeline/export"],
+        credential <- [nil, "Bearer invalid-synthetic-token", "invalid-scheme"] do
+      conn =
+        if credential,
+          do: build_conn() |> put_req_header("authorization", credential),
+          else: build_conn()
+
+      denied = get(conn, "/api/v1/admin/deletion-requests/#{ctx.request.id}/#{suffix}")
+      assert %{"error" => %{"code" => "unauthenticated"}} = json_response(denied, 401)
+      assert get_resp_header(denied, "cache-control") == ["no-store"]
+      assert get_resp_header(denied, "pragma") == ["no-cache"]
+    end
+
+    assert CommsCore.Audit.rollback_history_snapshot_hazard_count() == initial
   end
 
   defp auth(token), do: build_conn() |> put_req_header("authorization", "Bearer #{token}")

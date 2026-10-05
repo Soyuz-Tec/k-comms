@@ -787,7 +787,7 @@ defmodule CommsCore.Accounts do
   def list_fixed_role_permissions(subject), do: CommsCore.Accounts.RolePreviews.catalog(subject)
 
   @doc "Returns an advisory, version-bound role impact snapshot without changing the target."
-  @spec preview_user_role_change(Ecto.UUID.t(), public_map(), public_map()) ::
+  @spec preview_user_role_change(binary(), public_map(), public_map()) ::
           {:ok, CommsCore.Accounts.UserRoleChangePreviewView.t()}
           | {:error,
              :forbidden

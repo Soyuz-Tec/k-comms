@@ -5,7 +5,7 @@ defmodule CommsCore.Accounts.MemberWorkspaceView do
 
   @type t :: %__MODULE__{
           version: non_neg_integer(),
-          contacts: [CommsCore.Accounts.DirectoryPersonView.t()],
+          contacts: [CommsCore.Accounts.MemberContactView.t()],
           groups: [%{id: Ecto.UUID.t(), name: String.t(), member_ids: [Ecto.UUID.t()]}],
           onboarding: %{
             dismissed_at: DateTime.t() | nil,

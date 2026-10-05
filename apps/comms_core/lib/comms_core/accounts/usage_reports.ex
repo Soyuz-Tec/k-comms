@@ -114,7 +114,9 @@ defmodule CommsCore.Accounts.UsageReports do
     budget!(deadline)
 
     earliest =
-      Repo.one(from(row in User, where: row.tenant_id == ^tenant_id, select: min(row.inserted_at)))
+      Repo.one(
+        from(row in User, where: row.tenant_id == ^tenant_id, select: min(row.inserted_at))
+      )
 
     budget!(deadline)
 

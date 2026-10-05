@@ -141,7 +141,10 @@ defmodule CommsCore.UsageProjectionTest do
     subject = Fixtures.step_up(account)
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     message = message(account, now, 1)
-    assert {:ok, before} = Messaging.usage_projection(query(Messaging, account.tenant.id), subject)
+
+    assert {:ok, before} =
+             Messaging.usage_projection(query(Messaging, account.tenant.id), subject)
+
     assert hd(before.daily).metrics.current_active == 1
 
     {:ok, %{request: request}} =

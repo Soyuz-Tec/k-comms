@@ -6,7 +6,7 @@ defmodule CommsCore.Accounts.MemberWorkspaces do
     AccessControl,
     ContentWriteGrant,
     Device,
-    DirectoryPersonView,
+    MemberContactView,
     MemberWorkspace,
     MemberWorkspaceView,
     User
@@ -247,7 +247,7 @@ defmodule CommsCore.Accounts.MemberWorkspaces do
 
     %MemberWorkspaceView{
       version: if(current.id, do: current.lock_version, else: 0),
-      contacts: Enum.map(people, &struct!(DirectoryPersonView, &1)),
+      contacts: Enum.map(people, &struct!(MemberContactView, &1)),
       groups: groups,
       onboarding: %{
         dismissed_at: current.onboarding_dismissed_at,

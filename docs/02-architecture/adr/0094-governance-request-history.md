@@ -1,7 +1,8 @@
 # ADR 0094: Bounded chronological governance request history
 
-Status: accepted for the isolated member-workflows implementation; execution and
-protected delivery remain pending parent integration.
+Status: Accepted
+Qualification: source boundary decision accepted; execution and protected delivery
+remain pending parent integration.
 
 The administrative request detail previously filtered a recently loaded tenant
 Audit list in the browser. Events for an older request could be omitted, and
@@ -88,3 +89,26 @@ expiry, cursor tampering/expiry, redaction/foreign actors, formula handling,
 real two-connection session revocation and session/step-up expiry waits,
 bounded worker continuation, API error/no-store/CORS contracts, and rollback
 row/job refusal. Authoring and parsing these tests is not execution evidence.
+
+## Accepted boundary registry
+
+The exact ADR-0093 composition transition publishes only Audit's
+`ResourceHistoryQuery` and `ResourceHistoryPage`, and Governance's
+`DeletionRequestTimeline`, `DeletionRequestHistoryExport`, `HistoryActor` and
+`HistoryEvent`. `CommsWeb.DeletionRequestHistoryController` consumes the two
+Governance history facade operations; Governance's history implementation
+consumes Audit's exact `resource_history_page/1`. The snapshot schema remains
+private to Audit, and `audit_resource_history_snapshots` is an owner-only source
+table with access restricted to `CommsCore.Audit`.
+
+`CommsWorkers.AuditHistorySnapshotPurgeWorker` consumes only the public
+`Audit.purge_resource_history_snapshots/2` housekeeping operation. Core release
+uses the content-free owner hazard count and existing fingerprint fragment.
+Only active jobs for the configured exact purge worker whose JSON `continue`
+argument is the boolean `true` add a continuation hazard. Routine empty-argument
+cron jobs, false or string values, unrelated workers and terminal jobs do not
+establish retained continuation work. All persisted snapshots, including
+expired rows awaiting physical purge, remain hazards. The exact
+`governance_history_v1` immutable capability covers those rows and continuation
+jobs; the existing Repo technical owner performs the bounded exact-worker count
+without publishing additional persistence access.

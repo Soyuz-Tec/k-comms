@@ -17,6 +17,8 @@ defmodule CommsWeb.Plugs.Authenticate do
     else
       _ ->
         conn
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
         |> put_resp_content_type("application/json")
         |> send_resp(
           401,

@@ -307,6 +307,20 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_known_m1_target_retains_its_subset_only_under_current_image_preflight(self) -> None:
+        documents = valid_documents()
+        operation = guest_rollback_operation()
+        container = operation["spec"]["template"]["spec"]["containers"][0]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = "guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1"
+        documents.append(operation)
+        self.assertEqual(validate_documents(documents), [])
+        environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "false"
+        self.assertTrue(any("WRITES_QUIESCED must be true" in error for error in validate_documents(documents)))
+        environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "true"
+        environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] += ",invented_capability_v1"
+        self.assertTrue(any("target capabilities" in error for error in validate_documents(documents)))
+
     def test_rollback_preflight_cannot_inherit_activated_media_admission(self) -> None:
         documents = valid_documents()
         operation = guest_rollback_operation()

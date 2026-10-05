@@ -149,6 +149,14 @@ replay canonical operations over their authorized member or server-scoped guest
 REST route after reconnect or a sequence gap. Phoenix does not own scene
 durability, canonical ordering, or authorization state.
 
+Native WebSocket transports may send the same short-lived ticket in the single
+`x-k-comms-socket-ticket` connection header. Native URLs contain no ticket.
+The browser query transport remains supported. Supplying both transports,
+duplicate headers, both query spellings, or an empty/malformed ticket fails
+before ticket consumption. Header and query transports use the same one-use,
+expiry and current-session checks; bearer and refresh tokens are never accepted
+as socket tickets. Every native reconnect obtains a new ticket over HTTPS.
+
 ## Rules
 
 - Unknown event fields must be ignored.

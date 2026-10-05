@@ -29,7 +29,9 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :audit_events,
     :outbox_events,
     :calls,
-    :call_participants
+    :call_participants,
+    :member_workspaces,
+    :audit_history_snapshots
   ]
 
   def run do

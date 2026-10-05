@@ -19,7 +19,12 @@ defmodule CommsWeb.UsageReportTest do
       |> get("/api/v1/admin/usage", %{from: from, through: through})
       |> json_response(200)
 
-    assert report["data"]["range"] == %{"from" => from, "through" => through, "time_zone" => "UTC"}
+    assert report["data"]["range"] == %{
+             "from" => from,
+             "through" => through,
+             "time_zone" => "UTC"
+           }
+
     assert report["data"]["coverage"] == "currently_retained_records"
     refute report["data"]["lifetime_complete"]
     assert map_size(report["data"]["sources"]) == 6
@@ -38,7 +43,10 @@ defmodule CommsWeb.UsageReportTest do
     assert get_resp_header(download, "x-usage-through") == [through]
     assert get_resp_header(download, "x-usage-time-zone") == ["UTC"]
     assert get_resp_header(download, "x-usage-unavailable-sources") == ["0"]
-    assert {:ok, _, 0} = DateTime.from_iso8601(hd(get_resp_header(download, "x-usage-observed-at")))
+
+    assert {:ok, _, 0} =
+             DateTime.from_iso8601(hd(get_resp_header(download, "x-usage-observed-at")))
+
     assert download.resp_body =~ "\"identity\",\"available\",\"current\",\"active_humans\",\"1\""
     assert download.resp_body =~ "\"#{from}\",\"#{through}\",\"UTC\""
     refute download.resp_body =~ account.user.email
@@ -173,7 +181,12 @@ defmodule CommsWeb.UsageReportTest do
             daily: [
               %{
                 date: range.from,
-                metrics: %{created: 0, current_active: 0, current_deleted: 0, current_moderated: 0}
+                metrics: %{
+                  created: 0,
+                  current_active: 0,
+                  current_deleted: 0,
+                  current_moderated: 0
+                }
               }
             ]
           }}
@@ -218,7 +231,12 @@ defmodule CommsWeb.UsageReportTest do
 
     source = %{
       status: "available",
-      data: %{observed_at: now, earliest_retained_at: nil, current: %{active_humans: 1}, daily: []}
+      data: %{
+        observed_at: now,
+        earliest_retained_at: nil,
+        current: %{active_humans: 1},
+        daily: []
+      }
     }
 
     report = %{
