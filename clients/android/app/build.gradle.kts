@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+val nativePushQualified = providers.gradleProperty("nativePushQualified").orElse("false").get()
+require(nativePushQualified in listOf("true", "false")) { "nativePushQualified must be exactly true or false" }
 android {
     namespace = "com.soyuz.kcomms"
     compileSdk = 35
@@ -14,6 +16,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("boolean", "NATIVE_PUSH_QUALIFIED", nativePushQualified)
+        manifestPlaceholders["nativePushQualified"] = nativePushQualified
+        for (name in listOf("application_id", "project_id", "sender_id", "api_key")) {
+            resValue("string", "native_fcm_$name", providers.gradleProperty("nativeFcm_$name").orElse("").get())
+        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
@@ -28,11 +35,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     lint { abortOnError = true }
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
+    implementation(libs.firebase.messaging)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)

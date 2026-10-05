@@ -1,0 +1,61 @@
+# Operator overlay only; the portable base keeps providers OFF. Kustomize must
+# bind this same image to the reviewed application release digest before use.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k-comms-worker
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: prepare-native-provider-files
+          image: ghcr.io/soyuz-tec/k-comms:staging
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              umask 077
+              for key in native-apns.p8 native-fcm.json; do
+                if [ -f "/native-provider-source/$key" ]; then
+                  cp -L "/native-provider-source/$key" "/native-provider-private/$key"
+                  chmod 0600 "/native-provider-private/$key"
+                fi
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 32Mi}
+          volumeMounts:
+            - name: native-provider-source
+              mountPath: /native-provider-source
+              readOnly: true
+            - name: native-provider-private
+              mountPath: /native-provider-private
+      containers:
+        - name: worker
+          env:
+            - name: NATIVE_PUSH_APNS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: k-comms-native-provider-settings, key: NATIVE_PUSH_APNS_KEY_ID, optional: true}
+            - name: NATIVE_PUSH_APNS_TEAM_ID
+              valueFrom:
+                secretKeyRef: {name: k-comms-native-provider-settings, key: NATIVE_PUSH_APNS_TEAM_ID, optional: true}
+            - name: NATIVE_PUSH_APNS_PRIVATE_KEY_FILE
+              value: /run/secrets/native-apns.p8
+            - name: NATIVE_PUSH_FCM_SERVICE_ACCOUNT_FILE
+              value: /run/secrets/native-fcm.json
+          volumeMounts:
+            - name: native-provider-private
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        - name: native-provider-source
+          secret:
+            secretName: k-comms-native-provider-credentials
+            optional: true
+            defaultMode: 0440
+        - name: native-provider-private
+          emptyDir: {medium: Memory, sizeLimit: 64Ki}

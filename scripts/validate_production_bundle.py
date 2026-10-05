@@ -90,6 +90,12 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
     "calendar_erasure_v1": ("calendar_erasure_receipts", "calendar_exports.tombstoned_at"),
     "phone_provider_provisioning_v1": ("telephony_provisioning_commands",),
     "uc_recognition_summaries_v1": ("call_artifact_summaries", "call_artifacts.summary_requested/recognition_provider_id", "call_artifact_consents.summary_policy_version", "CommsWorkers.CallSummaryWorker"),
+    "native_call_wake_v1": (
+        "native_push_registrations",
+        "native_call_wakes",
+        "CommsWorkers.NativeCallWakeWorker",
+        "CommsWorkers.NativePushReconcilerWorker",
+    ),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

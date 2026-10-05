@@ -11,6 +11,8 @@ defmodule CommsCore.Accounts.GovernanceErasure do
     GovernanceErasureCommand,
     GovernanceErasureReceipt,
     MemberWorkspaces,
+    NotificationCommand,
+    NotificationPort,
     Session,
     User
   }
@@ -106,7 +108,15 @@ defmodule CommsCore.Accounts.GovernanceErasure do
 
       # Both media domains join this same transaction before any strong key
       # anonymization lock. The original Session receipt remains unchanged.
-      with :ok <- revoke_calls(user) do
+      with :ok <-
+             NotificationPort.execute(
+               NotificationCommand.user_access_revoked(
+                 user.tenant_id,
+                 user.id,
+                 "governance_user_erasure"
+               )
+             ),
+           :ok <- revoke_calls(user) do
         {:ok,
          %GovernanceErasureReceipt{user_id: user.id, revoked_session_ids: revoked_session_ids}}
       end
@@ -129,6 +139,7 @@ defmodule CommsCore.Accounts.GovernanceErasure do
          # Private organization retains User references. Scrub it while all
          # canonical User parents still hold the weaker identity-write fence.
          :ok <- MemberWorkspaces.erase_user!(user.tenant_id, user.id),
+         :ok <- NotificationPort.execute(NotificationCommand.user_erased(user.tenant_id, user.id)),
          # The caller must finish all lower resource/content contributions before
          # this last identity step: unique key changes may strengthen the lock.
          {:ok, _anonymized_user} <- anonymize_user(user) do

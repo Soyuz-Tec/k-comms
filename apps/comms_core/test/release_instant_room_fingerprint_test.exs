@@ -43,7 +43,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calendar_event_mappings,
     :calendar_sync_commands,
     :calendar_erasure_receipts,
-    :phone_provisioning_commands
+    :phone_provisioning_commands,
+    :native_push_registrations,
+    :native_call_wakes
   ]
 
   defmodule ReadOnlyRepo do
@@ -88,7 +90,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "calendar_event_mappings" => "calendar-mapping-internal-id",
             "calendar_sync_commands" => "calendar-command-internal-id",
             "calendar_erasure_receipts" => "calendar-erasure-internal-id",
-            "telephony_provisioning_commands" => "phone-receipt-internal-id"
+            "telephony_provisioning_commands" => "phone-receipt-internal-id",
+            "native_push_registrations" => "native-registration-internal-id",
+            "native_call_wakes" => "native-wake-internal-id"
           },
           table
         )

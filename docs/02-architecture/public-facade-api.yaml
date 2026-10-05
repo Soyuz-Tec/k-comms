@@ -47,6 +47,8 @@ contexts:
       - list_sessions/2
       - meeting_calendar/2
       - moderation_target/4
+      - native_wake_authority/3
+      - native_wake_recipients/3
       - perform_calendar_command/3
       - process_artifact/2
       - reconcile_artifacts/1
@@ -67,6 +69,7 @@ contexts:
       - unlink_calendar_connection/3
       - update_meeting/3
       - usage_projection/2
+      - with_join_authorized/4
       - with_join_authorized/5
       collaboration_operations:
       - calendar_governance_erasure_pending?/3
@@ -107,7 +110,6 @@ contexts:
       - start/4
       - start_with_kind/3
       - start_with_kind/4
-      - with_join_authorized/4
     CommsCore.AudioCalls.LifecycleCoordinator:
       public_operations: []
       collaboration_operations:
@@ -407,6 +409,7 @@ contexts:
       - lock_calendar_worker/1
       - lock_content_write_grant/2
       - lock_guest_identity_parents/1
+      - lock_native_push_authority/2
       - lock_push_registration_identity/3
       - notification_eligible_device_ids/3
       - persisted_conversation_only_human_count/0
@@ -495,8 +498,10 @@ contexts:
   notification_delivery:
     CommsCore.Notifications:
       public_operations:
+      - admit_native_call_wake/3
       - claim_intent/1
       - dismiss_in_app/2
+      - dispatch_native_call_wake/3
       - enqueue_for_event/1
       - get_preferences/1
       - list_attempts/2
@@ -506,17 +511,24 @@ contexts:
       - mark_all_in_app_read/1
       - mark_in_app_read/2
       - materialize_push_destination/3
+      - native_push_config/1
+      - native_push_registrations/1
       - push_config/1
       - push_status/0
+      - reconcile_native_push/2
       - record_delivery/2
       - record_push_provider_result/3
+      - register_native_push/2
       - register_push_subscription/2
       - retry_intent/2
+      - revoke_native_push/2
       - revoke_push_subscription/2
       - unread_count/1
       - update_preferences/2
       collaboration_operations:
       - execute/1
+      - release_tenant_fingerprint_fragment/2
+      - rollback_native_wake_hazards/0
       owner_internal_operations:
       - authorize_delivery_management/1
       - authorize_tenant_scope/1
@@ -638,6 +650,8 @@ contexts:
       - list_voicemails/2
       - mailbox_config/1
       - mark_voicemail_read/2
+      - native_wake_authority/2
+      - native_wake_recipients/2
       - phone_provisioning_state/1
       - provision/2
       - purge_voicemail/2

@@ -259,6 +259,7 @@ private struct CreateMeetingView: View {
 }
 
 private struct SettingsView: View {
+    @ObservedObject private var wake = NativeWakeCoordinator.shared
     @EnvironmentObject private var model: AppModel
     var body: some View {
         NavigationStack {
@@ -269,7 +270,12 @@ private struct SettingsView: View {
                     Text(model.serverInput).font(.caption).foregroundStyle(.secondary)
                     if !model.hasWorkspaceAccess { Text("This account can communicate in its available conversations. Workspace directory, meetings and phone require workspace access.").font(.caption).foregroundStyle(.secondary) }
                 }
-                Section("Calls") { Text(NativePushAvailability.explanation).font(.callout).foregroundStyle(.secondary) }
+                Section("Calls") {
+                    Text(wake.notice).font(.callout).foregroundStyle(.secondary)
+                    Button("Configure native call wake") { Task { do { try await CallMedia.requestPermissions(video: false); await wake.enable() } catch { model.statusMessage = "Microphone permission is required to answer calls." } } }
+                        .disabled(Bundle.main.object(forInfoDictionaryKey: "NativePushDeviceQualified") as? Bool != true)
+                    if wake.pending { Button("End incoming native call", role: .destructive) { Task { await wake.end(notifyOwner: true) } } }
+                }
                 Section("Workspace administration") { Text(NativeIdentityAvailability.administrativeProof).font(.callout).foregroundStyle(.secondary) }
                 Section { Button("Sign out", role: .destructive) { Task { await model.logout() } } }
             }.navigationTitle("You")

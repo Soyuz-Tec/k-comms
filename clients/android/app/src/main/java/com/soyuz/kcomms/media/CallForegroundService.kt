@@ -118,6 +118,16 @@ class CallForegroundService : Service() {
             }
         }
 
+        internal suspend fun enableCamera(context: Context, token: String) {
+            val current = registration?.takeIf { it.token == token } ?: throw MediaFailure("The current call service ended.")
+            if (current.video) { withTimeout(5000) { current.ready.await() }; return }
+            check(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            val upgraded = current.copy(video = true, ready = CompletableDeferred())
+            registration = upgraded
+            context.startService(Intent(context, CallForegroundService::class.java).setAction(ACTION_START).putExtra(EXTRA_TOKEN, token))
+            withTimeout(5000) { upgraded.ready.await() }
+        }
+
         internal fun release(context: Context, token: String) {
             if (registration?.token != token) return
             registration = null

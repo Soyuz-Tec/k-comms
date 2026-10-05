@@ -29,6 +29,7 @@ import com.soyuz.kcomms.protocol.*
 @Composable fun KCommsApp(controller: AppController) {
     val state by controller.state.collectAsStateWithLifecycle()
     val media by controller.media.state.collectAsStateWithLifecycle()
+    val wakeNotice by controller.nativeWake.notice.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingMedia by remember { mutableStateOf<(() -> Unit)?>(null) }
     var permissionIdentity by remember { mutableStateOf<IdentityLease?>(null) }
@@ -59,8 +60,9 @@ import com.soyuz.kcomms.protocol.*
                     TextButton(onClick = controller::refresh, enabled = !state.busy) { Text("Refresh") }
                     TextButton(onClick = controller::logout) { Text("Sign out") }
                 }
-                Text("Foreground only. Calls stop when this app leaves the screen. Native push is unavailable.",
+                Text("Calls stop when this app leaves the screen. $wakeNotice",
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                TextButton(enabled = com.soyuz.kcomms.BuildConfig.NATIVE_PUSH_QUALIFIED, onClick = { withMediaPermission(false) { controller.nativeWake.enable() } }) { Text("Configure native call wake") }
                 FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     state.visibleSections.forEach { section ->
                         FilterChip(selected = state.section == section, onClick = { controller.section(section) },
@@ -263,6 +265,7 @@ import com.soyuz.kcomms.protocol.*
     val configuration = state.phoneConfiguration
     val ready = configuration?.enabled == true && configuration.configured && configuration.providerReady != false && configuration.lineAssigned != false && configuration.number != null
     val media by controller.media.state.collectAsStateWithLifecycle()
+    val wakeNotice by controller.nativeWake.notice.collectAsStateWithLifecycle()
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text("Phone", style = MaterialTheme.typography.titleLarge)

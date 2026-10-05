@@ -1,12 +1,13 @@
 package com.soyuz.kcomms.protocol
 
+import com.soyuz.kcomms.push.*
 import com.soyuz.kcomms.security.IdentityLease
 import com.soyuz.kcomms.security.PendingMessage
 import com.soyuz.kcomms.security.SessionStore
 import kotlinx.serialization.json.*
 import java.time.Instant
 
-/** Exact current /api/v1 routes; no proposed native push or calendar endpoints. */
+/** Exact current /api/v1 routes, including the default-off native wake owner protocol. */
 class KCommsApi(val sessions: SessionStore) {
     suspend fun signIn(endpoint: Endpoint, tenant: String, email: String, password: String): Pair<Long, SignInResult> {
         val epoch = sessions.resetForSignIn()
@@ -27,6 +28,24 @@ class KCommsApi(val sessions: SessionStore) {
         sessions.requireSignInEpoch(epoch)
         sessions.install(endpoint, WireJson.decodeFromString<Authentication>(text), epoch)
     }
+
+    suspend fun nativePushConfiguration(lease: IdentityLease = sessions.capture()): NativePushConfiguration =
+        WireJson.decodeFromString<NativeConfigurationResult>(sessions.authorized("GET", "/me/native-push/config", lease = lease)).data
+    suspend fun nativeRegistrations(lease: IdentityLease = sessions.capture()): List<NativeRegistration> =
+        WireJson.decodeFromString<NativeRegistrationList>(sessions.authorized("GET", "/me/native-push/registration", lease = lease)).data
+    suspend fun registerNativePush(token: String, installation: String, application: String, version: Long,
+                                   lease: IdentityLease = sessions.capture()): NativeRegistrationResult =
+        WireJson.decodeFromString(sessions.authorized("PUT", "/me/native-push/registration", buildJsonObject {
+            put("platform", "android"); put("channel", "fcm"); put("application_id", application); put("environment", "production")
+            put("token", token); put("installation_id", uuid(installation)); put("expected_version", version)
+        }, lease = lease))
+    suspend fun revokeNativePush(version: Long, lease: IdentityLease = sessions.capture()) {
+        sessions.authorized("DELETE", "/me/native-push/registration", buildJsonObject {
+            put("channel", "fcm"); put("expected_version", version)
+        }, lease = lease)
+    }
+    suspend fun admitNativeWake(id: String, lease: IdentityLease = sessions.capture()): NativeWakeAdmission =
+        NativeWakeAdmission.decode(sessions.authorized("POST", "/native-call-wakes/${uuid(id)}/admit", lease = lease))
 
     suspend fun me(lease: IdentityLease = sessions.capture()): Me {
         val me = WireJson.decodeFromString<Me>(sessions.authorized("GET", "/me", lease = lease))
@@ -125,7 +144,8 @@ class KCommsApi(val sessions: SessionStore) {
         WireJson.decodeFromString<CallResult>(sessions.authorized("GET", "/conversations/${uuid(conversationId)}/call", lease = lease)).data
     suspend fun participants(conversationId: String, callId: String, lease: IdentityLease): List<CallParticipant> =
         WireJson.decodeFromString<CallParticipants>(sessions.authorized("GET",
-            "/conversations/${uuid(conversationId)}/calls/${uuid(callId)}/participants", lease = lease)).data
+            "/conversations/${uuid(conversationId)}/calls/${uuid(callId)}/participants",
+            query = mapOf("current_admission" to "true"), lease = lease)).data
     suspend fun calls(cursor: String? = null, lease: IdentityLease = sessions.capture()): CallList =
         WireJson.decodeFromString(sessions.authorized("GET", "/calls",
             query = buildMap { put("scope", "recent"); put("limit", "30"); if (cursor != null) put("cursor", cursor) }, lease = lease))

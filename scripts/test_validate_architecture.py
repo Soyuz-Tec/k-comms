@@ -983,7 +983,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(
             notification_collaboration["callers"],
-            ["CommsCore.Accounts", "CommsCore.Accounts.PasswordRecovery"],
+            [
+                "CommsCore.Accounts",
+                "CommsCore.Accounts.PasswordRecovery",
+                "CommsCore.Accounts.GovernanceErasure",
+            ],
         )
 
         transition = next(
@@ -1585,6 +1589,14 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             delivery["public_contracts"],
             [
+                "CommsCore.Notifications.NativePushView",
+                "CommsCore.Notifications.NativeCallTarget",
+                "CommsCore.Notifications.NativeCallRequest",
+                "CommsCore.Notifications.NativeDelivery",
+                "CommsCore.Notifications.NativeCallWakePort",
+                "CommsCore.Notifications.NativeCallWakePort.Contract",
+                "CommsCore.Notifications.NativePushProviderPort",
+                "CommsCore.Notifications.NativePushProviderPort.Contract",
                 "CommsCore.Notifications.AttemptView",
                 "CommsCore.Notifications.Availability",
                 "CommsCore.Notifications.Delivery",
@@ -1607,6 +1619,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "meeting.updated.v1",
                 "meeting.cancelled.v1",
                 "meeting.reminder.v1",
+                "call.started.v1",
+                "telephony.call.updated",
             ],
         )
         self.assertEqual(
@@ -1623,6 +1637,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             "notification_intents",
             "notification_attempts",
             "push_subscriptions",
+            "native_push_registrations",
+            "native_call_wakes",
         ):
             self.assertEqual(manifest["tables"][table]["access"], "owner_only")
 
@@ -1631,6 +1647,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Notifications.Intent",
             "CommsCore.Notifications.Preference",
             "CommsCore.Notifications.PushSubscription",
+            "CommsCore.Notifications.NativePushRegistration",
+            "CommsCore.Notifications.NativeCallWake",
         }
         leaks = []
         for app in ("comms_web", "comms_workers", "comms_integrations"):
@@ -1644,6 +1662,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Accounts.Device",
             "CommsCore.Accounts.Tenant",
             "CommsCore.Accounts.User",
+            "CommsCore.Accounts.Session",
             "CommsCore.Administration.Tenant",
             "CommsCore.Conversations.Membership",
         }
@@ -1668,6 +1687,12 @@ class ValidateArchitectureTest(unittest.TestCase):
             "intent.ex": ("tenant_id", "user_id"),
             "preference.ex": ("tenant_id", "user_id"),
             "push_subscription.ex": ("tenant_id", "user_id", "device_id"),
+            "native_push_registration.ex": (
+                "tenant_id", "user_id", "device_id", "session_id"
+            ),
+            "native_call_wake.ex": (
+                "tenant_id", "user_id", "device_id", "session_id", "registration_id"
+            ),
         }
         schema_root = root / "apps/comms_core/lib/comms_core/notifications"
         for filename, fields in schema_scalar_fields.items():
@@ -1770,6 +1795,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "owned-calendar-provider-protocol",
                 "call-artifact-summarization",
                 "notification-availability-adapter",
+                "native-call-wake-owner",
+                "native-push-provider",
                 "telephony-provider-controls",
                 "telephony-ivr-provider",
                 "telephony-provider-provisioning",
@@ -1852,6 +1879,43 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "module": "CommsWeb.NotificationAvailabilityNotifier",
             },
         )
+        for identifier, contract, implementation, key, operations, transaction in (
+            (
+                "native-call-wake-owner",
+                "CommsCore.Notifications.NativeCallWakePort",
+                "CommsIntegrations.NativePush.CallOwner",
+                "native_call_wake_adapter",
+                [
+                    {"name": "recipients", "arity": 1},
+                    {"name": "authorize", "arity": 1},
+                    {"name": "admit", "arity": 3},
+                ],
+                "required",
+            ),
+            (
+                "native-push-provider",
+                "CommsCore.Notifications.NativePushProviderPort",
+                "CommsIntegrations.NativePush.Provider",
+                "native_push_provider_adapter",
+                [{"name": "status", "arity": 0}, {"name": "deliver", "arity": 2}],
+                "independent",
+            ),
+        ):
+            with self.subTest(interface=identifier):
+                interface = interfaces[identifier]
+                self.assertEqual(interface["owner"], "notification_delivery")
+                self.assertEqual(interface["interface"], contract)
+                self.assertEqual(interface["behaviour"], contract + ".Contract")
+                self.assertEqual(interface["implementation"], implementation)
+                self.assertEqual(
+                    interface["callers"], ["CommsCore.Notifications.NativeWakePorts"]
+                )
+                self.assertEqual(interface["operations"], operations)
+                self.assertEqual(interface["transaction"], transaction)
+                self.assertEqual(
+                    interface["binding"],
+                    {"application": "comms_core", "key": key, "module": implementation},
+                )
 
     def test_repository_publishes_an_exact_calls_boundary_and_collaborations(
         self,
@@ -2262,6 +2326,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_reference_paths,
             [
+                "apps/comms_core/lib/comms_core/accounts/governance_erasure.ex",
                 "apps/comms_core/lib/comms_core/accounts/notification_port.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
@@ -2276,6 +2341,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_callers,
             [
+                "apps/comms_core/lib/comms_core/accounts/governance_erasure.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
             ],

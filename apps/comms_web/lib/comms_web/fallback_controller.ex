@@ -224,6 +224,13 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:not_found), do: {404, "not_found", "The requested resource was not found"}
 
+  defp error(:native_push_unavailable),
+    do: {409, "native_push_unavailable", "This native call notification is unavailable"}
+
+  defp error(:native_push_version_conflict),
+    do:
+      {409, "native_push_version_conflict", "Refresh this device registration before changing it"}
+
   defp error(:contact_unavailable),
     do: {409, "contact_unavailable", "A selected person is no longer available in this workspace"}
 

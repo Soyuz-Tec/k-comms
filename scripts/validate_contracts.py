@@ -2663,6 +2663,45 @@ def validate_calendar_contract(openapi: dict[str, Any], payload: dict[str, Any])
     if payload.get("$defs") != expected or {item.get("$ref") for item in payload.get("oneOf", [])} != {"#/$defs/" + name for name in roots}:
         raise ValueError("Standalone Calendar schema must match every canonical safe wire definition")
 
+def validate_native_call_wake_contract(openapi: dict[str, Any], standalone: dict[str, Any]) -> None:
+    participant_operation = openapi.get("paths", {}).get("/api/v1/conversations/{conversationId}/calls/{callId}/participants", {}).get("get", {})
+    admission = [parameter for parameter in participant_operation.get("parameters", []) if parameter.get("name") == "current_admission"]
+    if len(admission) != 1 or admission[0].get("in") != "query" or admission[0].get("required") is not False or admission[0].get("schema") != {"type": "boolean", "default": False}:
+        raise ValueError("Native media requires an exact optional current-session admission query")
+    expected = {
+        ("/api/v1/me/native-push/config", "get"): ("nativePushConfiguration", "NativePushConfigurationResponse", None),
+        ("/api/v1/me/native-push/registration", "get"): ("nativePushRegistrations", "NativePushRegistrationList", None),
+        ("/api/v1/me/native-push/registration", "put"): ("registerNativePush", "NativePushRegistrationResponse", "NativePushRegistrationRequest"),
+        ("/api/v1/me/native-push/registration", "delete"): ("revokeNativePush", "NativePushRevokeResponse", "NativePushRevokeRequest"),
+        ("/api/v1/native-call-wakes/{wakeId}/admit", "post"): ("admitNativeCallWake", "NativeCallWakeAdmission", None),
+    }
+    for (path, method), (name, response, request) in expected.items():
+        operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+        if operation.get("operationId") != name or operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError("Native wake routes require exact current member bearer authority")
+        actual = operation.get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema")
+        if actual != {"$ref": f"#/components/schemas/{response}"}:
+            raise ValueError("Native wake routes require exact safe owner response schemas")
+        if request and operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema") != {"$ref": f"#/components/schemas/{request}"}:
+            raise ValueError("Native registration and revocation require exact bounded bodies")
+    schemas = openapi["components"]["schemas"]
+    hint = schemas["NativeCallWakeHint"]
+    if hint.get("additionalProperties") is not False or set(hint.get("required", [])) != {"protocol_version", "wake_id", "expires_at", "kind"} or set(hint.get("properties", {})) != set(hint["required"]):
+        raise ValueError("Native wake hint must contain only opaque protocol fields")
+    if schemas["NativePushRegistrationRequest"]["properties"]["token"].get("writeOnly") is not True:
+        raise ValueError("Native provider tokens must be write-only")
+    if set(schemas["NativePushRegistration"]["properties"]) & {"token", "token_hash", "ciphertext", "nonce", "tag", "key_id", "user_id", "session_id"}:
+        raise ValueError("Native registration projection exposes private transport or identity material")
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+    for name, contract in standalone.get("$defs", {}).items():
+        if contract != portable(schemas.get(name)):
+            raise ValueError(f"Standalone native wake schema diverges from canonical OpenAPI: {name}")
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2692,6 +2731,7 @@ def main() -> None:
     validate_ivr_contract(openapi, schemas)
     validate_workspace_domain_contract(openapi)
     validate_calendar_contract(openapi, schemas["calendar-sync.v1.json"])
+    validate_native_call_wake_contract(openapi, schemas["native-call-wake.v1.json"])
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

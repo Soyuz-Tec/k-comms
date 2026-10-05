@@ -33,7 +33,8 @@ defmodule CommsCore.Release.Environment do
                                    "calendar_sync_v1",
                                    "calendar_erasure_v1",
                                    "phone_provider_provisioning_v1",
-                                   "uc_recognition_summaries_v1"
+                                   "uc_recognition_summaries_v1",
+                                   "native_call_wake_v1"
                                  ])
   @communication_rollback_capabilities @guest_rollback_capabilities
                                        |> MapSet.union(@instant_room_rollback_capabilities)

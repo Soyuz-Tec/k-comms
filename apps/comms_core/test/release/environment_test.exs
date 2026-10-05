@@ -54,7 +54,8 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "calendar_sync_v1",
                                   "calendar_erasure_v1",
                                   "phone_provider_provisioning_v1",
-                                  "uc_recognition_summaries_v1"
+                                  "uc_recognition_summaries_v1",
+                                  "native_call_wake_v1"
                                 ],
                                 ","
                               )
@@ -293,7 +294,7 @@ defmodule CommsCore.Release.EnvironmentTest do
           ~w(enterprise_identity_v1 calendar_sync_v1 calendar_erasure_v1 uc_artifact_lifecycle_v1
                          uc_voicemail_lifecycle_v1 uc_advanced_telephony_v1
                          scheduled_meeting_lifecycle_v1 rich_content_erasure_v1
-                         member_workspace_v1 governance_history_v1 ivr_routing_v1 workspace_domain_discovery_v1 phone_provider_provisioning_v1 uc_recognition_summaries_v1) do
+                         member_workspace_v1 governance_history_v1 ivr_routing_v1 workspace_domain_discovery_v1 phone_provider_provisioning_v1 uc_recognition_summaries_v1 native_call_wake_v1) do
       missing =
         @communication_capabilities
         |> String.split(",")

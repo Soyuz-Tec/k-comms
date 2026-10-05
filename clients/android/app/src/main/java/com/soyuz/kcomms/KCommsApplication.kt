@@ -19,5 +19,6 @@ class KCommsApplication : Application() {
         LiveKit.enableWebRTCLogging = false
         val sessions = SessionStore(KeystoreCredentialVault(this), HttpTransport())
         controller = AppController(this, KCommsApi(sessions))
+        controller.nativeWake.initializeQualifiedSdk()
     }
 }

@@ -133,8 +133,9 @@ defmodule CommsWeb.AudioCallController do
     end_call_with_kind(conn, conversation_id, call_id, params, :audio)
   end
 
-  def participants(conn, %{"conversation_id" => conversation_id, "call_id" => call_id}) do
-    with {:ok, participants} <-
+  def participants(conn, %{"conversation_id" => conversation_id, "call_id" => call_id} = params) do
+    with :ok <- current_admission(params, conversation_id, call_id, conn.assigns.current_subject),
+         {:ok, participants} <-
            AudioCalls.list_participants(conversation_id, call_id, conn.assigns.current_subject) do
       json(conn, %{
         data:
@@ -150,6 +151,13 @@ defmodule CommsWeb.AudioCallController do
       })
     end
   end
+
+  defp current_admission(%{"current_admission" => "true"}, conversation, call, subject),
+    do: AudioCalls.authorize_participant(conversation, call, subject)
+
+  defp current_admission(%{"current_admission" => "false"}, _, _, _), do: :ok
+  defp current_admission(%{"current_admission" => _}, _, _, _), do: {:error, :invalid_call_signal}
+  defp current_admission(_, _, _, _), do: :ok
 
   def mute_participant(
         conn,

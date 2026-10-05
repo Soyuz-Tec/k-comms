@@ -55,10 +55,17 @@ SDK tones require an exact current owner dispatch receipt, then submit a complet
 receipt as submitted or unknown. A pending/uncertain tone is reviewed without
 automatically emitting it again. SDK submission does not prove carrier delivery.
 
-Background call notifications are visibly unavailable. Web Push is not native
-APNs; no proposed native-push routes are called. Provider credentials, reviewed
-backend registration/wake authority, signed builds and locked physical-device
-qualification are separate prerequisites.
+Native background call wake is default OFF. The real owner routes are
+`/api/v1/me/native-push/{config,registration}` and
+`/api/v1/native-call-wakes/:id/admit`; no proposed endpoints are called.
+The unsigned project has no push entitlement/background mode and
+`NativePushDeviceQualified=false`. A qualified signed build must still obtain
+current readiness, user consent and microphone permission. PushKit reports a
+generic CallKit call before HTTP, and only an explicit OS answer admits media.
+Provider setup, locked credentials and physical-device qualification remain
+separate requirements. An unchanged APNs token bound to a prior user is refused
+on account switch until owner erasure or a new token; foreground communication
+remains available. See [the deployment protocol](../../deploy/k8s/operations/native-push/README.md).
 
 From the repository root, on a compatible macOS runner:
 
