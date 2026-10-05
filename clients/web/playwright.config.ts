@@ -5,7 +5,7 @@ const liveVideoE2E = process.env.K_COMMS_LIVE_VIDEO_E2E === "true";
 const liveMediaE2E = liveAudioE2E || liveVideoE2E;
 const liveWhiteboardE2E =
   process.env.K_COMMS_LIVE_WHITEBOARD_E2E === "true";
-const liveBackendE2E = liveMediaE2E || liveWhiteboardE2E;
+const liveBackendE2E = liveMediaE2E || liveWhiteboardE2E || process.env.K_COMMS_LIVE_DOCUMENTS_E2E === "true";
 const externalServer = process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
 /*
  * WebKit runs in CI only.

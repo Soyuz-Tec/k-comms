@@ -27,6 +27,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     Outbox,
     Repo,
     RuntimePorts,
+    SharedDocuments,
     Telephony,
     Whiteboards
   }
@@ -201,6 +202,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           media_erasure_version: 1,
           meeting_erasure_version: 1,
           writer_fence_erasure_version: 1,
+          shared_document_erasure_version: 1,
+          shared_documents_erased: results.shared_documents_erased,
+          shared_document_operations_deleted: results.shared_document_operations_deleted,
           target_digest: target_digest(request)
         }
 
@@ -247,6 +251,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                    fragment(
                      "coalesce(?->>'writer_fence_erasure_version', '') <> '1'",
                      request.evidence
+                   ) or
+                   fragment(
+                     "coalesce(?->>'shared_document_erasure_version', '') <> '1'",
+                     request.evidence
                    )),
             order_by: [
               asc: fragment("coalesce(?->>'media_erasure_checked_at', '')", request.evidence),
@@ -290,7 +298,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
            (value(request.evidence || %{}, :derived_erasure_version) == 1 and
               value(request.evidence || %{}, :media_erasure_version) == 1 and
               value(request.evidence || %{}, :meeting_erasure_version) == 1 and
-              value(request.evidence || %{}, :writer_fence_erasure_version) == 1) do
+              value(request.evidence || %{}, :writer_fence_erasure_version) == 1 and
+              value(request.evidence || %{}, :shared_document_erasure_version) == 1) do
         false
       else
         prepare_media_erasure!(request)
@@ -310,7 +319,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           plan = fenced_deletion_plan!(request, timestamp)
 
           if plan.attachments == [] do
-            apply_deletion!(request, plan, timestamp, identity_result)
+            results = apply_deletion!(request, plan, timestamp, identity_result)
 
             evidence =
               Map.merge(evidence, %{
@@ -318,6 +327,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 "media_erasure_version" => 1,
                 "meeting_erasure_version" => 1,
                 "writer_fence_erasure_version" => 1,
+                "shared_document_erasure_version" => 1,
+                "shared_documents_erased" => results.shared_documents_erased,
+                "shared_document_operations_deleted" =>
+                  results.shared_document_operations_deleted,
                 "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
               })
 
@@ -331,7 +344,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 derived_erasure_version: 1,
                 media_erasure_version: 1,
                 meeting_erasure_version: 1,
-                writer_fence_erasure_version: 1
+                writer_fence_erasure_version: 1,
+                shared_document_erasure_version: 1
               }
             )
 
@@ -672,6 +686,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       erase_whiteboards(request, timestamp)
       |> owner_command_or_rollback()
 
+    document_result = erase_documents!(request, timestamp)
     erase_personal_content!(request)
     revoked_session_ids = apply_target_deletion!(request, timestamp, identity_result)
 
@@ -681,8 +696,23 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       whiteboards_deleted: whiteboard_result.whiteboards_deleted,
       whiteboard_operations_deleted: whiteboard_result.whiteboard_operations_deleted,
       whiteboard_operations_neutralized: whiteboard_result.whiteboard_operations_neutralized,
-      revoked_session_ids: revoked_session_ids
+      revoked_session_ids: revoked_session_ids,
+      shared_documents_erased: document_result.documents_erased,
+      shared_document_operations_deleted: document_result.operations_deleted
     }
+  end
+
+  defp erase_documents!(%DeletionRequest{target_type: :message}, _timestamp),
+    do: %CommsCore.SharedDocuments.ErasureReceipt{}
+
+  defp erase_documents!(request, timestamp) do
+    SharedDocuments.erase_for_governance(
+      request.tenant_id,
+      request.target_type,
+      media_target(request),
+      timestamp
+    )
+    |> owner_command_or_rollback()
   end
 
   defp erase_personal_content!(%DeletionRequest{target_type: :message}), do: :ok

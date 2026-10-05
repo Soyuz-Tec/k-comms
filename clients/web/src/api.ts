@@ -1,3 +1,4 @@
+import { createSharedDocumentsApi, type SharedDocumentsApi } from "./api/domains/sharedDocuments";
 import type {
   AccountSession,
   Call,
@@ -144,6 +145,7 @@ export class ApiClient {
   private readonly filesApi: FilesApi;
   private readonly systemApi: SystemApi;
   private readonly whiteboardsApi: WhiteboardsApi;
+  readonly sharedDocuments: SharedDocumentsApi;
 
   constructor(
     baseUrl: string,
@@ -179,6 +181,7 @@ export class ApiClient {
     this.filesApi = createFilesApi(request, { attachmentContentType });
     this.systemApi = createSystemApi(request);
     this.whiteboardsApi = createWhiteboardsApi(request);
+    this.sharedDocuments = createSharedDocumentsApi(request);
   }
 
   meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }

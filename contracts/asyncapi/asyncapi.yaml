@@ -88,6 +88,22 @@ channels:
         $ref: '#/components/messages/ConversationMembership'
       notificationAvailable:
         $ref: '#/components/messages/NotificationAvailable'
+  document:
+    address: document:{documentId}
+    description: Current workspace-human durable-conversation document topic. Joins
+      and every inbound/intercepted outbound event recheck current retained session,
+      membership, original-author protection and generation. No opaque updates or client
+      authorship are accepted.
+    parameters:
+      documentId:
+        description: Current authorized document UUID
+    messages:
+      operationApplied:
+        $ref: '#/components/messages/SharedDocumentOperationApplied'
+      presenceCommand:
+        $ref: '#/components/messages/SharedDocumentPresenceCommand'
+      presence:
+        $ref: '#/components/messages/SharedDocumentPresence'
 operations:
   sendConversationCommand:
     action: send
@@ -145,6 +161,19 @@ operations:
       - {$ref: '#/channels/userInbox/messages/conversationActivity'}
       - {$ref: '#/channels/userInbox/messages/conversationMembership'}
       - {$ref: '#/channels/userInbox/messages/notificationAvailable'}
+  sendSharedDocumentPresence:
+    action: send
+    channel:
+      $ref: '#/channels/document'
+    messages:
+    - $ref: '#/channels/document/messages/presenceCommand'
+  receiveSharedDocumentEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/document'
+    messages:
+    - $ref: '#/channels/document/messages/operationApplied'
+    - $ref: '#/channels/document/messages/presence'
 components:
   messages:
     Command:
@@ -357,6 +386,18 @@ components:
           conversation_id: {type: [string, 'null'], format: uuid}
           message_id: {type: [string, 'null'], format: uuid}
           unread_count: {type: integer, minimum: 0}
+    SharedDocumentOperationApplied:
+      name: document.operation_applied.v1
+      payload:
+        $ref: '#/components/schemas/SharedDocumentOperation'
+    SharedDocumentPresenceCommand:
+      name: document.presence.v1
+      payload:
+        $ref: '#/components/schemas/SharedDocumentPresenceCommand'
+    SharedDocumentPresence:
+      name: document.presence.v1
+      payload:
+        $ref: '#/components/schemas/SharedDocumentPresence'
   schemas:
     MessageDeliveryCursorPayload:
       type: object
@@ -539,3 +580,151 @@ components:
         - type: object
           properties:
             media_kind: {const: audio}
+    SharedDocumentAtom:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - after_id
+      - text
+      - deleted
+      - order
+      properties:
+        id:
+          type: string
+          pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+          minLength: 38
+          maxLength: 45
+        after_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1
+          pattern: ^[^\u0000]$
+        deleted:
+          type: boolean
+        order:
+          type: integer
+          minimum: 0
+    SharedDocumentOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - document_id
+      - conversation_id
+      - client_operation_id
+      - generation
+      - version
+      - kind
+      - title
+      - inserted_atoms
+      - deleted_atom_ids
+      - inserted_at
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        client_operation_id:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        version:
+          type: integer
+          minimum: 1
+        kind:
+          enum:
+          - create
+          - copy
+          - edit
+          - rename
+        title:
+          type:
+          - string
+          - 'null'
+          maxLength: 160
+        inserted_atoms:
+          type: array
+          maxItems: 16000
+          items:
+            $ref: '#/components/schemas/SharedDocumentAtom'
+        deleted_atom_ids:
+          type: array
+          maxItems: 4096
+          uniqueItems: true
+          items:
+            type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+        inserted_at:
+          type: string
+          format: date-time
+    SharedDocumentPresence:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - device_id
+      - generation
+      - anchor_id
+      - head_id
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+        anchor_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        head_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+    SharedDocumentPresenceCommand:
+      type: object
+      additionalProperties: false
+      required:
+      - generation
+      - anchor_id
+      - head_id
+      properties:
+        generation:
+          type: integer
+          minimum: 1
+        anchor_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'
+        head_id:
+          oneOf:
+          - type: string
+            pattern: ^[0-9a-f-]{36}:[0-9]{1,8}$
+            minLength: 38
+            maxLength: 45
+          - type: 'null'

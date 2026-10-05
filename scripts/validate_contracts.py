@@ -2388,6 +2388,75 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+
+def validate_shared_document_contract(openapi: dict[str, Any], payloads: dict[str, Any], asyncapi: dict[str, Any] | None = None) -> None:
+    schemas = openapi["components"]["schemas"]
+    names = {"SharedDocumentAtom", "SharedDocumentChange", "SharedDocumentCreation", "SharedDocumentEdit", "SharedDocumentSummary", "SharedDocumentSnapshot", "SharedDocumentOperation", "SharedDocumentReplay", "SharedDocumentPresence"}
+    if not names <= set(schemas):
+        raise ValueError("shared document owner schemas are incomplete")
+    required_paths = {
+        "/api/v1/conversations/{conversationId}/documents": {"get", "post"},
+        "/api/v1/documents/{documentId}": {"get"},
+        "/api/v1/documents/{documentId}/copies": {"post"},
+        "/api/v1/documents/{documentId}/operations": {"get", "post"},
+        "/api/v1/documents/{documentId}/export": {"get"},
+    }
+    for path, methods in required_paths.items():
+        for method in methods:
+            operation = openapi.get("paths", {}).get(path, {}).get(method, {})
+            if operation.get("security") != [{"bearerAuth": []}]:
+                raise ValueError("shared document authority cannot become public")
+            successes = {status: response for status, response in operation.get("responses", {}).items() if status in {"200", "201"}}
+            if not successes or any(response.get("headers", {}).get("Cache-Control", {}).get("schema", {}).get("const") != "no-store" for response in successes.values()):
+                raise ValueError("shared document responses must remain private")
+            if method == "post" and not operation.get("requestBody", {}).get("required"):
+                raise ValueError("shared document mutations require a bounded body")
+    expected_fields = {
+        "SharedDocumentAtom": {"id", "after_id", "text", "deleted", "order"},
+        "SharedDocumentChange": {"after_id", "delete_ids", "insert"},
+        "SharedDocumentCreation": {"client_document_id", "title"},
+        "SharedDocumentSummary": {"id", "conversation_id", "title", "excerpt", "generation", "version", "updated_at", "readonly"},
+        "SharedDocumentSnapshot": {"id", "conversation_id", "title", "content", "atoms", "generation", "version", "updated_at", "readonly"},
+        "SharedDocumentOperation": {"document_id", "conversation_id", "client_operation_id", "generation", "version", "kind", "title", "inserted_atoms", "deleted_atom_ids", "inserted_at"},
+        "SharedDocumentReplay": {"data", "page"},
+        "SharedDocumentPresence": {"user_id", "device_id", "generation", "anchor_id", "head_id"},
+    }
+    for name, fields in expected_fields.items():
+        if schemas[name].get("additionalProperties") is not False or set(schemas[name].get("properties", {})) != fields or set(schemas[name].get("required", [])) != fields:
+            raise ValueError("shared document DTOs require exact server-owned fields")
+    variants = schemas["SharedDocumentEdit"].get("oneOf", [])
+    if len(variants) != 2:
+        raise ValueError("shared document edits require bounded edit and rename variants")
+    for variant, kind, extra in zip(variants, ["edit", "rename"], ["changes", "title"]):
+        fields = {"client_operation_id", "generation", "base_version", "kind", extra}
+        if variant.get("additionalProperties") is not False or set(variant.get("properties", {})) != fields or set(variant.get("required", [])) != fields or variant["properties"]["kind"].get("const") != kind:
+            raise ValueError("shared document edits cannot accept opaque state or client lineage")
+    if variants[0]["properties"]["changes"].get("maxItems") != 32:
+        raise ValueError("shared document operation intents must remain bounded")
+    if schemas["SharedDocumentSnapshot"]["properties"]["atoms"].get("maxItems") != 32000 or schemas["SharedDocumentSnapshot"]["properties"]["content"].get("maxLength") != 16000:
+        raise ValueError("shared document snapshot limits drifted")
+    if schemas["SharedDocumentChange"]["properties"]["delete_ids"].get("maxItems") != 4096 or schemas["SharedDocumentChange"]["properties"]["insert"].get("maxLength") != 2048:
+        raise ValueError("shared document edit limits drifted")
+    if schemas["SharedDocumentReplay"]["properties"]["data"].get("maxItems") != 100:
+        raise ValueError("shared document replay must remain bounded")
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+    standalone = payloads.get("shared-document.v1.json", {})
+    if standalone.get("$defs") != {name: portable(schemas[name]) for name in names}:
+        raise ValueError("standalone shared document schemas diverged from owner OpenAPI")
+    if asyncapi is not None:
+        channel = asyncapi.get("channels", {}).get("document", {})
+        if channel.get("address") != "document:{documentId}" or set(channel.get("messages", {})) != {"operationApplied", "presenceCommand", "presence"}:
+            raise ValueError("shared document current-authority socket contract drifted")
+        for name in ["SharedDocumentAtom", "SharedDocumentOperation", "SharedDocumentPresence"]:
+            if asyncapi.get("components", {}).get("schemas", {}).get(name) != schemas[name]:
+                raise ValueError("shared document socket payload diverged from the committed owner receipt")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2422,6 +2491,7 @@ def main() -> None:
         if required not in asyncapi:
             raise ValueError(f"AsyncAPI contract is missing {required}")
     validate_refs(asyncapi, asyncapi_path)
+    validate_shared_document_contract(openapi, schemas, asyncapi)
     validate_guest_realtime_contract(asyncapi)
     validate_instant_room_realtime_contract(asyncapi)
     validate_call_realtime_contract(asyncapi)

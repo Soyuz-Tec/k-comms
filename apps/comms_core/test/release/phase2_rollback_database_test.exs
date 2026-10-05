@@ -1,7 +1,7 @@
 defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Audit, Release, Repo, RuntimePorts}
+  alias CommsCore.{Accounts, Audit, Release, Repo, RuntimePorts, SharedDocuments}
   alias CommsCore.Accounts.{MemberWorkspace, User}
   alias CommsCore.Audit.{ResourceHistoryQuery, ResourceHistorySnapshot}
   alias CommsTestSupport.Fixtures
@@ -54,6 +54,57 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         {name, nil} -> System.delete_env(name)
         {name, value} -> System.put_env(name, value)
       end)
+    end
+  end
+
+  test "retained document payloads and erased fences both block the exact Member14 target" do
+    account = Fixtures.account_fixture()
+
+    {:ok, document} =
+      SharedDocuments.create(
+        account.conversation.id,
+        %{client_document_id: Ecto.UUID.generate(), title: "Rollback-owned content"},
+        Fixtures.subject(account)
+      )
+
+    member14 = %{
+      target_revision: "qualified-member14-parent",
+      capabilities:
+        @m1_capabilities
+        |> MapSet.put("member_workspace_v1")
+        |> MapSet.put("governance_history_v1")
+    }
+
+    for expected_count <- [2, 1] do
+      hazards =
+        clean_hazards() |> Map.put(:shared_documents, SharedDocuments.rollback_hazard_count())
+
+      assert hazards.shared_documents == expected_count
+
+      assert_raise RuntimeError, ~r/shared_documents_v1.*shared_documents=/, fn ->
+        Release.assert_communication_rollback_hazards!(hazards, member14)
+      end
+
+      capable = %{
+        member14
+        | capabilities: MapSet.put(member14.capabilities, "shared_documents_v1")
+      }
+
+      assert ^hazards = Release.assert_communication_rollback_hazards!(hazards, capable)
+
+      if expected_count == 2 do
+        assert {:ok, {:ok, %{documents_erased: 1, operations_deleted: 1}}} =
+                 Repo.transaction(fn ->
+                   SharedDocuments.erase_for_governance(
+                     account.tenant.id,
+                     :conversation,
+                     account.conversation.id,
+                     DateTime.utc_now()
+                   )
+                 end)
+
+        assert {:error, :not_found} = SharedDocuments.get(document.id, Fixtures.subject(account))
+      end
     end
   end
 
@@ -318,7 +369,8 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :rich_whiteboards,
         :member_workspaces,
         :governance_history_snapshots,
-        :active_history_purge_jobs
+        :active_history_purge_jobs,
+        :shared_documents
       ],
       &{&1, 0}
     )
