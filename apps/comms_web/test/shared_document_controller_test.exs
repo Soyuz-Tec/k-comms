@@ -117,7 +117,7 @@ defmodule CommsWeb.SharedDocumentControllerTest do
     assert :ok =
              Accounts.revoke_session(
                context.account.session.id,
-               Fixtures.subject(context.account)
+               context.account.user.id
              )
 
     for path <- [

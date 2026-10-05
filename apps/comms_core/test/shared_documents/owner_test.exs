@@ -212,7 +212,7 @@ defmodule CommsCore.SharedDocuments.OwnerTest do
     account.user |> Ecto.Changeset.change(access_scope: :conversation_only) |> Repo.update!()
     assert {:error, :forbidden} = SharedDocuments.get(document.id, subject)
     account.user |> Ecto.Changeset.change(access_scope: :workspace) |> Repo.update!()
-    assert :ok = Accounts.revoke_session(account.session.id, subject)
+    assert :ok = Accounts.revoke_session(account.session.id, account.user.id)
 
     for function <- [
           fn -> SharedDocuments.get(document.id, subject) end,

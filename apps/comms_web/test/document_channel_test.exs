@@ -63,7 +63,7 @@ defmodule CommsWeb.DocumentChannelTest do
       assigns: Map.put(context.subject, :shared_document_id, context.document.id)
     }
 
-    assert :ok = Accounts.revoke_session(context.account.session.id, context.subject)
+    assert :ok = Accounts.revoke_session(context.account.session.id, context.account.user.id)
 
     assert {:stop, :unauthorized, ^socket} =
              DocumentChannel.handle_out("document.operation_applied.v1", %{}, socket)
