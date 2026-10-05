@@ -2229,6 +2229,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
+                "workspace-domain-governance-fence",
+                "workspace-domain-retained-identity",
             },
         )
         self.assertEqual(
