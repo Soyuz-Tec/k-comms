@@ -2,6 +2,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -67,6 +68,66 @@ class RelayTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 relay.pinned_tls("pbx.example.test")
             connect.assert_not_called()
+
+    def ivr(self, event_type="ChannelDtmfReceived", age=0):
+        identifier = "4acf5490-60ba-439d-8a74-84960a9a1e4d"
+        return {"type": event_type, "digit": "1",
+                "timestamp": (datetime.now(timezone.utc) - timedelta(seconds=age)).isoformat(),
+                "channel": {"id": "external", "channelvars": {
+                    "KC_TENANT_ID": identifier, "KC_CALL_ID": identifier,
+                    "KC_LIVEKIT_ROOM": "room", "KC_SIP_IDENTITY": "sip",
+                    "KC_ROLE": "external", "KC_IVR_RUN_ID": identifier,
+                    "KC_IVR_STEP": "1"}}}
+
+    def test_combined_stream_normalizes_only_caller_disconnects(self):
+        raw = self.ivr("ChannelDestroyed")
+        event = json.loads(relay._ivr.ivr_event(json.dumps(raw).encode()))
+        self.assertEqual(event["type"], "ChannelDestroyed")
+        self.assertNotIn("digit", event)
+        raw["channel"]["channelvars"]["KC_ROLE"] = "app"
+        self.assertIsNone(relay._ivr.ivr_event(json.dumps(raw).encode()))
+
+    def test_shared_spool_delivers_notice_and_ivr_to_exact_distinct_owner_paths(self):
+        deliveries = []
+        class Connection:
+            def __init__(self, *_args, **_kwargs): pass
+            def request(self, method, path, body, headers): deliveries.append((path, body))
+            def getresponse(self): return self
+            status = 200
+            def read(self, _limit): return b"{}"
+            def close(self): pass
+        with tempfile.TemporaryDirectory() as directory, patch.object(relay, "PinnedHTTPS", Connection):
+            root = Path(directory)
+            notice = relay.notice_event(json.dumps(self.event()).encode())
+            ivr = relay._ivr.ivr_event(json.dumps(self.ivr()).encode())
+            relay.spool_event(root, notice)
+            relay.spool_event(root, ivr)
+            relay.deliver(root, "app.example.test", "/api/v1/telephony/pbx/webhook", "s" * 32)
+            self.assertEqual(set(path for path, _ in deliveries), {
+                "/api/v1/telephony/pbx/webhook", "/api/v1/telephony/ivr/webhook"})
+            self.assertEqual(set(body for _, body in deliveries), {notice, ivr})
+            self.assertEqual(list(root.glob("*.json")), [])
+
+    def test_ivr_expiry_does_not_drop_retained_voicemail_notice(self):
+        deliveries = []
+        class Connection:
+            def __init__(self, *_args, **_kwargs): pass
+            def request(self, method, path, body, headers): deliveries.append(path)
+            def getresponse(self): return self
+            status = 500
+            def read(self, _limit): return b"{}"
+            def close(self): pass
+        with tempfile.TemporaryDirectory() as directory, patch.object(relay, "PinnedHTTPS", Connection):
+            root = Path(directory)
+            event = self.ivr(age=181)
+            event["event_id"] = "a" * 64
+            relay.spool_event(root, json.dumps(event).encode())
+            relay.deliver(root, "app.example.test", "/api/v1/telephony/pbx/webhook", "s" * 32)
+            self.assertEqual(deliveries, [])
+            notice = relay.spool_event(root, relay.notice_event(json.dumps(self.event()).encode()))
+            relay.deliver(root, "app.example.test", "/api/v1/telephony/pbx/webhook", "s" * 32)
+            self.assertTrue(notice.exists())
+            self.assertEqual(deliveries, ["/api/v1/telephony/pbx/webhook"])
 
 
 if __name__ == "__main__":

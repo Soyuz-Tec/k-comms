@@ -31,6 +31,7 @@ defmodule CommsCore.RuntimePorts do
     :telephony_control,
     :telephony_dispatch,
     :telephony_expiry,
+    :telephony_ivr,
     :telephony_routing,
     :telephony_voicemail,
     :webhook_delivery

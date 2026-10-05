@@ -218,6 +218,11 @@ export class ApiClient {
   reconcilePhoneControl(...args: Parameters<TelephonyApi["reconcilePhoneControl"]>) { return this.telephonyApi.reconcilePhoneControl(...args); }
   phoneRoutes(...args: Parameters<TelephonyApi["phoneRoutes"]>) { return this.telephonyApi.phoneRoutes(...args); }
   savePhoneRoute(...args: Parameters<TelephonyApi["savePhoneRoute"]>) { return this.telephonyApi.savePhoneRoute(...args); }
+  phoneIvrConfiguration(...args: Parameters<TelephonyApi["phoneIvrConfiguration"]>) { return this.telephonyApi.phoneIvrConfiguration(...args); }
+  savePhoneIvr(...args: Parameters<TelephonyApi["savePhoneIvr"]>) { return this.telephonyApi.savePhoneIvr(...args); }
+  phoneAgentState(...args: Parameters<TelephonyApi["phoneAgentState"]>) { return this.telephonyApi.phoneAgentState(...args); }
+  setPhoneAgentState(...args: Parameters<TelephonyApi["setPhoneAgentState"]>) { return this.telephonyApi.setPhoneAgentState(...args); }
+  phoneQueueSnapshot(...args: Parameters<TelephonyApi["phoneQueueSnapshot"]>) { return this.telephonyApi.phoneQueueSnapshot(...args); }
   voicemails(...args: Parameters<VoicemailApi["voicemails"]>) { return this.voicemailApi.voicemails(...args); }
   voicemailPlayback(...args: Parameters<VoicemailApi["voicemailPlayback"]>) { return this.voicemailApi.voicemailPlayback(...args); }
   markVoicemailRead(...args: Parameters<VoicemailApi["markVoicemailRead"]>) { return this.voicemailApi.markVoicemailRead(...args); }

@@ -20,13 +20,21 @@ defmodule CommsCore.Telephony.IvrStateMachine do
   def valid_target?(%{"kind" => kind} = target) when is_map(target) do
     MapSet.new(Map.keys(target)) == Map.get(@target_keys, kind) and
       case kind do
-        "hangup" -> true
-        "route" -> uuid?(target["route_id"])
-        "voicemail" -> uuid?(target["mailbox_id"])
+        "hangup" ->
+          true
+
+        "route" ->
+          uuid?(target["route_id"])
+
+        "voicemail" ->
+          uuid?(target["mailbox_id"])
+
         "destination" ->
           is_binary(target["destination"]) and
             Regex.match?(~r/^\+[1-9][0-9]{7,14}$/, target["destination"])
-        _ -> false
+
+        _ ->
+          false
       end
   end
 
@@ -54,11 +62,17 @@ defmodule CommsCore.Telephony.IvrStateMachine do
 
   def timeout(run, now) do
     cond do
-      terminal?(run.phase) -> {:ignored, %{}}
-      DateTime.compare(run.expires_at, now) != :gt -> deadline_failure()
+      terminal?(run.phase) ->
+        {:ignored, %{}}
+
+      DateTime.compare(run.expires_at, now) != :gt ->
+        deadline_failure()
+
       run.phase == :awaiting_digit and DateTime.compare(run.digit_deadline, now) != :gt ->
         retry_or_fallback(run)
-      true -> {:wait, %{}}
+
+      true ->
+        {:wait, %{}}
     end
   end
 
@@ -67,8 +81,14 @@ defmodule CommsCore.Telephony.IvrStateMachine do
          event.media_uri == run.snapshot["prompt_media"] do
       completed_at = Map.get(event, :occurred_at, now)
       deadline = DateTime.add(completed_at, run.snapshot["digit_timeout_seconds"], :second)
-      {:applied, %{phase: :awaiting_digit, prompt_completed_at: completed_at,
-                   digit_deadline: earliest(deadline, run.expires_at), failure_reason: nil}}
+
+      {:applied,
+       %{
+         phase: :awaiting_digit,
+         prompt_completed_at: completed_at,
+         digit_deadline: earliest(deadline, run.expires_at),
+         failure_reason: nil
+       }}
     else
       {:ignored, %{}}
     end
@@ -78,11 +98,18 @@ defmodule CommsCore.Telephony.IvrStateMachine do
 
   defp digit(%{phase: :awaiting_digit} = run, event, now) do
     occurred_at = Map.get(event, :occurred_at, now)
+
     cond do
-      is_nil(run.prompt_completed_at) or DateTime.compare(occurred_at, run.prompt_completed_at) == :lt ->
+      is_nil(run.prompt_completed_at) or
+          DateTime.compare(occurred_at, run.prompt_completed_at) == :lt ->
         {:ignored, %{}}
-      DateTime.compare(run.digit_deadline, now) != :gt -> retry_or_fallback(run)
-      DateTime.compare(occurred_at, run.digit_deadline) != :lt -> retry_or_fallback(run)
+
+      DateTime.compare(run.digit_deadline, now) != :gt ->
+        retry_or_fallback(run)
+
+      DateTime.compare(occurred_at, run.digit_deadline) != :lt ->
+        retry_or_fallback(run)
+
       true ->
         case Map.fetch(run.snapshot["choices"], event.digit) do
           {:ok, target} -> {:applied, %{phase: :selected, selected_target: target}}
@@ -95,9 +122,18 @@ defmodule CommsCore.Telephony.IvrStateMachine do
 
   defp retry_or_fallback(run) do
     if run.retries < run.snapshot["max_retries"] do
-      {:applied, %{phase: :pending, retries: run.retries + 1, step: run.step + 1,
-                   claimed_at: nil, prompt_completed_at: nil, digit_deadline: nil,
-                   effect_claim_fingerprint: nil, effect_started_at: nil, failure_reason: nil}}
+      {:applied,
+       %{
+         phase: :pending,
+         retries: run.retries + 1,
+         step: run.step + 1,
+         claimed_at: nil,
+         prompt_completed_at: nil,
+         digit_deadline: nil,
+         effect_claim_fingerprint: nil,
+         effect_started_at: nil,
+         failure_reason: nil
+       }}
     else
       select_fallback(run)
     end

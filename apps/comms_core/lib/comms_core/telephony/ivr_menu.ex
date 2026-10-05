@@ -19,8 +19,18 @@ defmodule CommsCore.Telephony.IvrMenu do
   def changeset(menu, attrs) do
     menu
     |> cast(attrs, __schema__(:fields) -- [:inserted_at, :updated_at])
-    |> validate_required([:tenant_id, :number_id, :name, :prompt_media, :choices, :fallback,
-                          :digit_timeout_seconds, :max_retries, :enabled, :version])
+    |> validate_required([
+      :tenant_id,
+      :number_id,
+      :name,
+      :prompt_media,
+      :choices,
+      :fallback,
+      :digit_timeout_seconds,
+      :max_retries,
+      :enabled,
+      :version
+    ])
     |> validate_length(:name, min: 1, max: 100)
     |> validate_format(:prompt_media, ~r/^sound:[A-Za-z0-9_\/-]{1,150}$/)
     |> validate_number(:digit_timeout_seconds,

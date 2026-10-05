@@ -1,0 +1,698 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/telephony-ivr.v1.json",
+  "title": "telephony-ivr.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/IvrMenu"
+    },
+    {
+      "$ref": "#/$defs/IvrMenuRequest"
+    },
+    {
+      "$ref": "#/$defs/IvrConfiguration"
+    },
+    {
+      "$ref": "#/$defs/AgentQueueState"
+    },
+    {
+      "$ref": "#/$defs/AgentQueueStateRequest"
+    },
+    {
+      "$ref": "#/$defs/CurrentQueueSnapshot"
+    },
+    {
+      "$ref": "#/$defs/IvrWebhookEvent"
+    }
+  ],
+  "$defs": {
+    "IvrTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "hangup"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "route_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "route"
+            },
+            "route_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "mailbox_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "voicemail"
+            },
+            "mailbox_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "destination"
+          ],
+          "properties": {
+            "kind": {
+              "const": "destination"
+            },
+            "destination": {
+              "type": "string",
+              "pattern": "^\\+[1-9][0-9]{7,14}$"
+            }
+          }
+        }
+      ]
+    },
+    "IvrMenu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "prompt_media",
+        "choices",
+        "fallback",
+        "digit_timeout_seconds",
+        "max_retries",
+        "enabled",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "prompt_media": {
+          "type": "string",
+          "pattern": "^sound:[A-Za-z0-9_/-]{1,150}$"
+        },
+        "choices": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 9,
+          "propertyNames": {
+          "pattern": "^[1-9]$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/IvrTarget"
+          }
+        },
+        "fallback": {
+          "$ref": "#/$defs/IvrTarget"
+        },
+        "digit_timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 30
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "IvrMenuRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "prompt_media",
+        "choices",
+        "fallback",
+        "digit_timeout_seconds",
+        "max_retries",
+        "enabled",
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "prompt_media": {
+          "type": "string",
+          "pattern": "^sound:[A-Za-z0-9_/-]{1,150}$"
+        },
+        "choices": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 9,
+          "propertyNames": {
+            "pattern": "^[1-9]$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/IvrTarget"
+          }
+        },
+        "fallback": {
+          "$ref": "#/$defs/IvrTarget"
+        },
+        "digit_timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 30
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500
+        }
+      }
+    },
+    "IvrConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "menu",
+        "available",
+        "max_active_callers",
+        "approved_prompts"
+      ],
+      "properties": {
+        "menu": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/IvrMenu"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "max_active_callers": {
+          "const": 100
+        },
+        "approved_prompts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sound:[A-Za-z0-9_/-]{1,150}$"
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "AgentQueueState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "expires_at",
+        "version",
+        "explicit",
+        "online_presence_observed"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ready",
+            "away",
+            "wrap_up"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "explicit": {
+          "type": "boolean"
+        },
+        "online_presence_observed": {
+          "const": false
+        }
+      }
+    },
+    "AgentQueueStateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "duration_seconds",
+        "version"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ready",
+            "away",
+            "wrap_up"
+          ]
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "wrap_up"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_seconds": {
+                "type": "integer",
+                "minimum": 60,
+                "maximum": 1800
+              }
+            }
+          }
+        }
+      ]
+    },
+    "CurrentQueueRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "mode",
+        "enabled",
+        "configured_members",
+        "max_waiting",
+        "max_wait_seconds",
+        "waiting_calls",
+        "offered_calls",
+        "answered_calls",
+        "oldest_observed_wait_seconds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "mode": {
+          "enum": [
+            "queue",
+            "shared_line"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "configured_members": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25
+        },
+        "max_waiting": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "max_wait_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 600
+        },
+        "waiting_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offered_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "answered_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oldest_observed_wait_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "CurrentQueueSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routes",
+        "observed_at",
+        "coverage",
+        "online_presence_observed",
+        "historical_service_level_available",
+        "oldest_wait_basis"
+      ],
+      "properties": {
+        "routes": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/CurrentQueueRoute"
+          }
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coverage": {
+          "const": "current_retained_calls"
+        },
+        "online_presence_observed": {
+          "const": false
+        },
+        "historical_service_level_available": {
+          "const": false
+        },
+        "oldest_wait_basis": {
+          "const": "call_started_at"
+        }
+      }
+    },
+    "IvrWebhookEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "event_id",
+            "timestamp",
+            "digit",
+            "channel"
+          ],
+          "properties": {
+            "type": {
+              "const": "ChannelDtmfReceived"
+            },
+            "event_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "digit": {
+              "enum": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "*",
+                "#",
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "channel": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "channelvars"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,200}$"
+                },
+                "channelvars": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "KC_TENANT_ID",
+                    "KC_CALL_ID",
+                    "KC_LIVEKIT_ROOM",
+                    "KC_SIP_IDENTITY",
+                    "KC_ROLE",
+                    "KC_IVR_RUN_ID",
+                    "KC_IVR_STEP"
+                  ],
+                  "properties": {
+                    "KC_TENANT_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_CALL_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_LIVEKIT_ROOM": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "KC_SIP_IDENTITY": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "KC_ROLE": {
+                      "const": "external"
+                    },
+                    "KC_IVR_RUN_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_IVR_STEP": {
+                      "enum": [
+                        "1",
+                        "2",
+                        "3"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "event_id",
+            "timestamp",
+            "channel"
+          ],
+          "properties": {
+            "type": {
+              "const": "ChannelDestroyed"
+            },
+            "event_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "channel": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "channelvars"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.:-]{1,200}$"
+                },
+                "channelvars": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "KC_TENANT_ID",
+                    "KC_CALL_ID",
+                    "KC_LIVEKIT_ROOM",
+                    "KC_SIP_IDENTITY",
+                    "KC_ROLE",
+                    "KC_IVR_RUN_ID",
+                    "KC_IVR_STEP"
+                  ],
+                  "properties": {
+                    "KC_TENANT_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_CALL_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_LIVEKIT_ROOM": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "KC_SIP_IDENTITY": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "KC_ROLE": {
+                      "const": "external"
+                    },
+                    "KC_IVR_RUN_ID": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "KC_IVR_STEP": {
+                      "enum": [
+                        "1",
+                        "2",
+                        "3"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "event_id",
+            "timestamp",
+            "playback"
+          ],
+          "properties": {
+            "type": {
+              "const": "PlaybackFinished"
+            },
+            "event_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "playback": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "state",
+                "target_uri",
+                "media_uri"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^kc_ivr_[0-9a-f]{32}_[1-3]$"
+                },
+                "state": {
+                  "const": "done"
+                },
+                "target_uri": {
+                  "type": "string",
+                  "pattern": "^channel:[A-Za-z0-9_.:-]{1,200}$"
+                },
+                "media_uri": {
+                  "type": "string",
+                  "pattern": "^sound:[A-Za-z0-9_/-]{1,150}$"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

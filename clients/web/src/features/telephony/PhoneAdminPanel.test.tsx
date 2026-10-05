@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PhoneAdminPanel } from "./PhoneAdminPanel";
 
-const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { api: { voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string }[] }; });
+const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { api: { phoneIvrConfiguration: vi.fn().mockResolvedValue({ menu: null, available: false, max_active_callers: 100, approved_prompts: [] }), voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string }[] }; });
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api }) }));
 vi.mock("../../app/workspace-data", () => ({ useWorkspaceData: () => ({ users: harness.users }) }));
 vi.mock("../../app/step-up", () => ({ useStepUp: () => ({ runWithStepUp: harness.stepUp }), stepUpWasCancelled: () => false }));

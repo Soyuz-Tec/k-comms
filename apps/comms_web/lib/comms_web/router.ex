@@ -163,6 +163,7 @@ defmodule CommsWeb.Router do
     pipe_through(:telephony_provider_api)
     post("/livekit/webhook", TelephonyWebhookController, :create)
     post("/pbx/webhook", TelephonyPBXWebhookController, :create)
+    post("/ivr/webhook", TelephonyIvrWebhookController, :create)
   end
 
   scope "/api/v1/providers", CommsWeb do
@@ -317,6 +318,11 @@ defmodule CommsWeb.Router do
     put("/admin/telephony/mailbox", VoicemailController, :save_mailbox)
     get("/admin/telephony/routes", TelephonyController, :routes)
     put("/admin/telephony/routes", TelephonyController, :save_route)
+    get("/admin/telephony/ivr", TelephonyIvrController, :config)
+    put("/admin/telephony/ivr", TelephonyIvrController, :save)
+    get("/telephony/agent-state", TelephonyIvrController, :agent_state)
+    put("/telephony/agent-state", TelephonyIvrController, :set_agent_state)
+    get("/admin/telephony/queues/current", TelephonyIvrController, :supervisor)
     get("/telephony/capabilities", TelephonyController, :capabilities)
     get("/telephony/calls/:id/controls", TelephonyController, :controls)
     post("/telephony/calls/:id/controls", TelephonyController, :control)

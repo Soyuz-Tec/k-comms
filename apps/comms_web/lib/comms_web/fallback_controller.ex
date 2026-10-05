@@ -173,6 +173,24 @@ defmodule CommsWeb.FallbackController do
   defp error(:stale_version),
     do: {409, "stale_version", "The resource changed; reload it before retrying"}
 
+  defp error(reason) when reason in [:invalid_telephony_ivr, :invalid_agent_state],
+    do: {422, Atom.to_string(reason), "Review the caller menu or queue disposition fields"}
+
+  defp error(:telephony_agent_not_assigned),
+    do: {403, "telephony_agent_not_assigned", "Current queue membership is required"}
+
+  defp error(reason)
+       when reason in [:telephony_ivr_prompt_unapproved, :telephony_ivr_target_unavailable],
+       do:
+         {409, Atom.to_string(reason),
+          "The prompt or destination is not currently approved and available"}
+
+  defp error(:telephony_ivr_unavailable),
+    do: {503, "telephony_ivr_unavailable", "Qualified caller menu service is unavailable"}
+
+  defp error(:telephony_ivr_event_capacity),
+    do: {429, "telephony_ivr_event_capacity", "The caller event limit was reached"}
+
   defp error(reason)
        when reason in [:stale_draft, :stale_board_version],
        do:

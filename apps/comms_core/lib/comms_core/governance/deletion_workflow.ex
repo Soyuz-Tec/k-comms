@@ -200,6 +200,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           derived_erasure_version: 1,
           media_erasure_version: 1,
           meeting_erasure_version: 1,
+          ivr_agent_state_erasure_version: 1,
           writer_fence_erasure_version: 1,
           target_digest: target_digest(request)
         }
@@ -242,6 +243,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                    fragment("coalesce(?->>'media_erasure_version', '') <> '1'", request.evidence) or
                    fragment(
                      "coalesce(?->>'meeting_erasure_version', '') <> '1'",
+                     request.evidence
+                   ) or
+                   fragment(
+                     "coalesce(?->>'ivr_agent_state_erasure_version', '') <> '1'",
                      request.evidence
                    ) or
                    fragment(
@@ -290,6 +295,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
            (value(request.evidence || %{}, :derived_erasure_version) == 1 and
               value(request.evidence || %{}, :media_erasure_version) == 1 and
               value(request.evidence || %{}, :meeting_erasure_version) == 1 and
+              value(request.evidence || %{}, :ivr_agent_state_erasure_version) == 1 and
               value(request.evidence || %{}, :writer_fence_erasure_version) == 1) do
         false
       else
@@ -317,6 +323,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 "derived_erasure_version" => 1,
                 "media_erasure_version" => 1,
                 "meeting_erasure_version" => 1,
+                "ivr_agent_state_erasure_version" => 1,
                 "writer_fence_erasure_version" => 1,
                 "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
               })
@@ -331,6 +338,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 derived_erasure_version: 1,
                 media_erasure_version: 1,
                 meeting_erasure_version: 1,
+                ivr_agent_state_erasure_version: 1,
                 writer_fence_erasure_version: 1
               }
             )
@@ -768,6 +776,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
 
     # The drain already contributed room and telephone call revocation. Strong
     # identity-key updates are last, after every lower call/content resource.
+    Telephony.erase_agent_queue_state(request.tenant_id, user_id)
+    |> owner_command_or_rollback()
+
     request
     |> identity_erasure_command(timestamp)
     |> Accounts.finalize_user_for_governance_erasure()

@@ -226,21 +226,42 @@ defmodule CommsCore.Telephony do
   @spec save_ivr(map(), map()) :: response()
   defdelegate save_ivr(attrs, subject), to: CommsCore.Telephony.Ivr, as: :save
   @spec handle_ivr_webhook(binary(), binary()) :: {:ok, atom()} | {:error, atom()}
-  defdelegate handle_ivr_webhook(body, authorization), to: CommsCore.Telephony.Ivr, as: :handle_webhook
+  defdelegate handle_ivr_webhook(body, authorization),
+    to: CommsCore.Telephony.Ivr,
+    as: :handle_webhook
+
   @spec advance_ivr(String.t(), module()) ::
-          {:ok, atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}} | {:error, atom()}
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
   defdelegate advance_ivr(id, caller), to: CommsCore.Telephony.Ivr, as: :advance
+
   @spec execute_ivr_claim(CommsCore.Telephony.IvrEffectClaim.t(), module()) ::
-          {:ok, atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}} | {:error, atom()}
+          {:ok,
+           atom() | {:wait, pos_integer()} | {:effect, CommsCore.Telephony.IvrEffectClaim.t()}}
+          | {:error, atom()}
   defdelegate execute_ivr_claim(claim, caller), to: CommsCore.Telephony.Ivr, as: :execute_claim
   @spec rollback_ivr_hazard_count() :: non_neg_integer()
   defdelegate rollback_ivr_hazard_count(), to: CommsCore.Telephony.Ivr, as: :rollback_hazard_count
   @spec agent_queue_state(map()) :: response()
   defdelegate agent_queue_state(subject), to: CommsCore.Telephony.ContactCenter, as: :agent_state
   @spec set_agent_queue_state(map(), map()) :: response()
-  defdelegate set_agent_queue_state(attrs, subject), to: CommsCore.Telephony.ContactCenter, as: :set_agent_state
+  defdelegate set_agent_queue_state(attrs, subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :set_agent_state
+
   @spec queue_supervisor_snapshot(map()) :: response()
-  defdelegate queue_supervisor_snapshot(subject), to: CommsCore.Telephony.ContactCenter, as: :queue_snapshot
+  defdelegate queue_supervisor_snapshot(subject),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :queue_snapshot
+
   @spec rollback_agent_state_hazard_count() :: non_neg_integer()
-  defdelegate rollback_agent_state_hazard_count(), to: CommsCore.Telephony.ContactCenter, as: :rollback_hazard_count
+  defdelegate rollback_agent_state_hazard_count(),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :rollback_hazard_count
+
+  @spec erase_agent_queue_state(String.t(), String.t()) :: {:ok, non_neg_integer()}
+  defdelegate erase_agent_queue_state(tenant_id, user_id),
+    to: CommsCore.Telephony.ContactCenter,
+    as: :erase_user!
 end

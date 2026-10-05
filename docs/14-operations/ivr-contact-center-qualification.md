@@ -1,7 +1,7 @@
 # IVR and current queue qualification
 
-Status: source prototype; parent integration, source qualification and real
-provider qualification are pending. Do not enable admission from this document.
+Status: parent-integrated source; full source qualification and real provider
+qualification are pending. Do not enable admission from this document.
 
 This increment uses one existing tenant Number, one existing Route and one
 optional mailbox. It adds one bounded menu and current aggregate queue totals.
@@ -17,10 +17,32 @@ uploads do not become approved prompts.
 
 Run one combined `ari_event_relay.py` per ARI application. Its existing notice
 destination remains `/api/v1/telephony/pbx/webhook`. An optional IVR destination
-uses `/api/v1/telephony/ivr/webhook` with a separate bounded private IVR spool.
+uses `/api/v1/telephony/ivr/webhook` on the same application hostname. Both use
+the existing bounded private durable spool; delivery selects the exact endpoint
+from the normalized retained event, and only IVR events expire after 180 seconds.
 The IVR helper does not start a second application WebSocket. Persist a spool
 receipt unchanged across delivery retries and expire IVR events after 180 seconds.
 The menu prompt cannot satisfy the separate voicemail recording notice.
+
+`TELEPHONY_IVR_QUALIFIED` defaults false. Enabling it requires the existing
+`TELEPHONY_PBX_ENABLED=true`, `TELEPHONY_PBX_QUALIFIED=true`, protected webhook
+secret of at least 32 bytes, and `TELEPHONY_IVR_PROMPT_ALLOWLIST` containing
+one to twenty comma-separated reviewed `sound:` names. The core and provider
+receive the same reviewed list. The combined relay optionally accepts
+`KCOMMS_IVR_WEBHOOK_URL`; omit it to derive the fixed IVR route from the existing
+notice URL. No extra ARI subscription or standalone helper process is allowed.
+
+Workspace phone setup presents the saved-version caller menu and current queue
+snapshot. Menu saves and queue snapshots require current administrator
+verification. An assigned current Route member can set their own expiring queue
+disposition from Phone. A stale version requires an explicit refresh and review.
+Neither screen establishes online presence or provider qualification.
+
+Every IVR-sourced Call keeps its original admission deadline, including a
+selected human queue or a later queue-to-voicemail fallback. This increment
+therefore has a total 45-second caller lifetime; normal answered-call extension
+and the ordinary queue-expiry grace do not extend it. Verify this restriction
+in the intended workflow before rollout.
 
 Before enablement, retain receipts for all of the following:
 
