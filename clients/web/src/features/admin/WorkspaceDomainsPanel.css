@@ -1,0 +1,15 @@
+.workspace-domains { display: grid; gap: 16px; min-width: 0; }
+.workspace-domains h2, .workspace-domains h3, .workspace-domains p { margin: 0; overflow-wrap: anywhere; }
+.workspace-domain-create { display: grid; gap: 12px; }
+.workspace-domains input, .workspace-domains button, .workspace-domain-dns summary { min-height: 44px; max-width: 100%; min-width: 0; }
+.workspace-domain-checkbox { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.workspace-domain-checkbox input { width: 22px; flex: 0 0 22px; }
+.workspace-domain-list { list-style: none; padding: 0; display: grid; gap: 16px; min-width: 0; }
+.workspace-domain-list > li { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border-default); border-radius: 12px; min-width: 0; }
+.workspace-domain-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-domain-actions button { white-space: normal; overflow-wrap: anywhere; }
+.workspace-domain-dns summary { cursor: pointer; align-content: center; overflow-wrap: anywhere; }
+.workspace-domain-dns dl { display: grid; gap: 6px; }
+.workspace-domain-dns dt { font-weight: 600; }
+.workspace-domain-dns dd { margin: 0 0 6px; overflow-wrap: anywhere; }
+.workspace-domain-dns code { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }

@@ -1,4 +1,13 @@
 defmodule CommsCore.Governance do
+  @behaviour CommsCore.Administration.WorkspaceDomainGovernancePort
+
+  @impl CommsCore.Administration.WorkspaceDomainGovernancePort
+  @spec lock_workspace_domain_fence(CommsCore.Administration.DomainGovernanceFenceQuery.t()) ::
+          {:ok, CommsCore.Administration.DomainGovernanceFenceReceipt.t()} | {:error, atom()}
+  defdelegate lock_workspace_domain_fence(query),
+    to: CommsCore.Governance.WorkspaceDomainFence,
+    as: :lock
+
   import CommsCore.Governance.Support,
     only: [owner_command_or_rollback: 1, transaction_result: 1, value: 2]
 

@@ -24,6 +24,12 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
   end
 
+  pipeline :workspace_discovery_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSameOriginJSON)
+    plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -157,6 +163,11 @@ defmodule CommsWeb.Router do
   scope "/api/v1", CommsWeb do
     pipe_through(:api)
     get("/status", StatusController, :show)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:workspace_discovery_api)
+    post("/workspaces/discover", WorkspaceDiscoveryController, :create)
   end
 
   scope "/api/v1/telephony", CommsWeb do
@@ -478,6 +489,12 @@ defmodule CommsWeb.Router do
     get("/admin/usage", UsageReportController, :index)
     get("/admin/role-permissions", RolePermissionController, :index)
     post("/admin/users/:id/role-preview", RolePermissionController, :preview)
+    get("/admin/workspace-domains", WorkspaceDomainController, :index)
+    post("/admin/workspace-domains", WorkspaceDomainController, :create)
+    post("/admin/workspace-domains/:id/challenge", WorkspaceDomainController, :renew)
+    post("/admin/workspace-domains/:id/verify", WorkspaceDomainController, :verify)
+    patch("/admin/workspace-domains/:id", WorkspaceDomainController, :update)
+    delete("/admin/workspace-domains/:id", WorkspaceDomainController, :revoke)
     get("/admin/users", AdminUserController, :index)
     patch("/admin/users/:id", AdminUserController, :update)
     get("/admin/users/:user_id/sessions", AdminUserController, :sessions)

@@ -21,11 +21,12 @@ import { PeoplePanel } from "./PeoplePanel";
 import { SafetyPanel } from "./SafetyPanel";
 import { TenantSettingsPanel } from "./TenantSettingsPanel";
 import { UsageReportsPanel } from "./UsageReportsPanel";
+import { WorkspaceDomainsPanel } from "./WorkspaceDomainsPanel";
 import "./AdminPage.css";
 
-type AdminSection = "phone" | "workspace" | "people" | "safety" | "governance" | "integrations" | "audit" | "usage";
+type AdminSection = "domains" | "phone" | "workspace" | "people" | "safety" | "governance" | "integrations" | "audit" | "usage";
 const sectionIcons: Record<AdminSection, AppIconName> = {
-  phone: "phone", workspace: "settings", people: "users", safety: "flag",
+  domains: "compass", phone: "phone", workspace: "settings", people: "users", safety: "flag",
   governance: "lock", integrations: "sliders", audit: "activity", usage: "activity"
 };
 
@@ -35,7 +36,7 @@ export function AdminPage() {
   const role = session?.user.role || "member";
   const workspaceHuman = (session?.user.account_type || "human") === "human" && (session?.user.access_scope || "workspace") === "workspace";
   const sections = adminSections(role, workspaceHuman);
-  const authorized = Boolean(session && canAccessWorkspaceAdmin(session.user));
+  const authorized = Boolean(session && session.tenant.status === "active" && canAccessWorkspaceAdmin(session.user));
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("section");
   const defaultSection = sections[0]?.[0] || "workspace";
@@ -78,6 +79,7 @@ export function AdminPage() {
           setSession({ ...session, tenant: updated.tenant });
           setCapabilities((current) => current ? { ...current, allow_audio_calls: updated.settings.allow_audio_calls, allow_video_calls: updated.settings.allow_video_calls, allow_public_channels: updated.settings.allow_public_channels, message_edit_window_seconds: updated.settings.message_edit_window_seconds, max_attachment_bytes: updated.settings.max_attachment_bytes } : current);
         }} />}
+        {section === "domains" && <WorkspaceDomainsPanel api={api} />}
         {section === "phone" && <PhoneAdminPanel />}
         {section === "people" && <PeoplePanel api={api} actorRole={session.user.role} users={users} setUsers={setUsers} />}
         {section === "safety" && <SafetyPanel api={api} canManageAttachments={canAdministerTenant(session.user.role)} />}
@@ -92,12 +94,12 @@ export function AdminPage() {
 }
 
 function isAdminSection(value: string | null): value is AdminSection {
-  return value === "phone" || value === "workspace" || value === "people" || value === "safety" || value === "governance" || value === "integrations" || value === "audit" || value === "usage";
+  return value === "domains" || value === "phone" || value === "workspace" || value === "people" || value === "safety" || value === "governance" || value === "integrations" || value === "audit" || value === "usage";
 }
 
 function adminSections(role: UserRole, workspaceHuman: boolean): Array<[AdminSection, string]> {
   const sections: Array<[AdminSection, string]> = [];
-  if (canAdministerTenant(role)) sections.push(["workspace", "Workspace"], ["phone", "Phone"]);
+  if (canAdministerTenant(role)) sections.push(["workspace", "Workspace"], ["domains", "Domains"], ["phone", "Phone"]);
   if (canManageUsers(role) || canManageSessions(role)) sections.push(["people", "People"]);
   if (canModerate(role)) sections.push(["safety", "Safety"]);
   if (canGovern(role)) sections.push(["governance", "Governance"]);

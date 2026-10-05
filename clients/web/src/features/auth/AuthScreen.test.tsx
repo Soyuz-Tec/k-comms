@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session, User } from "../../types";
 import { rememberWorkspaceSlug } from "../../lib/workspacePreference";
@@ -11,12 +11,14 @@ const mocks = vi.hoisted(() => {
   const acceptInvitation = vi.fn();
   const login = vi.fn();
   const bootstrap = vi.fn();
+  const discoverWorkspace = vi.fn();
 
   return {
     status,
     acceptInvitation,
     login,
     bootstrap,
+    discoverWorkspace,
     api: {
       status,
       acceptInvitation,
@@ -24,7 +26,8 @@ const mocks = vi.hoisted(() => {
       passwordSignIn: login,
       completeMfaSignIn: vi.fn(),
       startOidc: vi.fn(),
-      bootstrap
+      bootstrap,
+      discoverWorkspace
     },
     setSession: vi.fn(),
     transportPolicyReady: true,
@@ -78,6 +81,7 @@ describe("AuthScreen", () => {
     mocks.api.completeMfaSignIn.mockReset();
     mocks.api.startOidc.mockReset();
     mocks.bootstrap.mockReset();
+    mocks.discoverWorkspace.mockReset().mockResolvedValue({ available: false, sign_in_path: null });
     mocks.setSession.mockReset();
     mocks.transportPolicyReady = true;
     mocks.accountActionsAllowed = true;
@@ -186,6 +190,30 @@ describe("AuthScreen", () => {
     expect(mocks.api.startOidc).toHaveBeenCalledWith("acme", "/app/");
     expect(mocks.setSession).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe("/app/");
+  });
+
+  it("hands a discovered workspace to sign-in without sending credentials and clears the previous password", async () => {
+    mocks.discoverWorkspace.mockResolvedValue({ available: true, sign_in_path: "/sign-in?tenant_slug=discovered" });
+    window.history.replaceState({}, "", "/sign-in");
+    const user = userEvent.setup();
+    function NavigationProbe() {
+      const location = useLocation();
+      return <output data-testid="discovery-navigation">{location.pathname}{location.search} {JSON.stringify(location.state)}</output>;
+    }
+    render(<MemoryRouter initialEntries={[{ pathname: "/sign-in", state: { returnTo: "/app/files?conversation=conversation-1" } }]}><AuthScreen /><NavigationProbe /></MemoryRouter>);
+    await user.type(screen.getByLabelText("Workspace address"), "old-workspace");
+    await user.type(screen.getByLabelText("Email address"), "taylor@example.org");
+    await user.type(screen.getByLabelText("Password"), "previous workspace password");
+    await user.click(screen.getByText("Find workspace by domain"));
+    await user.type(screen.getByLabelText("Workspace domain"), "team.example.org");
+    await user.click(screen.getByRole("button", { name: "Find workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Use this workspace address" }));
+    expect(screen.getByTestId("discovery-navigation")).toHaveTextContent("/sign-in?tenant_slug=discovered");
+    expect(screen.getByTestId("discovery-navigation")).toHaveTextContent("/app/files?conversation=conversation-1");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(screen.getByLabelText("Email address")).toHaveValue("taylor@example.org");
+    expect(mocks.login).not.toHaveBeenCalled(); expect(mocks.setSession).not.toHaveBeenCalled();
+    expect(screen.getByText(/discovery does not grant access/)).toBeVisible();
   });
 
   it("blocks credential submission on an unencrypted non-loopback origin", async () => {
