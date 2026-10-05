@@ -427,7 +427,9 @@ defmodule CommsCore.AudioCalls.MeetingErasureTest do
       :calendar_erasure_state,
       :native_push_registrations,
       :native_call_wake_intents,
-      :active_native_call_wake_jobs
+      :active_native_call_wake_jobs,
+      :recognition_summary_state,
+      :active_summary_jobs
     ]
 
     keys |> Map.new(&{&1, 0}) |> Map.put(:scheduled_meetings, count)
