@@ -19,7 +19,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
                                   "governance_history_v1",
-                                  "private_rooms_v1"
+                                  "private_rooms_v1",
+                                  "workspace_federation_v1"
                                 ],
                                 ","
                               )
@@ -96,7 +97,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       private_matrix_rooms: 1,
       opaque_private_events: 1,
       active_matrix_device_jobs: 1,
-      active_private_purge_jobs: 1
+      active_private_purge_jobs: 1,
+      federation_state: 1,
+      active_federation_jobs: 1
     }
 
     compatible = %{
@@ -203,7 +206,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
            [:scheduled_meetings, :active_meeting_reminder_jobs]},
           {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
           {"member_workspace_v1", [:member_workspaces]},
-          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+          {"workspace_federation_v1", [:federation_state, :active_federation_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

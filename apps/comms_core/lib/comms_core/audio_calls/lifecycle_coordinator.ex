@@ -23,7 +23,8 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
       with {:ok, %IdentityReceipt{revoked_participant_count: audio_count}} <-
              AudioCalls.revoke_identity_access(command),
            {:ok, %IdentityReceipt{revoked_participant_count: phone_count}} <-
-             Telephony.revoke_identity_access(command) do
+             Telephony.revoke_identity_access(command),
+           :ok <- fence_federation_identity(command) do
         {:ok, %IdentityReceipt{revoked_participant_count: audio_count + phone_count}}
       else
         {:error, _reason} = error -> error
@@ -33,6 +34,19 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
       {:error, :transaction_required}
     end
   end
+
+  defp fence_federation_identity(%IdentityCommand{
+         operation: :user_access_revoked,
+         tenant_id: tenant,
+         user_id: user
+       }) do
+    case CommsCore.Conversations.fence_federation_user(tenant, user) do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp fence_federation_identity(_), do: :ok
 
   @spec revoke_tenant_media(TenantCommand.t()) ::
           {:ok, TenantReceipt.t()} | {:error, term()}

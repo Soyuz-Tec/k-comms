@@ -51,6 +51,10 @@ spec:
               value: "disabled"
             - name: MEETING_ARTIFACTS_ENABLED
               value: "false"
+            - name: FEDERATION_ENABLED
+              value: "false"
+            - name: FEDERATION_PROVIDER_QUALIFIED
+              value: "false"
             - name: LIVEKIT_EGRESS_ENABLED
               value: "false"
             - name: ARTIFACT_TRANSCRIPTION_ENABLED

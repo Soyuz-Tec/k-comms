@@ -167,6 +167,15 @@ defmodule CommsCore.Conversations.Memberships do
           "membership_removed"
         )
 
+        case CommsCore.Conversations.Federation.Commands.fence_member(
+               conversation.tenant_id,
+               conversation.id,
+               updated.user_id
+             ) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
         updated
       end)
       |> Commands.transaction_result()

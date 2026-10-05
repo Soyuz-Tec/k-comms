@@ -323,7 +323,9 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :private_matrix_rooms,
         :opaque_private_events,
         :active_matrix_device_jobs,
-        :active_private_purge_jobs
+        :active_private_purge_jobs,
+        :federation_state,
+        :active_federation_jobs
       ],
       &{&1, 0}
     )

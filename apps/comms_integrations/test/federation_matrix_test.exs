@@ -1,0 +1,283 @@
+defmodule CommsIntegrations.FederationMatrixTest.Transport do
+  def request(destination, method, _headers, body, options) do
+    assert_public = hd(destination.addresses) == {93, 184, 216, 34}
+    if not assert_public, do: raise("synthetic destination was not pinned")
+    path = destination.uri.path
+    send(self(), {:matrix_request, method, path, body, options[:timeout_ms]})
+    handler = Process.get(:matrix_handler)
+    handler.(method, path, body)
+  end
+end
+
+defmodule CommsIntegrations.FederationMatrixTest do
+  use ExUnit.Case, async: false
+  alias CommsIntegrations.Federation.{Domain, Matrix}
+  alias CommsCore.Conversations.Federation.{ProviderReceipt, ProviderRequest}
+  @moduletag :unit
+  @moduletag :external_delivery
+  setup do
+    previous = Application.get_env(:comms_integrations, :federation_matrix)
+
+    Application.put_env(:comms_integrations, :federation_matrix, %{
+      enabled: true,
+      provider_qualified: true,
+      origin: "https://matrix.example.org",
+      server_name: "example.org",
+      bridge_user: "@bridge:example.org",
+      access_token: "synthetic-bridge-token-with-no-remote-account",
+      transport_options: [
+        resolver: fn _, _ -> [{93, 184, 216, 34}] end,
+        transport: CommsIntegrations.FederationMatrixTest.Transport
+      ]
+    })
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:comms_integrations, :federation_matrix, previous),
+        else: Application.delete_env(:comms_integrations, :federation_matrix)
+    end)
+
+    :ok
+  end
+
+  test "canonical domains refuse URL, email, IP, private suffix and alternate ports" do
+    assert {:ok, "remote.example.org"} = Domain.validate("remote.example.org")
+
+    for name <- [
+          "REMOTE.example.org",
+          "remote.example.org\n",
+          "remote.example.org.",
+          "127.0.0.1",
+          "x.local",
+          "https://remote.example.org",
+          "remote.example.org:8448",
+          "member@remote.example.org"
+        ] do
+      assert {:error, :invalid_federation_domain} = Domain.validate(name)
+    end
+
+    assert {:error, :untrusted_matrix_principal} =
+             Domain.matrix_user("@person:other.example.org", "remote.example.org")
+
+    assert {:error, :untrusted_matrix_principal} =
+             Domain.matrix_user("@person:remote.example.org\n", "remote.example.org")
+  end
+
+  test "an encrypted room is refused before any send or timeline capture" do
+    handler(fn :get, path, _ ->
+      if String.ends_with?(path, "/account/whoami"),
+        do: ok(%{"user_id" => "@bridge:example.org"}),
+        else:
+          ok(
+            state() ++
+              [
+                %{
+                  "type" => "m.room.encryption",
+                  "content" => %{"algorithm" => "m.megolm.v1.aes-sha2"}
+                }
+              ]
+          )
+    end)
+
+    assert {:error, :encrypted_or_unsafe_matrix_room} = Matrix.perform(request(:send))
+    refute_received {:matrix_request, :put, _, _, _}
+  end
+
+  test "lost create acknowledgement never permits a second blind create" do
+    handler(fn
+      :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: {:ok, %{status: 404, body: "{}"}}
+
+      :post, path, _ ->
+        send(self(), {:create_attempt, path})
+        {:error, :outbound_timeout}
+    end)
+
+    first = %{
+      request(:create)
+      | body: "first_attempt",
+        allowed_servers: ["remote.example.org"]
+    }
+
+    assert {:error, :federation_create_uncertain} = Matrix.perform(first)
+    assert_received {:create_attempt, "/_matrix/client/v3/createRoom"}
+
+    assert {:error, :federation_create_uncertain} =
+             Matrix.perform(%{first | body: "recovery_only"})
+
+    refute_received {:create_attempt, _}
+  end
+
+  test "stable message transaction paths preserve the bridge disclosure and reject untrusted joined members" do
+    handler(fn
+      :get, path, _ ->
+        cond do
+          String.ends_with?(path, "/account/whoami") ->
+            ok(%{"user_id" => "@bridge:example.org"})
+
+          String.ends_with?(path, "/state") ->
+            ok(state())
+
+          String.ends_with?(path, "/joined_members") ->
+            ok(%{
+              "joined" => %{"@bridge:example.org" => %{}, "@person:remote.example.org" => %{}}
+            })
+        end
+
+      :put, path, body ->
+        send(self(), {:actual_send, path, Jason.decode!(body)})
+        ok(%{"event_id" => "$synthetic-event"})
+    end)
+
+    r = %{request(:send) | allowed_principals: ["@person:remote.example.org"]}
+
+    assert {:ok, %ProviderReceipt{event_id: "$synthetic-event", remote_deletion_confirmed: false}} =
+             Matrix.perform(r)
+
+    assert_received {:actual_send, path, payload}
+    assert String.ends_with?(path, "/send/m.room.message/" <> r.transaction_id)
+
+    assert payload["body"] ==
+             "K-Comms plaintext bridge (explicit member consent):\nsynthetic text"
+
+    assert {:error, :invalid_matrix_response} = Matrix.perform(%{r | allowed_principals: []})
+    refute_received {:actual_send, _, _}
+  end
+
+  test "local observed redaction never becomes a remote deletion receipt" do
+    handler(fn
+      :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: ok(%{"unsigned" => %{"redacted_because" => %{}}})
+
+      :put, _, _ ->
+        ok(%{"event_id" => "$redaction"})
+    end)
+
+    assert {:ok,
+            %ProviderReceipt{local_redaction_observed: true, remote_deletion_confirmed: false}} =
+             Matrix.perform(%{request(:redact) | event_id: "$owned-event"})
+  end
+
+  test "expired total deadlines and wrong bridge identities issue no mutation" do
+    handler(fn _, _, _ -> ok(%{"user_id" => "@wrong:example.org"}) end)
+
+    assert {:error, :federation_deadline} =
+             Matrix.perform(%{request(:send) | deadline: System.monotonic_time(:millisecond) - 1})
+
+    refute_received {:matrix_request, _, _, _, _}
+    assert {:error, :matrix_bridge_principal_mismatch} = Matrix.perform(request(:send))
+    refute_received {:matrix_request, :put, _, _, _}
+  end
+
+  test "changing the retained provider origin or server name refuses before any HTTP call" do
+    handler(fn _, _, _ -> raise "provider binding refusal must not call transport" end)
+
+    assert {:error, :federation_provider_identity_changed} =
+             Matrix.perform(%{request(:send) | homeserver_origin: "https://other.example.org"})
+
+    assert {:error, :federation_provider_identity_changed} =
+             Matrix.perform(%{request(:send) | server_name: "other.example.org"})
+
+    refute_received {:matrix_request, _, _, _, _}
+  end
+
+  test "unsafe server ACL or permission changes are refused before mutation" do
+    for unsafe <- [
+          Enum.reject(state(), &(&1["type"] == "m.room.server_acl")),
+          Enum.reject(state(), &(&1["type"] == "m.room.power_levels"))
+        ] do
+      handler(fn :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: ok(unsafe)
+      end)
+
+      assert {:error, :encrypted_or_unsafe_matrix_room} = Matrix.perform(request(:send))
+      refute_received {:matrix_request, :put, _, _, _}
+    end
+  end
+
+  test "lost removal acknowledgement is recovered only from actual leave state and joined absence" do
+    handler(fn
+      :post, _, _ ->
+        {:error, :outbound_timeout}
+
+      :get, path, _ ->
+        cond do
+          String.ends_with?(path, "/account/whoami") ->
+            ok(%{"user_id" => "@bridge:example.org"})
+
+          String.contains?(path, "/state/m.room.member/") ->
+            ok(%{"membership" => "leave"})
+
+          String.ends_with?(path, "/joined_members") ->
+            ok(%{"joined" => %{"@bridge:example.org" => %{}}})
+        end
+    end)
+
+    assert {:ok, %ProviderReceipt{local_absence_observed: true, remote_deletion_confirmed: false}} =
+             Matrix.perform(%{request(:leave) | principal: "@person:remote.example.org"})
+
+    handler(fn
+      :post, _, _ ->
+        {:error, :outbound_timeout}
+
+      :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: ok(%{"membership" => "invite"})
+    end)
+
+    assert {:error, :federation_member_absence_unconfirmed} =
+             Matrix.perform(%{request(:leave) | principal: "@person:remote.example.org"})
+  end
+
+  defp request(op),
+    do: %ProviderRequest{
+      operation: op,
+      transaction_id: "synthetic-stable-transaction",
+      deadline: System.monotonic_time(:millisecond) + 2000,
+      room_id: "!synthetic:example.org",
+      homeserver_origin: "https://matrix.example.org",
+      server_name: "example.org",
+      alias_localpart: "kc_fed_synthetic",
+      allowed_servers: ["remote.example.org"],
+      body: "synthetic text"
+    }
+
+  defp handler(fun), do: Process.put(:matrix_handler, fun)
+  defp ok(body), do: {:ok, %{status: 200, body: Jason.encode!(body)}}
+
+  defp state,
+    do: [
+      %{"type" => "m.room.create", "sender" => "@bridge:example.org"},
+      %{
+        "type" => "m.room.server_acl",
+        "content" => %{
+          "allow" => ["example.org", "remote.example.org"],
+          "deny" => [],
+          "allow_ip_literals" => false
+        }
+      },
+      %{
+        "type" => "m.room.power_levels",
+        "content" => %{
+          "users" => %{"@bridge:example.org" => 100},
+          "users_default" => 0,
+          "state_default" => 100,
+          "invite" => 100,
+          "kick" => 100,
+          "ban" => 100,
+          "redact" => 100,
+          "events" => %{"m.room.encryption" => 100}
+        }
+      },
+      %{"type" => "m.room.join_rules", "content" => %{"join_rule" => "invite"}},
+      %{"type" => "m.room.guest_access", "content" => %{"guest_access" => "forbidden"}},
+      %{"type" => "org.kcomms.bridge", "content" => %{"lineage" => "kc_fed_synthetic"}}
+    ]
+end
