@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { canAccessWorkspaceAdmin, canOperate } from "../lib/roles";
 import type { User } from "../types";
@@ -23,7 +24,7 @@ const shortcuts: Shortcut[] = [
 ];
 
 /** Persistent desktop shortcuts; the shell owns mounting and positioning. */
-export function DesktopActivityRail({ user }: { user: User }) {
+export function DesktopActivityRail({ user, accountMenu }: { user: User; accountMenu?: ReactNode }) {
   const location = useLocation();
   const [authorityRevision, refreshAuthority] = useState(0);
   useEffect(() => {
@@ -70,11 +71,11 @@ export function DesktopActivityRail({ user }: { user: User }) {
       {roleShortcuts.map(shortcutLink)}
     </div>}
     <div className="desktop-activity-identity-slot">
-      <Link className="desktop-activity-link desktop-activity-identity" to="/app/you"
+      {accountMenu !== undefined ? accountMenu : <Link className="desktop-activity-link desktop-activity-identity" to="/app/you"
         aria-label={`Open You (${user.display_name})`} title={`You (${user.display_name})`}
         aria-current={current({ path: "/app/you" }) ? "page" : undefined}>
         <AvatarBadge name={user.display_name} avatarUrl={user.avatar_url} size="small" />
-      </Link>
+      </Link>}
     </div>
   </nav>;
 }

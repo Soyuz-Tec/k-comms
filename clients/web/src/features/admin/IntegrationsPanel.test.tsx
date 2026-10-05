@@ -22,6 +22,10 @@ describe("IntegrationsPanel one-time secret handling", () => {
     await act(async () => { finish([]); });
     expect(await screen.findByText("No webhook deliveries.")).toBeVisible();
     expect(screen.queryByText("Loading webhook deliveries…")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 configured")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 recent")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Delivery endpoint" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Delivery status" })).not.toBeInTheDocument();
   });
 
   it("gives integration-load errors a descriptive dismiss control", async () => {
@@ -144,5 +148,33 @@ describe("IntegrationsPanel endpoint management", () => {
     expect(screen.getByRole("button", { name: "Replay" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Copy failure details" })).toBeEnabled();
     expect(screen.queryByText("Live API")).not.toBeInTheDocument();
+  });
+
+  it("keeps filters available when their combination has no matches and restores deliveries on reset", async () => {
+    const secondary = { ...endpoint, id: "endpoint-2", name: "Secondary" };
+    const delivery = { event_type: "message.created.v1", attempt_count: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" };
+    const api = makeApi({
+      webhooks: vi.fn().mockResolvedValue([endpoint, secondary]),
+      webhookDeliveries: vi.fn().mockResolvedValue([
+        { ...delivery, id: "delivery-1", endpoint_id: endpoint.id, status: "dead_letter" },
+        { ...delivery, id: "delivery-2", endpoint_id: secondary.id, status: "delivered" }
+      ])
+    });
+    const user = userEvent.setup();
+    render(<IntegrationsPanel api={api} />);
+    const endpointFilter = await screen.findByRole("combobox", { name: "Delivery endpoint" });
+    const statusFilter = screen.getByRole("combobox", { name: "Delivery status" });
+    await user.selectOptions(statusFilter, "dead_letter");
+    await user.selectOptions(endpointFilter, secondary.id);
+
+    expect(screen.getByText("No recent deliveries match these filters.")).toBeVisible();
+    expect(endpointFilter).toBeVisible();
+    expect(statusFilter).toBeVisible();
+    expect(screen.getByText("2 recent")).toBeVisible();
+    await user.selectOptions(endpointFilter, "");
+    expect(screen.queryByText("No recent deliveries match these filters.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Replay" })).toBeDisabled();
+    await user.selectOptions(statusFilter, "");
+    expect(screen.getAllByText("Delivery details")).toHaveLength(2);
   });
 });

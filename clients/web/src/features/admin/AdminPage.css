@@ -1,4 +1,5 @@
 .admin-workspace { min-width: 0; }
+.admin-workspace.admin-workspace-contextual { display: block; }
 .admin-overview { margin-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .admin-overview > summary { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding-block: var(--space-2); cursor: pointer; list-style: none; font-size: var(--text-sm); }
 .admin-overview > summary::-webkit-details-marker { display: none; }
@@ -69,7 +70,7 @@
   .admin-page .admin-heading { margin-bottom: var(--space-1); padding-bottom: var(--space-1); }
   .admin-page .admin-heading h1 { font-size: var(--text-lg); }
   .admin-page .admin-heading .eyebrow { display: none; }
-  .admin-page .admin-heading p { display: none; }
+  .admin-page .admin-heading p { margin-block: var(--space-2); font-size: var(--text-sm); }
   .admin-overview { margin-bottom: var(--space-1); }
   .admin-overview > summary { flex-wrap: nowrap; }
   .admin-overview > summary > strong { flex: 1; }

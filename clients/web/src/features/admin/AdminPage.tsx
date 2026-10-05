@@ -4,6 +4,7 @@ import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon, type AppIconName } from "../../components/AppIcon";
 import { SurfaceHeader } from "../../components/SurfaceHeader";
+import { ContextualNavigation, useContextualNavigation } from "../../app/ContextualNavigation";
 import {
   canAccessWorkspaceAdmin,
   canAdministerTenant,
@@ -50,6 +51,7 @@ const sectionGroups: Array<{ label: string; sections: AdminSection[] }> = [
 
 export function AdminPage() {
   const { api, session, setSession } = useSession();
+  const { target: navigationTarget } = useContextualNavigation();
   const { users, conversations, setUsers, setCapabilities, refreshAll } = useWorkspaceData();
   const role = session?.user.role || "member";
   const workspaceHuman = (session?.user.account_type || "human") === "human" && (session?.user.access_scope || "workspace") === "workspace";
@@ -87,18 +89,20 @@ export function AdminPage() {
     <main className="page-shell admin-page" id="main-content">
       <SurfaceHeader className="admin-heading" eyebrow="Administration · Workspace control center" title={sections.find(([id]) => id === section)?.[1] || "Workspace"} description={sectionDescriptions[section]} />
       <details className="admin-overview">
-        <summary><AppIcon name="activity" /><strong>{session.tenant.name}</strong><span>{users.length} people · {conversations.length} conversations</span><AppIcon name="chevronDown" /></summary>
+        <summary><AppIcon name="activity" /><strong>Overview</strong><span>{users.length} people · {conversations.length} conversations</span><AppIcon name="chevronDown" /></summary>
         <section className="admin-stats" aria-label="Workspace summary"><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
       </details>
-      <div className="admin-workspace">
+      <div className={`admin-workspace${navigationTarget ? " admin-workspace-contextual" : ""}`}>
+      <ContextualNavigation>
       <nav className="admin-section-nav" aria-label="Administration sections">{sectionGroups.map((group) => {
         const available = sections.filter(([id]) => group.sections.includes(id));
         if (!available.length) return null;
         return <div className="admin-nav-group" role="group" aria-label={group.label} key={group.label}>
           <span className="admin-nav-group-label" aria-hidden="true">{group.label}</span>
-          {available.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}><AppIcon name={sectionIcons[id]} /><span>{label}</span></button>)}
+          {available.map(([id, label]) => <button type="button" key={id} title={label} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}><AppIcon name={sectionIcons[id]} /><span>{label}</span></button>)}
         </div>;
       })}</nav>
+      </ContextualNavigation>
       <div id={`admin-section-${section}`} className="admin-section" data-admin-section={section}>
         {section === "workspace" && <TenantSettingsPanel api={api} onUpdated={(updated) => {
           setSession({ ...session, tenant: updated.tenant });

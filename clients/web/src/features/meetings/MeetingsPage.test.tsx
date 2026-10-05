@@ -61,24 +61,66 @@ describe("MeetingsPage", () => {
     const ended = { ...meeting, id: "ended", title: "Earlier review", occurrences: [{ ...meeting.occurrences[0]!, id: "ended-occurrence", starts_at: "2026-10-03T09:10:00Z", ends_at: "2026-10-03T09:40:00Z" }] };
     harness.api.meetings.mockResolvedValue([cancelled, ended, meeting]);
     renderMeetings();
-    const next = await screen.findByRole("region", { name: "Up next" });
-    expect(next).toHaveTextContent("Design review");
-    expect(next).toHaveTextContent("1 upcoming this month");
+    const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
+    expect(row).toHaveClass("is-next");
+    expect(within(row).getByText("Next meeting")).toBeVisible();
+    expect(screen.getByText("1 upcoming this month")).toBeVisible();
+    expect(screen.getAllByText("Design review")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("region", { name: /meeting calendar/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Calendar$/ }));
+    const next = screen.getByRole("region", { name: "Up next" });
+    expect(next).toHaveTextContent("Design review");
     await user.click(within(next).getByRole("button", { name: "View next meeting" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Design review" }).closest("li")).toHaveFocus());
+    expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(harness.launchCall).not.toHaveBeenCalled();
   });
 
   it("labels an ongoing scheduled occurrence as in progress while preserving its admission policy", async () => {
     vi.setSystemTime(new Date("2026-10-04T09:20:00Z"));
     renderMeetings();
-    const current = await screen.findByRole("region", { name: "In progress" });
-    expect(current).toHaveTextContent("1 in progress · 0 upcoming this month");
-    expect(current).toHaveTextContent("The scheduled meeting time is underway.");
+    const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
+    expect(within(row).getByText("In progress")).toBeVisible();
+    expect(screen.getByText("1 in progress · 0 upcoming this month")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "In progress" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start meeting" })).toBeEnabled();
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { now: "2026-10-04T09:00:00Z", label: "View next meeting", status: "Next meeting" },
+    { now: "2026-10-04T09:20:00Z", label: "View current meeting", status: "In progress" }
+  ])("keeps a $label jump when earlier rows fill the agenda", async ({ now, label, status }) => {
+    vi.setSystemTime(new Date(now));
+    const earlier = Array.from({ length: 12 }, (_, index) => ({
+      ...meeting,
+      id: `earlier-${index}`,
+      title: `Earlier review ${index + 1}`,
+      occurrences: [{
+        ...meeting.occurrences[0]!,
+        id: `earlier-occurrence-${index}`,
+        starts_at: `2026-10-01T09:${String(index).padStart(2, "0")}:00Z`,
+        ends_at: `2026-10-01T09:${String(index + 30).padStart(2, "0")}:00Z`
+      }]
+    }));
+    harness.api.meetings.mockResolvedValue([...earlier, meeting]);
+    const user = userEvent.setup();
+    renderMeetings();
+
+    const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
+    expect(within(screen.getByRole("list", { name: "Scheduled meetings" })).getAllByRole("listitem")).toHaveLength(13);
+    expect(within(row).getByText(status)).toBeVisible();
+    expect(screen.getAllByText("Design review")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "In progress" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: label }));
+    await waitFor(() => expect(row).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getAllByText("Design review")).toHaveLength(1);
     expect(harness.launchCall).not.toHaveBeenCalled();
   });
 
@@ -213,8 +255,10 @@ describe("MeetingsPage", () => {
     await user.click(screen.getByRole("button", { name: /^Calendar$/ }));
     await user.click(screen.getByRole("button", { name: /2026-10-06, 0 meetings/ }));
     expect(screen.getByText("No meetings on this day.")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: /^Agenda$/ }));
-    expect(screen.getByRole("heading", { name: "Design review" })).toBeVisible();
+    await user.click(within(screen.getByRole("region", { name: "Up next" })).getByRole("button", { name: "View next meeting" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Design review" }).closest("li")).toHaveFocus());
+    expect(screen.queryByText("No meetings on this day.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Agenda$/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("offers retry after a calendar request fails", async () => {

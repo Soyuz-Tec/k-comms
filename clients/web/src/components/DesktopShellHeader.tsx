@@ -18,6 +18,7 @@ export interface DesktopShellHeaderProps {
   onOpenSettings?: () => void;
   onOpenHelp?: () => void;
   workspaceName?: string;
+  showWorkspaceName?: boolean;
   workspaceMenuLabel?: string;
   navigation?: {
     canGoBack: boolean;
@@ -211,7 +212,7 @@ export function DesktopShellHeader(props: DesktopShellHeaderProps) {
           onClick={() => { if (!nativeState && openMenu === menu) closeMenu(true); else openAt(index); }}
           onKeyDown={(event) => triggerKey(event, index)}>{menuLabels[menu]}</button>)}
       </div>
-      <span className="desktop-shell-workspace" title={props.workspaceName}>{props.workspaceName ?? "K-Comms"}</span>
+      {props.showWorkspaceName !== false && <span className="desktop-shell-workspace" title={props.workspaceName}>{props.workspaceName ?? "K-Comms"}</span>}
       {menuError && <span className="desktop-shell-menu-status" role="status">{menuError}</span>}
       {openMenu && !nativeState && <div ref={menuRef} className="desktop-shell-menu" id={`${id}-menu`}
         style={{ left: menuOffset }} role="menu" aria-labelledby={`${id}-${openMenu}`} onKeyDown={menuKey}>

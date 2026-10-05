@@ -25,7 +25,10 @@ CSS ownership stays in the existing theme, shared shell, and feature files.
 Do not add a global override layer or recolor authored canvas content or media.
 
 The desktop workspace uses a 52px activity rail, a quiet 240px pinned sidebar,
-and a 44px menu/header strip. The existing compact dock remains available when
+and a 44px menu/header strip. Primary areas appear in the activity rail; related
+workspace tools and role-filtered administration sections use the contextual
+sidebar. The account menu has one entry in the rail. Keep one workspace identity
+visible and one global navigation toggle. The existing compact dock remains available when
 the sidebar is unpinned; its reveal never shifts the workspace. History controls
 use only known application history. Browser File/View/Help actions open actual
 workspace workflows. The constrained Electron client adds genuine OS Edit menus
@@ -50,6 +53,13 @@ and lifecycle.
   fields align without stretching input heights; mobile forms remain stacked.
 - Pass existing lint, type, unit, responsive/reference/accessibility browser,
   production build, PWA, asset-budget, contract, and documentation checks.
+- Avoid repeating primary destinations in the sidebar and page tabs. Keep in-page
+  shortcuts when navigation is compact or unavailable, including every mobile
+  destination outside the five primary tabs. Moving navigation between the sidebar
+  and page must preserve mounted content, drafts and media providers.
+- Condense default status labels and repeated introductions; preserve field labels,
+  target-specific confirmations, role restrictions, privacy scope and recovery help.
+  Empty inventory filters remain available when an active filter causes no results.
 - Verify keyboard menus, history, role-gated activity shortcuts, dock recovery,
   native command validation, and modal/editor guards. Native packaging remains
   unsigned evaluation; OS signing, storage and media qualification need their

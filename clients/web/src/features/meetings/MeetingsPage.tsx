@@ -107,6 +107,15 @@ export function MeetingsPage() {
   const nextMeeting = upcomingRows[0];
   const inProgressCount = upcomingRows.filter(({ occurrence }) => Date.parse(occurrence.starts_at) <= Date.now()).length;
   const nextInProgress = Boolean(nextMeeting && Date.parse(nextMeeting.occurrence.starts_at) <= Date.now());
+  const showNextSummary = Boolean(nextMeeting && (view === "calendar" || !visibleRows.some(({ occurrence }) => occurrence.id === nextMeeting.occurrence.id)));
+  const nextAgendaIndex = nextMeeting ? visibleRows.findIndex(({ occurrence }) => occurrence.id === nextMeeting.occurrence.id) : -1;
+
+  function focusNextMeeting() {
+    if (!nextMeeting) return;
+    setView("list");
+    setSelectedDay(null);
+    window.requestAnimationFrame(() => document.getElementById(`meeting-${nextMeeting.occurrence.id}`)?.focus());
+  }
 
   if (!session) return null;
 
@@ -181,6 +190,8 @@ export function MeetingsPage() {
         <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Calendar</button>
       </div>
       <span>Calendar time zone: {timezone}</span>
+      {!loading && !loadError && nextMeeting && <span className="status-pill neutral">{inProgressCount > 0 && `${inProgressCount} in progress · `}{upcomingRows.length - inProgressCount} upcoming this month</span>}
+      {!loading && !loadError && !showNextSummary && nextAgendaIndex > 0 && <button className="button ghost" type="button" onClick={focusNextMeeting}>{nextInProgress ? "View current meeting" : "View next meeting"}</button>}
       <button className="button ghost" type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh meetings</button>
     </div>
     {notice && <p className="inline-notice" role="status">{notice}</p>}
@@ -190,9 +201,9 @@ export function MeetingsPage() {
     {actionError && !editor && !cancelling && <p className="inline-notice error" role="alert">{actionError}</p>}
     {loadError && <div className="inline-notice error" role="alert"><span>{loadError}</span><button type="button" onClick={() => setRefresh((value) => value + 1)}>Try again</button></div>}
     {loading ? <p className="member-status-view" role="status">Loading meetings…</p> : !loadError && <>
-      {!selectedDay && nextMeeting && <section className="meetings-next surface-card" aria-labelledby="meetings-next-heading">
+      {showNextSummary && nextMeeting && <section className="meetings-next surface-card" aria-labelledby="meetings-next-heading">
         <div><h2 id="meetings-next-heading">{nextInProgress ? "In progress" : "Up next"}</h2><strong>{nextMeeting.meeting.title}</strong><p><time dateTime={nextMeeting.occurrence.starts_at}>{formatMeetingTime(nextMeeting.occurrence.starts_at, timezone)}</time> · {nextMeeting.meeting.duration_minutes} minutes</p>{nextInProgress && <p>The scheduled meeting time is underway.</p>}</div>
-        <div className="meetings-next-actions"><span className="status-pill neutral">{inProgressCount > 0 && `${inProgressCount} in progress · `}{upcomingRows.length - inProgressCount} upcoming this month</span><button className="button ghost" type="button" onClick={() => { setView("list"); window.requestAnimationFrame(() => document.getElementById(`meeting-${nextMeeting.occurrence.id}`)?.focus()); }}>{nextInProgress ? "View current meeting" : "View next meeting"}</button></div>
+        <div className="meetings-next-actions"><button className="button ghost" type="button" onClick={focusNextMeeting}>{nextInProgress ? "View current meeting" : "View next meeting"}</button></div>
       </section>}
       {view === "calendar" && <MeetingCalendar month={month} timezone={timezone} rows={rows} selectedDay={selectedDay} onSelect={setSelectedDay} />}
       {selectedDay && <div className="meetings-day-heading"><h2>Meetings on {selectedDay}</h2><button className="button ghost" type="button" onClick={() => setSelectedDay(null)}>Show all days</button></div>}

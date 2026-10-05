@@ -14,6 +14,11 @@
 
 ### Changed
 
+- Reduced repeated interface details: primary areas stay in the activity rail,
+  related workspace tools and administration sections use one sidebar, and the
+  account has one menu. Condensed repeated headings, next-meeting summaries,
+  form instructions and empty inventories while retaining mobile navigation,
+  accessible targets, permission scope and recovery guidance.
 - Refined public, workspace, and administration screens with quieter neutral
   navigation, restrained purple accents, consistent typography and smaller
   panel radii. Flattened repeated cards and policy groups, aligned secondary

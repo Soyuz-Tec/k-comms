@@ -21,6 +21,24 @@ function actions(): DesktopShellHeaderProps {
 }
 
 describe("DesktopShellHeader browser actions", () => {
+  it("can omit repeated workspace identity without closing the active application menu", async () => {
+    const props = actions();
+    const user = userEvent.setup();
+    const { rerender } = render(<DesktopShellHeader {...props} />);
+    expect(screen.getByText("Example workspace")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "File" }));
+    rerender(<DesktopShellHeader {...props} showWorkspaceName={false} />);
+    expect(screen.queryByText("Example workspace")).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "New instant room" })).toHaveFocus();
+    await user.click(screen.getByRole("menuitem", { name: "New instant room" }));
+    expect(props.onNewInstantRoom).toHaveBeenCalledOnce();
+    rerender(<DesktopShellHeader {...props} showWorkspaceName />);
+    expect(screen.getByText("Example workspace")).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "View" }));
+    await user.click(screen.getByRole("menuitem", { name: "Search workspace…" }));
+    expect(props.onOpenSearch).toHaveBeenCalledOnce();
+  });
+
   it("uses actual navigation capabilities and provides no browser OS controls or clipboard menu", async () => {
     const props = actions();
     const user = userEvent.setup();

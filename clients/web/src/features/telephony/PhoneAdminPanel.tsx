@@ -102,7 +102,7 @@ function PhoneAdminContent({ isCurrent }: { isCurrent: () => boolean }) {
   }
 
   return <section className="phone-admin-panel" aria-labelledby="phone-admin-heading">
-    <div className="card-heading"><div><h2 id="phone-admin-heading">Workspace phone setup</h2><p>Manage your carrier number, member assignment and incoming call experience.</p></div></div>
+    <div className="card-heading"><h2 id="phone-admin-heading">Workspace phone setup</h2></div>
     {error && <p className="form-error" role="alert">{error}</p>}
     {saved && <p className="inline-notice" role="status">Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.</p>}
     {loading && <p role="status">Loading phone settings…</p>}

@@ -113,7 +113,7 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
       onCancel={() => { if (!busy) { setPendingAction(null); setActionError(null); } }}
       onConfirm={(reason) => void confirmAction(reason)}
     />}
-    <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div><span className="status-pill neutral">{loading ? "Loading…" : !loaded ? "Unavailable" : `${accounts.length} configured`}</span></div>
+    <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div>{(loading || !loaded || accounts.length > 0) && <span className="status-pill neutral">{loading ? "Loading…" : !loaded ? "Unavailable" : `${accounts.length} configured`}</span>}</div>
     <p className="support-note">Non-login bot identities can access only joined conversations and explicitly granted API scopes. After creation, add the bot from a conversation’s member controls. Credentials never work for browser sessions, administration, or sockets.</p>
     {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss service account error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
     <AdminCreateDisclosure label="New service account"><form className="inline-admin-form service-account-form" onSubmit={(event) => void create(event)}>

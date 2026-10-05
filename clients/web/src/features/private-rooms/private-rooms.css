@@ -24,6 +24,7 @@
 .private-recovery-key { display: grid; gap: var(--space-3); margin: var(--space-4) 0; padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-sunken); }
 .private-recovery-key textarea { min-height: 90px; }
 .private-room-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+.private-room-layout-locked { grid-template-columns: 1fr; }
 .private-room-layout > * { min-width: 0; }
 .private-room-layout .private-room-choice { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); width: 100%; min-height: 44px; margin-top: var(--space-2); border-color: transparent; background: transparent; white-space: normal; text-align: left; }
 .private-room-layout .private-room-choice[aria-pressed="true"] { border-color: var(--accent-border); color: var(--accent-text); background: var(--accent-quiet); }

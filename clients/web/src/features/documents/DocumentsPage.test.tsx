@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSharedDocumentsApi } from "../../api/domains/sharedDocuments";
@@ -50,11 +50,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("shared document library", () => {
-  it("shows a readable excerpt and last update, then resumes the selected document", async () => {
-    harness.request.mockResolvedValue({ data: [{ ...document("Launch notes"), excerpt: "Agenda and decisions from the launch review" }] });
+  it("shows document summaries and read-only exceptions within the current-member scope, then resumes the selected document", async () => {
+    harness.request.mockResolvedValue({ data: [
+      { ...document("Launch notes"), excerpt: "Agenda and decisions from the launch review" },
+      { ...document("Archived notes"), id: "archived", version: 2, readonly: true }
+    ] });
     render(<MemoryRouter initialEntries={["/app/documents?conversation=conversation"]}><DocumentsPage /><RouteLocation /></MemoryRouter>);
-    expect(await screen.findByRole("button", { name: /^Launch notes/ })).toHaveTextContent("Agenda and decisions from the launch review");
-    expect(screen.getByText(/Updated/)).toHaveAttribute("datetime", "2026-10-05T00:00:00Z");
+    const launchNotes = await screen.findByRole("button", { name: /^Launch notes/ });
+    expect(launchNotes).toHaveTextContent("Agenda and decisions from the launch review");
+    expect(within(launchNotes).getByText(/Updated/)).toHaveAttribute("datetime", "2026-10-05T00:00:00Z");
+    expect(within(launchNotes).getByText(/^Version/)).toHaveTextContent(/^Version 1$/);
+    expect(within(screen.getByRole("button", { name: /^Archived notes/ })).getByText(/^Version/)).toHaveTextContent(/^Version 2 · Read only$/);
+    expect(screen.getByText("Shared with current members of Team.")).toBeVisible();
     expect(screen.getByRole("heading", { name: "Choose a document to continue" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Continue Launch notes" }));
     expect(screen.getByLabelText("Document route")).toHaveTextContent("conversation=conversation&document=doc");

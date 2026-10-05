@@ -98,7 +98,7 @@ for (const width of [1024, 1440]) {
       )).toBe(0);
       expect(await dock.boundingBox()).toMatchObject({ x: 52, width: 48 });
       expect(await workspace.boundingBox()).toEqual(original);
-      await expect(dock.getByRole("link", { name: "Calls", exact: true })).toHaveAttribute("title", "Calls");
+      await expect(dock.getByRole("link", { name: "Phone", exact: true })).toHaveAttribute("title", "Phone");
       const accessibility = await new AxeBuilder({ page }).include("#workspace-navigation").analyze();
       expect(accessibility.violations).toEqual([]);
     });
@@ -109,15 +109,19 @@ test("pinning reserves a sidebar after the activity rail and unpinning returns t
   const dock = page.locator("#workspace-navigation");
   const workspace = page.locator(".workspace-grid");
   const rail = page.getByRole("navigation", { name: "Workspace shortcuts" });
-  await page.getByRole("button", { name: "Keep navigation open", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Use compact navigation", exact: true })).toHaveAttribute("aria-pressed", "true");
+  const toggle = page.getByRole("button", { name: "Toggle workspace navigation", exact: true });
+  await expect(toggle).toHaveCount(1);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   expect(await dock.boundingBox()).toMatchObject({ x: 52, y: 44, width: 240 });
   expect(await workspace.boundingBox()).toMatchObject({ x: 292, y: 44, width: 1148 });
   expect(await rail.boundingBox()).toMatchObject({ x: 0, y: 44, width: 52 });
   await page.mouse.click(700, 200);
   await page.clock.fastForward(16_000);
   await expect(dock).toBeVisible();
-  await page.getByRole("button", { name: "Use compact navigation", exact: true }).click();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(await workspace.boundingBox()).toMatchObject({ x: 52, y: 44, width: 1388 });
   await page.mouse.move(700, 200);
   await page.clock.fastForward(8_300);
@@ -133,8 +137,7 @@ test("keyboard recovery, Escape and pinning keep navigation reachable", async ({
   await reveal.focus();
   await page.keyboard.press("Enter");
   await page.clock.runFor(20);
-  const toggle = page.getByRole("button", { name: "Keep navigation open" });
-  await expect(toggle).toBeFocused();
+  await expect(dock.getByRole("button", { name: "Switch conversation or screen", exact: true })).toBeFocused();
   await page.clock.fastForward(16_000);
   await expect(dock).toBeVisible();
   await page.keyboard.press("Escape");
@@ -142,30 +145,38 @@ test("keyboard recovery, Escape and pinning keep navigation reachable", async ({
   await expect(dock).toHaveAttribute("aria-hidden", "true");
   await reveal.click();
   await page.clock.runFor(20);
+  const toggle = page.getByRole("button", { name: "Toggle workspace navigation", exact: true });
   await toggle.click();
   await page.mouse.click(700, 200);
   await page.clock.fastForward(16_000);
   await expect(dock).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use compact navigation" })).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await page.reload();
-  await expect(page.getByRole("button", { name: "Use compact navigation" })).toBeVisible();
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });
 
-test("account and notification popovers survive idle time", async ({ page }, testInfo) => {
+test("rail account survives dock idle and notification dialogs keep recovered navigation available", async ({ page }, testInfo) => {
   const dock = page.locator("#workspace-navigation");
-  await page.locator(".workspace-account-trigger").click();
+  const accountTrigger = page.getByRole("button", { name: "Account menu for Ada Lovelace", exact: true });
+  await expect(accountTrigger).toHaveCount(1);
+  await accountTrigger.click();
   const account = page.getByRole("region", { name: "Signed-in account" });
   await expect(account).toBeVisible();
   await page.clock.fastForward(16_000);
-  await expect(dock).toBeVisible();
+  await expect(account).toBeVisible();
+  await expect(dock).toBeHidden();
   const box = await account.boundingBox();
-  expect(box!.x).toBeGreaterThanOrEqual(100);
+  expect(box!.x).toBeGreaterThanOrEqual(52);
   expect(box!.x + box!.width).toBeLessThanOrEqual(1440);
   if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
     await page.screenshot({ path: testInfo.outputPath("account.png") });
   }
   await page.keyboard.press("Escape");
   await expect(account).toBeHidden();
+  await expect(accountTrigger).toBeFocused();
+  await page.getByRole("button", { name: "Show workspace navigation", exact: true }).click();
+  await page.clock.runFor(20);
   await expect(dock).toBeVisible();
   await page.getByRole("button", { name: /^Notifications/ }).click();
   await expect(page.getByRole("dialog", { name: "Notifications", exact: true })).toBeVisible();
@@ -184,7 +195,7 @@ test("dark-mode controls retain a backplate over the white drawing canvas", asyn
   await expect(page.locator(".k-comms-drawing-surface")).toBeVisible();
   const dock = page.locator("#workspace-navigation");
   await expect(dock).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(dock.getByRole("link", { name: "Calls", exact: true })).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(dock.getByRole("link", { name: "Phone", exact: true })).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
     await page.screenshot({ path: testInfo.outputPath("whiteboard-dark.png") });
   }

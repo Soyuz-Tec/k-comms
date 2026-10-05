@@ -37,6 +37,7 @@ describe("MeetingArtifactsPage", () => {
     const link = await screen.findByRole("link", { name: /View saved content for Product team/ });
     expect(link).toHaveAttribute("href", `/app/artifacts?conversation=${conversation}&call=${call}`);
     expect(screen.getByText("Started by Ada Lovelace")).toBeVisible();
+    expect(screen.getByText("Find saved meeting content by conversation and call date.")).toBeVisible();
     expect(api.calls).toHaveBeenCalledExactlyOnceWith({ scope: "recent", limit: 25, cursor: null });
     expect(api.meetingArtifacts).not.toHaveBeenCalled();
     expect(api.artifactPlayback).not.toHaveBeenCalled();
@@ -130,6 +131,12 @@ describe("MeetingArtifactsPage", () => {
     await waitFor(() => expect(api.meetingArtifacts).toHaveBeenCalledExactlyOnceWith(conversation, call));
     expect(screen.getByRole("link", { name: "Open conversation" })).toHaveAttribute("href", `/app/?conversation=${conversation}`);
     expect(await screen.findByText("No saved artifacts for this call.")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Saved content", level: 2 })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Call artifacts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Saved recordings and transcripts" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Find saved meeting content by conversation and call date.")).not.toBeInTheDocument();
+    expect(screen.getByText(/Recording is off/)).toBeVisible();
+    expect(screen.getByText(/Saved transcription is off/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "Request recording consent" })).not.toBeInTheDocument();
     expect(api.requestRecording).not.toHaveBeenCalled();
   });

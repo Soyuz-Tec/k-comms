@@ -385,41 +385,11 @@
     outline-offset: -2px;
   }
 
-  .workspace-sidebar.is-expanded .workspace-sidebar-toggle {
-    display: grid;
-  }
-
   .workspace-sidebar-header {
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
-    gap: .4rem;
-  }
-
-  .workspace-sidebar-toggle {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    background: transparent;
-  }
-
-  .workspace-sidebar-toggle:hover {
-    color: var(--accent-text);
-    border-color: var(--border-default);
-    background: var(--surface-hover);
-  }
-
-  .workspace-sidebar-toggle:focus-visible {
-    outline: 3px solid var(--focus-ring);
-    outline-offset: 2px;
   }
 
   .workspace-sidebar-identity,
@@ -584,6 +554,57 @@
     flex: 0 0 20px;
   }
 
+  .workspace-context-navigation { min-width: 0; width: 100%; }
+  .workspace-context-navigation .admin-section-nav,
+  .workspace-context-navigation .ops-section-nav {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .workspace-context-navigation .admin-nav-group { display: grid; gap: var(--space-1); }
+  .workspace-context-navigation .admin-nav-group-label {
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+  .workspace-context-navigation .admin-section-nav button,
+  .workspace-context-navigation .ops-section-nav a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    background: transparent;
+    text-decoration: none;
+    text-align: left;
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+  .workspace-context-navigation .admin-section-nav button:hover,
+  .workspace-context-navigation .ops-section-nav a:hover { background: var(--surface-hover); }
+  .workspace-context-navigation .admin-section-nav button[aria-current="page"] {
+    color: var(--accent-text);
+    background: var(--surface-hover);
+    font-weight: 600;
+  }
+  .workspace-context-navigation .app-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+  .workspace-sidebar.is-collapsed .workspace-context-navigation .admin-nav-group-label,
+  .workspace-sidebar.is-collapsed .workspace-context-navigation button > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .workspace-sidebar.is-collapsed .workspace-context-navigation button,
+  .workspace-sidebar.is-collapsed .workspace-context-navigation .ops-section-nav a {
+    min-width: 44px; width: 44px; justify-content: center; padding: 0; font-size: 0;
+  }
+
   .workspace-sidebar-spacer {
     flex: 1;
   }
@@ -616,10 +637,29 @@
   }
 
   .workspace-account-trigger {
+    cursor: pointer;
     width: 100%;
     grid-template-columns: auto minmax(0, 1fr) auto;
     justify-items: start;
     list-style: none;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-trigger {
+    width: 44px;
+    height: 44px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-copy,
+  .desktop-activity-identity-slot .workspace-account-chevron {
+    display: none;
+  }
+
+  .desktop-activity-identity-slot .workspace-account-trigger .avatar {
+    width: 28px;
+    height: 28px;
+    font-size: var(--text-xs);
   }
 
   .workspace-account-trigger::-webkit-details-marker {
@@ -648,10 +688,11 @@
 
   .workspace-account-menu .desktop-account-panel {
     position: fixed;
-    left: calc(var(--desktop-activity-width) + var(--desktop-rail-width) + 8px);
+    z-index: 60;
+    left: calc(var(--desktop-activity-width) + 8px);
     bottom: 16px;
-    width: min(340px, calc(100vw - var(--desktop-sidebar-expanded-width) - 24px));
-    max-height: calc(100dvh - 32px);
+    width: min(340px, calc(100vw - var(--desktop-activity-width) - 24px));
+    max-height: calc(100dvh - var(--desktop-shell-header-height) - 32px);
     overflow-y: auto;
     padding: var(--space-3);
     border: 1px solid var(--border-default);
@@ -694,9 +735,6 @@
     background: var(--surface-hover);
   }
 
-  .workspace-sidebar.is-expanded .desktop-account-panel {
-    left: calc(var(--desktop-activity-width) + var(--desktop-sidebar-expanded-width) + 8px);
-  }
 
   /*
    * The notification portal is a sibling of .app-shell, so it is positioned
@@ -720,10 +758,6 @@
   .workspace-sidebar.is-collapsed {
     align-items: center;
     padding: 6px 2px;
-  }
-
-  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
-    display: grid;
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-header {
@@ -762,7 +796,7 @@
   }
 
   /* The dock is transparent, but controls must remain legible over drawings. */
-  .workspace-sidebar.is-collapsed :is(.workspace-sidebar-nav a:not(.active), .workspace-sidebar-toggle, .notification-trigger):not(:hover) {
+  .workspace-sidebar.is-collapsed :is(.workspace-sidebar-nav a:not(.active), .notification-trigger):not(:hover) {
     background: color-mix(in srgb, var(--surface-overlay) 88%, transparent);
     backdrop-filter: blur(8px);
   }
@@ -904,10 +938,6 @@
     width: 100%;
     grid-template-columns: 1fr;
     justify-items: center;
-  }
-
-  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
-    display: grid;
   }
 
   .workspace-sidebar.is-collapsed .workspace-identity-copy,
@@ -1598,6 +1628,6 @@
   .workspace-sidebar.is-expanded .member-nav-group-label { position: static; width: auto; height: auto; margin: var(--space-3) 0 var(--space-1); padding: 0 var(--space-3); overflow: visible; clip: auto; clip-path: none; white-space: normal; font-size: var(--text-xs); letter-spacing: .04em; }
   .workspace-sidebar.is-expanded .workspace-sidebar-nav a { min-height: 40px; padding-block: var(--space-2); }
   .administration-shell .workspace-sidebar.is-expanded .workspace-identity-copy small { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; color: var(--text-secondary); font-size: var(--text-xs); }
-  .administration-destinations { margin-top: var(--space-3); }
+  .administration-destinations { flex: 0 0 auto; margin-top: var(--space-3); }
+  .administration-shell .workspace-context-navigation { flex: 1; min-height: 0; overflow-y: auto; }
 }
-.administration-mobile-context { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3) var(--space-4); color: var(--text-secondary); font-size: var(--text-xs); border-bottom: 1px solid var(--border-subtle); }

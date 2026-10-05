@@ -1,8 +1,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
+import { AvatarBadge } from "../components/AvatarBadge";
 import { MemberAreaLinks } from "../components/MemberAreaLinks";
-import { initials } from "../lib/format";
 import { canAccessWorkspaceAdmin, canOperate } from "../lib/roles";
 import {
   CallSessionProvider,
@@ -27,6 +27,8 @@ import { DesktopActivityRail } from "../components/DesktopActivityRail";
 import { isDesktopClient } from "../desktop/session";
 import { useRouterHistory } from "./router-history";
 import { useWindowControlsOverlay } from "./useWindowControlsOverlay";
+import { ContextualNavigationProvider } from "./ContextualNavigation";
+import { WorkspaceToolNavigation } from "./WorkspaceToolNavigation";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -74,6 +76,12 @@ function ProductShellContent() {
   const [retrying, setRetrying] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   useEffect(() => setSwitcherOpen(false), [location.key]);
+  useEffect(() => {
+    // Browser history can return before a lazy route commits its location key.
+    const closeSwitcher = () => setSwitcherOpen(false);
+    window.addEventListener("popstate", closeSwitcher);
+    return () => window.removeEventListener("popstate", closeSwitcher);
+  }, []);
   const [workspaceSidebarPinned, setWorkspaceSidebarPinned] = useState(
     readWorkspaceSidebarPinned
   );
@@ -82,6 +90,7 @@ function ProductShellContent() {
   const desktopShell = useDesktopShell();
   const windowControlsOverlay = useWindowControlsOverlay();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
+  const [sidebarTarget, setSidebarTarget] = useState<HTMLDivElement | null>(null);
   const navigationFocusRequested = useRef(false);
   const navigation = useAutoHideNavigation(
     desktopShell && mode !== "immersive" && Boolean(session), workspaceSidebarPinned, workspaceSidebarFocused || switcherOpen
@@ -142,6 +151,44 @@ function ProductShellContent() {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, []);
+  useEffect(() => {
+    if (!desktopShell || mode === "immersive") return;
+    const sidebar = navigation.sidebarRef.current;
+    if (!sidebar) return;
+    // Portal events follow their React owner. Observe physical sidebar events
+    // so its route-owned navigation receives the same focus and idle protection.
+    function pointerDown() {
+      workspaceSidebarPointerRef.current = true;
+      window.setTimeout(() => { workspaceSidebarPointerRef.current = false; }, 0);
+    }
+    function focusIn() {
+      if (!workspaceSidebarPointerRef.current) setWorkspaceSidebarFocused(true);
+    }
+    function focusOut(event: FocusEvent) {
+      if (!(event.relatedTarget instanceof Node) || !sidebar?.contains(event.relatedTarget)) setWorkspaceSidebarFocused(false);
+    }
+    function activate(event: MouseEvent) {
+      if (!workspaceSidebarPinned && event.target instanceof Element && event.target.closest("a, .workspace-instant-room")) setWorkspaceSidebarFocused(false);
+    }
+    function keyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || workspaceSidebarPinned || desktopAccountRef.current?.open || document.querySelector(".notification-panel")) return;
+      setWorkspaceSidebarFocused(false);
+      if (event.target instanceof HTMLElement) event.target.blur();
+      navigation.hide();
+    }
+    sidebar.addEventListener("pointerdown", pointerDown, true);
+    sidebar.addEventListener("focusin", focusIn);
+    sidebar.addEventListener("focusout", focusOut);
+    sidebar.addEventListener("click", activate, true);
+    sidebar.addEventListener("keydown", keyDown);
+    return () => {
+      sidebar.removeEventListener("pointerdown", pointerDown, true);
+      sidebar.removeEventListener("focusin", focusIn);
+      sidebar.removeEventListener("focusout", focusOut);
+      sidebar.removeEventListener("click", activate, true);
+      sidebar.removeEventListener("keydown", keyDown);
+    };
+  }, [desktopShell, mode, navigation.sidebarRef, navigation.hide, workspaceSidebarPinned]);
   if (!session) return null;
   const showAdmin = canAccessWorkspaceAdmin(session.user);
   const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
@@ -175,11 +222,50 @@ function ProductShellContent() {
   const nativeDesktop = isDesktopClient();
   const showDesktopChrome = !immersive && (desktopShell || windowControlsOverlay || nativeDesktop);
   const workspaceSidebarExpanded = workspaceSidebarPinned || workspaceSidebarFocused;
-  const workspaceSidebarToggleLabel = workspaceSidebarPinned
-    ? "Use compact navigation"
-    : "Keep navigation open";
+  const accountMenu = (
+    <details ref={desktopAccountRef} className="workspace-account-menu">
+      <summary
+        role="button"
+        className="workspace-account-trigger"
+        aria-label={`Account menu for ${session.user.display_name}`}
+        title={session.user.display_name}
+      >
+        <AvatarBadge name={session.user.display_name} avatarUrl={session.user.avatar_url} size="small" />
+        <span className="workspace-account-copy">
+          <strong>{session.user.display_name}</strong>
+          <small>{session.user.role}</small>
+        </span>
+        <AppIcon name="chevronDown" className="workspace-account-chevron" />
+      </summary>
+      <section className="desktop-account-panel" aria-label="Signed-in account">
+        <div className="desktop-account-heading">
+          <AvatarBadge name={session.user.display_name} avatarUrl={session.user.avatar_url} size="small" />
+          <span>
+            <strong>{session.user.display_name}</strong>
+            <small>{session.tenant.name} · {session.user.role}</small>
+          </span>
+        </div>
+        <nav className="desktop-role-links" aria-label="Personal settings">
+          <NavLink to="/app/you?section=profile" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Profile &amp; settings</NavLink>
+          <NavLink to="/app/you?section=audio-video" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Audio &amp; video</NavLink>
+        </nav>
+        {(showAdmin || showOperations) && (
+          <nav className="desktop-role-links" aria-label="Role tools">
+            {showAdmin && <NavLink to="/admin" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Workspace administration</NavLink>}
+            {showOperations && <NavLink to="/ops" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Service operations</NavLink>}
+          </nav>
+        )}
+        <button className="button ghost compact desktop-signout" type="button" onClick={signOut}>Sign out</button>
+      </section>
+    </details>
+  );
   return (
+    <ContextualNavigationProvider
+      target={desktopShell && !immersive ? sidebarTarget : null}
+      hasSidebarNavigation={desktopShell && !immersive && workspaceSidebarPinned}
+    >
     <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}${showDesktopChrome ? " desktop-chrome" : ""}${desktopShell && !immersive && workspaceSidebarPinned ? " workspace-navigation-pinned" : ""}${administrationMode ? " administration-shell" : ""}`}>
+        <a className="skip-link" href="#main-content">Skip to content</a>
         {(showDesktopChrome || nativeDesktop) && <DesktopShellHeader
           hideChrome={immersive}
           sidebarExpanded={workspaceSidebarPinned}
@@ -189,10 +275,10 @@ function ProductShellContent() {
           onOpenSearch={() => setSwitcherOpen(true)}
           onOpenSettings={() => navigate("/app/you")}
           workspaceName={session.tenant.name}
+          showWorkspaceName={!desktopShell || navigation.hidden || !workspaceSidebarExpanded}
           navigation={history}
         />}
-        {desktopShell && !immersive && <DesktopActivityRail user={session.user} />}
-        <a className="skip-link" href="#main-content">Skip to content</a>
+        {desktopShell && !immersive && <DesktopActivityRail user={session.user} accountMenu={accountMenu} />}
         {desktopShell && !immersive && <button
           className="workspace-navigation-reveal"
           type="button"
@@ -213,37 +299,7 @@ function ProductShellContent() {
           aria-label="Workspace navigation"
           aria-hidden={navigation.hidden || undefined}
           inert={navigation.hidden}
-          onClickCapture={(event) => {
-            if (workspaceSidebarPinned) return;
-            const target = event.target as HTMLElement;
-            if (target.closest("a, .workspace-instant-room")) {
-              setWorkspaceSidebarFocused(false);
-            }
-          }}
-          onPointerDownCapture={() => {
-            workspaceSidebarPointerRef.current = true;
-            // Pointer focus happens in this event turn; a release outside the
-            // dock must not suppress subsequent keyboard focus indefinitely.
-            window.setTimeout(() => {
-              workspaceSidebarPointerRef.current = false;
-            }, 0);
-          }}
-          onFocusCapture={() => {
-            if (!workspaceSidebarPointerRef.current) setWorkspaceSidebarFocused(true);
-          }}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setWorkspaceSidebarFocused(false);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !workspaceSidebarPinned &&
-                !desktopAccountRef.current?.open && !document.querySelector(".notification-panel")) {
-              setWorkspaceSidebarFocused(false);
-              (event.target as HTMLElement).blur();
-              navigation.hide();
-            }
-          }}
+
         >
           {/*
             * One row, not two. The brand row said "K-Comms / Communication
@@ -262,24 +318,6 @@ function ProductShellContent() {
                 <strong>{session.tenant.name}</strong>
               </span>
             </div>
-            <button
-              className="workspace-sidebar-toggle"
-              type="button"
-              aria-label={workspaceSidebarToggleLabel}
-              aria-expanded={workspaceSidebarExpanded}
-              aria-pressed={workspaceSidebarPinned}
-              title={workspaceSidebarToggleLabel}
-              onClick={(event) => {
-                const nextPinned = !workspaceSidebarPinned;
-                setWorkspaceSidebarPinned(nextPinned);
-                if (!nextPinned) {
-                  setWorkspaceSidebarFocused(false);
-                  event.currentTarget.blur();
-                }
-              }}
-            >
-              <AppIcon name={workspaceSidebarPinned ? "panelLeftClose" : "panelLeftOpen"} />
-            </button>
           </div>
           <button className="workspace-switcher-trigger" type="button" aria-label="Switch conversation or screen"
             title="Switch conversation or screen (Ctrl / ⌘ K)" aria-keyshortcuts="Control+k Meta+k"
@@ -301,50 +339,13 @@ function ProductShellContent() {
           </button>}
           {administrationMode ? <nav className="workspace-sidebar-nav administration-destinations" aria-label="Administration navigation">
             <NavLink to="/app/" end title="Return to workspace"><AppIcon name="arrowLeft" /><span>Return to workspace</span></NavLink>
-            {showAdmin && <NavLink to="/admin"><AppIcon name="settings" /><span>Workspace administration</span></NavLink>}
-            {showOperations && <NavLink to="/ops"><AppIcon name="activity" /><span>Service operations</span></NavLink>}
-          </nav> : <nav className="workspace-sidebar-nav" aria-label="Member areas">
-            <MemberAreaLinks variant="grouped" compact={!workspaceSidebarExpanded} />
-          </nav>}
+          </nav> : <WorkspaceToolNavigation compact={!workspaceSidebarExpanded} />}
+          <div ref={setSidebarTarget} className="workspace-context-navigation" />
           <div className="workspace-sidebar-spacer" />
           <div className="workspace-sidebar-notifications">
             <NotificationCenter conversations={conversations} />
             <span>Notifications</span>
           </div>
-          <details ref={desktopAccountRef} className="workspace-account-menu">
-            <summary
-              className="workspace-account-trigger"
-              aria-label={`Account menu for ${session.user.display_name}`}
-              title={session.user.display_name}
-            >
-              <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
-              <span className="workspace-account-copy">
-                <strong>{session.user.display_name}</strong>
-                <small>{session.user.role}</small>
-              </span>
-              <AppIcon name="chevronDown" className="workspace-account-chevron" />
-            </summary>
-            <section className="desktop-account-panel" aria-label="Signed-in account">
-              <div className="desktop-account-heading">
-                <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
-                <span>
-                  <strong>{session.user.display_name}</strong>
-                  <small>{session.tenant.name} · {session.user.role}</small>
-                </span>
-              </div>
-              <nav className="desktop-role-links" aria-label="Personal settings">
-                <NavLink to="/app/you?section=profile" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Profile &amp; settings</NavLink>
-                <NavLink to="/app/you?section=audio-video" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Audio &amp; video</NavLink>
-              </nav>
-              {(showAdmin || showOperations) && (
-                <nav className="desktop-role-links" aria-label="Role tools">
-                  {showAdmin && <NavLink to="/admin" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Workspace administration</NavLink>}
-                  {showOperations && <NavLink to="/ops" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Service operations</NavLink>}
-                </nav>
-              )}
-              <button className="button ghost compact desktop-signout" type="button" onClick={signOut}>Sign out</button>
-            </section>
-          </details>
         </aside>}
 
         {updateAvailable && (
@@ -382,10 +383,6 @@ function ProductShellContent() {
             <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button>
           </div>
         )}
-        {administrationMode && !desktopShell && !immersive && <div className="administration-mobile-context">
-          <NavLink className="button ghost compact" to="/app/"><AppIcon name="arrowLeft" />Return to workspace</NavLink>
-          <span>Administration</span>
-        </div>}
         <RouteRecoveryBoundary>
           <Suspense fallback={<main id="main-content" className="route-loading" role="status" aria-busy="true">Loading page…</main>}>
             <Outlet />
@@ -398,6 +395,7 @@ function ProductShellContent() {
           </nav>
         )}
     </div>
+    </ContextualNavigationProvider>
   );
 }
 

@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { User } from "../types";
 import { DesktopActivityRail } from "./DesktopActivityRail";
+import { AvatarBadge } from "./AvatarBadge";
 
 const member: User = {
   id: "member", tenant_id: "workspace", display_name: "Ada Lovelace",
@@ -27,6 +28,33 @@ afterEach(() => {
 });
 
 describe("DesktopActivityRail", () => {
+  it("uses one supplied account identity instead of the fallback You avatar", async () => {
+    const interaction = userEvent.setup();
+    const onAccount = vi.fn();
+    render(<MemoryRouter><DesktopActivityRail user={member} accountMenu={
+      <button type="button" aria-label={`Account menu for ${member.display_name}`} onClick={onAccount}>
+        <AvatarBadge name={member.display_name} size="small" />
+      </button>
+    } /></MemoryRouter>);
+    const rail = screen.getByRole("navigation", { name: "Workspace shortcuts" });
+    expect(rail.querySelectorAll(".member-avatar")).toHaveLength(1);
+    expect(within(rail).queryByRole("link", { name: "Open You (Ada Lovelace)" })).not.toBeInTheDocument();
+    await interaction.click(within(rail).getByRole("button", { name: "Account menu for Ada Lovelace" }));
+    expect(onAccount).toHaveBeenCalledOnce();
+    expect(within(rail).getByRole("link", { name: "Open Inbox" })).toBeInTheDocument();
+  });
+
+  it.each([
+    member,
+    { ...member, role: "owner" as const, access_scope: "conversation_only" as const },
+    { ...member, role: "owner" as const, account_type: "service" as const }
+  ])("retains role restrictions when the account control is supplied by the shell", (user) => {
+    render(<MemoryRouter><DesktopActivityRail user={user} accountMenu={<button type="button">Account</button>} /></MemoryRouter>);
+    expect(screen.getByRole("button", { name: "Account" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Workspace administration" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Service operations" })).not.toBeInTheDocument();
+  });
+
   it("opens workspace destinations through named shortcuts and selects the new area", async () => {
     const interaction = userEvent.setup();
     open();

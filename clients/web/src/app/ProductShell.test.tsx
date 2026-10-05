@@ -1,11 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../types";
 import { ProductShell } from "./ProductShell";
 import { RouterHistoryProvider } from "./router-history";
+import { ContextualNavigation, useContextualNavigation } from "./ContextualNavigation";
 
 const harness = vi.hoisted(() => {
   const session: Session = {
@@ -36,6 +38,10 @@ const harness = vi.hoisted(() => {
     teardownCall: vi.fn(),
     refreshAll: vi.fn(),
     setError: vi.fn(),
+    pageMount: vi.fn(),
+    pageUnmount: vi.fn(),
+    callProviderMount: vi.fn(),
+    callProviderUnmount: vi.fn(),
     pwa: {
       installMode: "unavailable" as
         | "native-prompt"
@@ -67,7 +73,13 @@ vi.mock("./workspace-data", () => ({
 }));
 
 vi.mock("../features/calls/CallSessionProvider", () => ({
-  CallSessionProvider: ({ children }: { children: ReactNode }) => children,
+  CallSessionProvider: ({ children }: { children: ReactNode }) => {
+    useEffect(() => {
+      harness.callProviderMount();
+      return () => harness.callProviderUnmount();
+    }, []);
+    return children;
+  },
   useCallSession: () => ({ teardownCall: harness.teardownCall })
 }));
 
@@ -77,11 +89,6 @@ vi.mock("../features/telephony/TelephonyProvider", () => ({
 
 vi.mock("../features/notifications/NotificationCenter", () => ({
   NotificationCenter: () => <button type="button">Notifications</button>
-}));
-
-vi.mock("../components/MemberAreaLinks", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  MemberAreaLinks: () => <a href="/app/">Inbox</a>
 }));
 
 vi.mock("../features/instant-room/idempotency", () => ({
@@ -96,16 +103,35 @@ vi.mock("../pwa/PwaProvider", () => ({
   usePwa: () => harness.pwa
 }));
 
+function WorkspacePage({ title }: { title: string }) {
+  const [draft, setDraft] = useState("");
+  const { hasSidebarNavigation } = useContextualNavigation();
+  useEffect(() => {
+    harness.pageMount();
+    return () => harness.pageUnmount();
+  }, []);
+  return <main id="main-content">
+    <h1>{title}</h1>
+    <label>Unsent draft<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} /></label>
+    <output aria-label="Visible contextual navigation">{String(hasSidebarNavigation)}</output>
+    <ContextualNavigation><nav aria-label="Page sections"><button type="button">Overview</button></nav></ContextualNavigation>
+  </main>;
+}
+
 function productShellTree(initialEntry = "/app") {
   return (
     <MemoryRouter initialEntries={[initialEntry]}>
       <RouterHistoryProvider>
       <Routes>
         <Route path="/app" element={<ProductShell />}>
-          <Route index element={<main id="main-content"><h1>Inbox</h1></main>} />
+          <Route index element={<WorkspacePage title="Inbox" />} />
+          <Route path="you" element={<main id="main-content"><h1>You</h1></main>} />
         </Route>
         <Route path="/admin" element={<ProductShell />}>
-          <Route index element={<main id="main-content"><h1>Workspace settings</h1></main>} />
+          <Route index element={<WorkspacePage title="Workspace settings" />} />
+        </Route>
+        <Route path="/ops" element={<ProductShell />}>
+          <Route index element={<WorkspacePage title="Service operations" />} />
         </Route>
       </Routes>
       </RouterHistoryProvider>
@@ -117,6 +143,25 @@ function renderProductShell() {
   return render(productShellTree());
 }
 
+function responsiveViewport(initialDesktop: boolean) {
+  let desktop = initialDesktop;
+  const listeners = new Set<() => void>();
+  vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+    get matches() { return desktop && query === "(min-width: 761px) and (min-height: 561px)"; },
+    media: query,
+    onchange: null,
+    addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+      if (query === "(min-width: 761px) and (min-height: 561px)") listeners.add(listener as () => void);
+    },
+    removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => listeners.delete(listener as () => void),
+    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn()
+  }));
+  return (nextDesktop: boolean) => act(() => {
+    desktop = nextDesktop;
+    listeners.forEach((listener) => listener());
+  });
+}
+
 describe("ProductShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -124,6 +169,10 @@ describe("ProductShell", () => {
     harness.pwa.installMode = "unavailable";
     harness.pwa.updateAvailable = false;
     harness.session.user.role = "member";
+    harness.session.user.account_type = "human";
+    harness.session.user.access_scope = "workspace";
+    harness.session.user.platform_role = null;
+    harness.session.user.platform_role_expires_at = null;
     harness.pwa.requestInstall.mockResolvedValue("accepted");
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -150,10 +199,12 @@ describe("ProductShell", () => {
     }));
     render(productShellTree("/admin"));
     expect(screen.getByRole("navigation", { name: "Administration navigation" })).toBeVisible();
-    expect(screen.queryByRole("navigation", { name: "Member areas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace tools" })).not.toBeInTheDocument();
+    const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
+    expect(sidebar).toContainElement(screen.getByRole("navigation", { name: "Page sections" }));
     expect(screen.queryByRole("button", { name: "New instant room" })).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("link", { name: "Return to workspace" }));
-    expect(screen.getByRole("navigation", { name: "Member areas" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Workspace tools" })).toBeVisible();
     expect(screen.getByRole("button", { name: "New instant room" })).toBeVisible();
   });
 
@@ -172,6 +223,8 @@ describe("ProductShell", () => {
     expect(screen.queryByRole("button", { name: "Open more menu" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "More" })).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+    const primary = screen.getByRole("navigation", { name: "Primary navigation" });
+    expect(within(primary).getAllByRole("link").map((link) => link.textContent)).toEqual(["Inbox", "Calls", "Directory", "Files", "You"]);
   });
 
   /*
@@ -191,7 +244,7 @@ describe("ProductShell", () => {
     const user = userEvent.setup();
     renderProductShell();
 
-    const banner = screen.getByRole("status");
+    const banner = screen.getByRole("status", { name: "Update ready" });
     expect(banner).toHaveTextContent("Update ready");
     expect(banner).toHaveTextContent("Finish active calls and save any drafts");
     expect(harness.pwa.applyUpdate).not.toHaveBeenCalled();
@@ -269,10 +322,10 @@ describe("ProductShell", () => {
       name: "Workspace navigation"
     });
     const toggle = screen.getByRole("button", {
-      name: "Keep navigation open"
+      name: "Toggle workspace navigation"
     });
     expect(sidebar).toHaveClass("is-collapsed");
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     await user.hover(sidebar);
     expect(sidebar).toHaveClass("is-collapsed");
@@ -285,14 +338,14 @@ describe("ProductShell", () => {
       "k-comms.workspace-sidebar-collapsed.v1"
     )).toBe("true");
     expect(screen.getByRole("button", {
-      name: "Use compact navigation"
-    })).toHaveAttribute("aria-pressed", "true");
+      name: "Toggle workspace navigation"
+    })).toHaveAttribute("aria-expanded", "true");
 
     view.unmount();
     renderProductShell();
     expect(screen.getByRole("button", {
-      name: "Use compact navigation"
-    })).toHaveAttribute("aria-pressed", "true");
+      name: "Toggle workspace navigation"
+    })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("opens for keyboard focus and hides accessibly on Escape", async () => {
@@ -313,10 +366,8 @@ describe("ProductShell", () => {
     const sidebar = screen.getByRole("complementary", {
       name: "Workspace navigation"
     });
-    const toggle = screen.getByRole("button", {
-      name: "Keep navigation open"
-    });
-    toggle.focus();
+    const focusedControl = screen.getByRole("button", { name: "Switch conversation or screen" });
+    act(() => focusedControl.focus());
     await waitFor(() => expect(sidebar).toHaveClass("is-expanded"));
 
     await user.keyboard("{Escape}");
@@ -324,7 +375,7 @@ describe("ProductShell", () => {
     expect(sidebar).toHaveAttribute("inert");
     expect(sidebar).toHaveAttribute("aria-hidden", "true");
     expect(screen.getByRole("button", { name: "Show workspace navigation" })).toBeVisible();
-    expect(toggle).not.toHaveFocus();
+    expect(focusedControl).not.toHaveFocus();
   });
 
   it("keeps labeled navigation visible by default and exposes direct personal settings", async () => {
@@ -342,5 +393,161 @@ describe("ProductShell", () => {
     await user.click(screen.getByLabelText("Account menu for Taylor Example"));
     expect(screen.getByRole("link", { name: "Profile & settings" })).toHaveAttribute("href", "/app/you?section=profile");
     expect(screen.getByRole("link", { name: "Audio & video" })).toHaveAttribute("href", "/app/you?section=audio-video");
+  });
+
+  it("assigns each desktop destination to one navigation surface and keeps a single account control", () => {
+    responsiveViewport(true);
+    renderProductShell();
+
+    const rail = screen.getByRole("navigation", { name: "Workspace shortcuts" });
+    const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
+    expect(within(rail).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+      "/app/", "/app/calls", "/app/meetings", "/app/documents", "/app/files", "/app/directory"
+    ]);
+    expect(within(sidebar).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
+      "/app/private", "/app/saved", "/app/calls/phone", "/app/artifacts", "/app/whiteboard"
+    ]);
+    expect(within(sidebar).getByRole("button", { name: "New instant room" })).toBeVisible();
+    expect(screen.getAllByLabelText("Account menu for Taylor Example")).toHaveLength(1);
+    expect(rail).toContainElement(screen.getByLabelText("Account menu for Taylor Example"));
+    expect(within(sidebar).queryByLabelText("Account menu for Taylor Example")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Toggle workspace navigation" })).toHaveLength(1);
+  });
+
+  it.each([
+    { role: "member" as const, scope: "workspace" as const, administration: false },
+    { role: "owner" as const, scope: "workspace" as const, administration: true },
+    { role: "moderator" as const, scope: "workspace" as const, administration: true },
+    { role: "owner" as const, scope: "conversation_only" as const, administration: false }
+  ])("filters role shortcuts for $role with $scope access", async ({ role, scope, administration }) => {
+    responsiveViewport(true);
+    harness.session.user.role = role;
+    harness.session.user.access_scope = scope;
+    renderProductShell();
+    const rail = screen.getByRole("navigation", { name: "Workspace shortcuts" });
+    expect(Boolean(within(rail).queryByRole("link", { name: "Open Workspace administration" }))).toBe(administration);
+    expect(within(rail).queryByRole("link", { name: "Open Service operations" })).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByLabelText("Account menu for Taylor Example"));
+    expect(Boolean(screen.queryByRole("link", { name: "Workspace administration" }))).toBe(administration);
+    expect(screen.queryByRole("link", { name: "Service operations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Profile & settings" })).toHaveAttribute("href", "/app/you?section=profile");
+  });
+
+  it("keeps operations access separate from tenant authority", async () => {
+    responsiveViewport(true);
+    harness.session.user.platform_role = "platform_operator";
+    harness.session.user.platform_role_expires_at = "2099-01-01T00:00:00Z";
+    render(productShellTree("/ops"));
+    expect(screen.getByRole("link", { name: "Open Service operations" })).toHaveAttribute("href", "/ops");
+    expect(screen.queryByRole("link", { name: "Open Workspace administration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Administration navigation" })).toContainElement(screen.getByRole("link", { name: "Return to workspace" }));
+    expect(screen.queryByRole("navigation", { name: "Workspace tools" })).not.toBeInTheDocument();
+    const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
+    expect(sidebar).toContainElement(screen.getByRole("navigation", { name: "Page sections" }));
+
+    await userEvent.setup().click(screen.getByLabelText("Account menu for Taylor Example"));
+    expect(screen.getByRole("link", { name: "Service operations" })).toHaveAttribute("href", "/ops");
+  });
+
+  it("closes the account menu outside, on Escape and after selecting settings", async () => {
+    responsiveViewport(true);
+    const user = userEvent.setup();
+    renderProductShell();
+    const trigger = screen.getByLabelText("Account menu for Taylor Example");
+    const menu = trigger.closest("details")!;
+    await user.click(trigger);
+    expect(menu).toHaveAttribute("open");
+    await user.click(screen.getByRole("heading", { name: "Inbox" }));
+    expect(menu).not.toHaveAttribute("open");
+
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(menu).not.toHaveAttribute("open");
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("link", { name: "Profile & settings" }));
+    expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
+    expect(menu).not.toHaveAttribute("open");
+  });
+
+  it("moves page navigation on resize without remounting content or the call provider", async () => {
+    const resize = responsiveViewport(true);
+    const user = userEvent.setup();
+    renderProductShell();
+    await user.type(screen.getByRole("textbox", { name: "Unsent draft" }), "Keep this unsent message");
+    const draft = screen.getByRole("textbox", { name: "Unsent draft" });
+    expect(screen.getByRole("complementary", { name: "Workspace navigation" })).toContainElement(screen.getByRole("navigation", { name: "Page sections" }));
+    expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("true");
+
+    resize(false);
+    expect(screen.queryByRole("complementary", { name: "Workspace navigation" })).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toContainElement(screen.getByRole("navigation", { name: "Page sections" }));
+    expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("false");
+    expect(within(screen.getByRole("navigation", { name: "Primary navigation" })).getAllByRole("link")).toHaveLength(5);
+
+    resize(true);
+    expect(screen.getByRole("complementary", { name: "Workspace navigation" })).toContainElement(screen.getByRole("navigation", { name: "Page sections" }));
+    expect(screen.getByRole("textbox", { name: "Unsent draft" })).toBe(draft);
+    expect(draft).toHaveValue("Keep this unsent message");
+    expect(harness.pageMount).toHaveBeenCalledOnce();
+    expect(harness.pageUnmount).not.toHaveBeenCalled();
+    expect(harness.callProviderMount).toHaveBeenCalledOnce();
+    expect(harness.callProviderUnmount).not.toHaveBeenCalled();
+  });
+
+  it("auto-hides only the unpinned dock and keeps the sidebar navigation contract stable", () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.setItem("k-comms.workspace-sidebar-collapsed.v1", "false");
+      responsiveViewport(true);
+      const { container } = renderProductShell();
+      const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
+      expect(container.querySelector(".app-shell")).toHaveClass("workspace-sidebar-collapsed");
+      expect(container.querySelector(".app-shell")).not.toHaveClass("workspace-navigation-pinned");
+      expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("false");
+      act(() => vi.advanceTimersByTime(8_000));
+      expect(sidebar).toHaveClass("is-hidden");
+      expect(sidebar).toHaveAttribute("inert");
+      expect(sidebar).toHaveAttribute("aria-hidden", "true");
+      expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("false");
+      fireEvent.click(screen.getByRole("button", { name: "Show workspace navigation" }));
+      expect(sidebar).not.toHaveAttribute("inert");
+      expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("false");
+      fireEvent.click(screen.getByRole("button", { name: "Toggle workspace navigation" }));
+      expect(container.querySelector(".app-shell")).toHaveClass("workspace-navigation-pinned");
+      expect(screen.getByLabelText("Visible contextual navigation")).toHaveTextContent("true");
+      act(() => vi.advanceTimersByTime(16_000));
+      expect(sidebar).not.toHaveClass("is-hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves editor shortcuts and modal consent before opening quick navigation", () => {
+    renderProductShell();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Unsent draft" }), { key: "k", ctrlKey: true });
+    expect(screen.queryByRole("dialog", { name: "Go to…" })).not.toBeInTheDocument();
+    const modal = document.createElement("section");
+    modal.setAttribute("aria-modal", "true");
+    document.body.append(modal);
+    try {
+      fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+      expect(screen.queryByRole("dialog", { name: "Go to…" })).not.toBeInTheDocument();
+    } finally {
+      modal.remove();
+    }
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    expect(screen.getByRole("dialog", { name: "Go to…" })).toBeVisible();
+  });
+
+  it("dismisses quick navigation on browser history before a pending route commits", () => {
+    renderProductShell();
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    expect(screen.getByRole("dialog", { name: "Go to…" })).toBeVisible();
+    fireEvent(window, new PopStateEvent("popstate"));
+    expect(screen.queryByRole("dialog", { name: "Go to…" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Inbox" })).toBeVisible();
   });
 });

@@ -51,6 +51,9 @@ describe("password recovery pages", () => {
     api.requestPasswordRecovery.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
+    expect(screen.getByRole("heading", { name: "Reset your password", level: 1 })).toBeVisible();
+    expect(screen.getByText(/For your security we show the same message whether or not the address is registered/)).toBeVisible();
+    expect(screen.getByLabelText("Workspace address")).toHaveAccessibleDescription("The short address from your invitation, such as acme.");
     expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/sign-in");
     await user.type(screen.getByLabelText("Workspace address"), "acme");
     await user.type(screen.getByLabelText("Email address"), "missing@example.test");
@@ -119,6 +122,8 @@ describe("password recovery pages", () => {
     expect(window.location.hash).toBe("#campaign=spring");
     expect(JSON.stringify(window.localStorage)).not.toContain("top-secret-token");
     expect(JSON.stringify(window.sessionStorage)).not.toContain("top-secret-token");
+    expect(screen.getByText(/Your reset link is single use and expires shortly/)).toBeVisible();
+    expect(screen.getByLabelText(/^New password/)).toHaveAccessibleDescription("At least 12 characters.");
     await user.type(screen.getByLabelText(/^New password/), "correct horse battery staple");
     await user.type(screen.getByLabelText("Confirm new password"), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Update password" }));

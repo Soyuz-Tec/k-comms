@@ -102,7 +102,9 @@ test("File and View actions open the actual workspace switcher and settings", as
   await menubar.getByRole("menuitem", { name: "View", exact: true }).click();
   await page.getByRole("menu", { name: "View", exact: true }).getByRole("menuitem", { name: "Your settings", exact: true }).click();
   await expect(page).toHaveURL("/app/you");
-  await expect(page.getByRole("link", { name: "Open You (Ada Lovelace)", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Account menu for Ada Lovelace", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "Personal settings" }).getByRole("link", { name: "Profile & settings", exact: true })).toHaveAttribute("aria-current", "page");
   expect(state.unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });

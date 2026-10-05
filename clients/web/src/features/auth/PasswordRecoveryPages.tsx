@@ -182,7 +182,6 @@ function RecoveryLayout({ title, description, children }: { title: string; descr
           <AppIcon name="messages" />
           <span>K-Comms</span>
         </Link>
-        <span className="eyebrow">Account recovery</span>
         {/*
           * data-route-focus marks this as the route announcement target. Without
           * it RouteOrientation still focuses the h1, but as a plain heading it

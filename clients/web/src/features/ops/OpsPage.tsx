@@ -5,6 +5,7 @@ import type { OperationsSnapshot } from "../../types";
 import { errorText, formatDateTime } from "../../lib/format";
 import { canOperate } from "../../lib/roles";
 import { AppIcon } from "../../components/AppIcon";
+import { ContextualNavigation } from "../../app/ContextualNavigation";
 import { deriveOperationsTriage, type OperationsTriageItem } from "./triage";
 import "./OpsPage.css";
 
@@ -48,11 +49,11 @@ export function OpsPage() {
     {error && <div className="inline-notice error" role="alert">{error}</div>}
     <section className="admin-stats ops-summary" aria-label="Platform operations summary" tabIndex={0}><article><span>Scope</span><strong className="word-stat">Platform-wide</strong><small>Content-blind global health</small></article><article><span>Conditions to review</span><strong>{snapshot ? actionableTriage : "—"}</strong><small>{snapshot ? `${triage.length - actionableTriage} healthy checks` : "Awaiting current evidence"}</small></article><article><span>Outbox pending</span><strong>{snapshot?.outbox.pending ?? "—"}</strong><small>{snapshot?.outbox.published ?? 0} published</small></article><article><span>Delivery failures</span><strong>{snapshot ? failures : "—"}</strong><small>Notifications, webhooks and scans</small></article></section>
     {snapshot && <>
-      <nav className="ops-section-nav" aria-label="Operations sections">
-        <a href="#ops-triage"><AppIcon name="activity" />Triage</a>
-        <a href="#ops-queues" onClick={() => openEvidenceSection("ops-queues")}><AppIcon name="clock" />Queues</a>
-        <a href="#ops-pipelines" onClick={() => openEvidenceSection("ops-pipelines")}><AppIcon name="sliders" />Pipelines &amp; providers</a>
-      </nav>
+      <ContextualNavigation><nav className="ops-section-nav" aria-label="Operations sections">
+        <a href="#ops-triage" title="Triage"><AppIcon name="activity" />Triage</a>
+        <a href="#ops-queues" title="Queues" onClick={() => openEvidenceSection("ops-queues")}><AppIcon name="clock" />Queues</a>
+        <a href="#ops-pipelines" title="Pipelines & providers" onClick={() => openEvidenceSection("ops-pipelines")}><AppIcon name="sliders" />Pipelines &amp; providers</a>
+      </nav></ContextualNavigation>
       <section className="data-card" id="ops-triage" aria-labelledby="ops-triage-heading">
         <div className="card-heading"><div><span className="eyebrow">Guided response</span><h2 id="ops-triage-heading">Operations triage</h2></div><span className={`status-pill ${actionableTriage === 0 ? "success" : "neutral"}`}>{actionableTriage === 0 ? "No action required" : `${actionableTriage} conditions need review`}</span></div>
         <p className="muted-copy ops-evidence-time">Updated {formatDateTime(snapshot.generated_at)}. Expand a check for response guidance.</p>

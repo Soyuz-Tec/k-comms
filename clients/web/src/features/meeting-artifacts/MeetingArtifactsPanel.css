@@ -1,5 +1,5 @@
 .meeting-artifacts { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); max-width: 100%; }
-.meeting-artifacts h3, .meeting-artifacts h4, .meeting-artifacts p { margin: 0; }
+.meeting-artifacts h2, .meeting-artifacts h3, .meeting-artifacts h4, .meeting-artifacts p { margin: 0; }
 .meeting-artifacts ul { list-style: none; padding: 0; margin: 0; display: grid; gap: .75rem; }
 .meeting-artifacts li, .meeting-recording-consent { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .meeting-artifacts small, .meeting-artifacts li > div, .meeting-recording-consent p { flex-basis: 100%; }
@@ -46,8 +46,8 @@
 .artifacts-call-list h3 { font-size: var(--text-sm); }
 .artifacts-call-list .status-pill { margin-top: .5rem; }
 .artifacts-coverage { margin: 0; }
-.meeting-artifacts h3, .meeting-artifacts h4 { font-family: var(--font-body); font-weight: 600; }
-.meeting-artifacts h3 { font-size: var(--text-base); }
+.meeting-artifacts h2, .meeting-artifacts h3, .meeting-artifacts h4 { font-family: var(--font-body); font-weight: 600; }
+.meeting-artifacts h2, .meeting-artifacts h3 { font-size: var(--text-base); }
 .meeting-artifacts h4 { font-size: var(--text-sm); }
 .meeting-artifacts > p, .meeting-artifacts small { font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; }
 .meeting-saved-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }

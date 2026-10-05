@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { useContextualNavigation } from "../../app/ContextualNavigation";
 import { AppIcon } from "../../components/AppIcon";
 import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { conversationTitle, errorText, formatDateTime } from "../../lib/format";
@@ -30,6 +31,7 @@ type MediaFilter = "all" | CallMediaKind;
 
 export function CallsPage() {
   const { api, session } = useSession();
+  const { hasSidebarNavigation } = useContextualNavigation();
   const {
     conversations,
     users,
@@ -161,10 +163,6 @@ export function CallsPage() {
             setScope("active");
             historyRef.current?.focus();
           }}><AppIcon name="users" />Join active call</button>
-          <Link className="button ghost" to="/app/directory">
-            <AppIcon name="contact" />
-            View contacts
-          </Link>
           <button
             className="button ghost calls-refresh-action"
             type="button"
@@ -182,12 +180,12 @@ export function CallsPage() {
           </button>
         </div>} />
 
-      <nav className="calls-destination-tabs" aria-label="Calling destinations">
+      {!hasSidebarNavigation && <nav className="calls-destination-tabs" aria-label="Calling destinations">
         <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Conversation calls</Link>
         <Link to="/app/meetings"><AppIcon name="clock" />Calendar</Link>
         <Link to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
         <Link to="/app/artifacts"><AppIcon name="file" />Recordings</Link>
-      </nav>
+      </nav>}
 
       <div className="calls-workspace">
         <button

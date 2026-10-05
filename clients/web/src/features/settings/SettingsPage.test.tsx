@@ -127,6 +127,7 @@ describe("profile settings", () => {
     expect(screen.getByText("verified@example.test")).toBeVisible();
     expect(screen.queryByRole("textbox", { name: /Email address/i })).not.toBeInTheDocument();
     expect(screen.getByText("Verified account email")).toBeVisible();
+    expect(screen.getByText("Example · Member")).toBeVisible();
 
     const displayName = screen.getByLabelText("Display name");
     await user.clear(displayName);
