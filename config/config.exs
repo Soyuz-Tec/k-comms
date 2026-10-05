@@ -25,6 +25,7 @@ config :comms_core,
   direct_audio_p2p_enabled: false,
   artifact_provider_adapter: CommsIntegrations.MeetingArtifacts.LiveKitEgress,
   artifact_storage_adapter: CommsIntegrations.MeetingArtifacts.S3Storage,
+  artifact_summarization_adapter: CommsIntegrations.MeetingArtifacts.ExtractiveSummary,
   artifact_transcription_adapter: CommsIntegrations.MeetingArtifacts.WhisperTranscription,
   shared_document_protection_adapter: CommsCore.Governance.DocumentProtection,
   artifact_protection_adapter: CommsCore.Governance.ArtifactProtection,
@@ -37,6 +38,7 @@ config :comms_core,
   voicemail_protection_adapter: CommsCore.Governance.VoicemailProtection,
   whiteboard_asset_adapter: CommsCore.Messaging.BoardAssets,
   meeting_artifact_policy: [
+    summary_privacy_approved: false,
     privacy_approved: false,
     provider_qualified: false,
     enabled_tenant_ids: []
@@ -59,6 +61,7 @@ config :comms_core,
     attachment_abandon_reconciler: CommsWorkers.AttachmentCleanupReconcilerWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     call_artifact: CommsWorkers.CallArtifactWorker,
+    call_summary: CommsWorkers.CallSummaryWorker,
     call_artifact_reconciler: CommsWorkers.CallArtifactReconcilerWorker,
     calendar_sync: CommsWorkers.CalendarSyncWorker,
     calendar_sync_reconciler: CommsWorkers.CalendarSyncReconcilerWorker,
@@ -222,3 +225,5 @@ config :logger, :console,
   metadata: [:request_id, :tenant_id, :actor_id, :conversation_id, :job_id]
 
 import_config "#{config_env()}.exs"
+
+config :comms_integrations, :artifact_summarization, enabled: false, qualified: false

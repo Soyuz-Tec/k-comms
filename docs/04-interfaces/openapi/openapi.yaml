@@ -10336,6 +10336,161 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/summary-consent:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: &id021
+        type: string
+        format: uuid
+    - name: callId
+      in: path
+      required: true
+      schema: *id021
+    - name: artifactId
+      in: path
+      required: true
+      schema: *id021
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: consentMeetingArtifactSummary
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Separate disclosed selected-quote summary consent for the actual current server session. Acceptance
+        never transfers to a rejoined admission; withdrawal invalidates derived summary access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryConsent'
+  /api/v1/guest/conversation/calls/{callId}/artifacts/{artifactId}/summary-consent:
+    parameters:
+    - name: callId
+      in: path
+      required: true
+      schema: &id022
+        type: string
+        format: uuid
+    - name: artifactId
+      in: path
+      required: true
+      schema: *id022
+    post:
+      tags:
+      - Meeting Artifacts
+      operationId: consentGuestMeetingArtifactSummary
+      security:
+      - guestBearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingArtifact'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SummaryConsent'
+      description: Separate disclosed selected-quote summary consent for the actual current server session. Acceptance
+        never transfers to a rejoined admission; withdrawal invalidates derived summary access.
+  /api/v1/conversations/{conversationId}/calls/{callId}/artifacts/{artifactId}/summary:
+    parameters:
+    - name: conversationId
+      in: path
+      required: true
+      schema: &id023
+        type: string
+        format: uuid
+    - name: callId
+      in: path
+      required: true
+      schema: *id023
+    - name: artifactId
+      in: path
+      required: true
+      schema: *id023
+    get:
+      tags:
+      - Meeting Artifacts
+      operationId: getMeetingArtifactSummary
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Successful authorized operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactSummary'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Restricted selected transcript quotes. Revalidates current membership and every original capture
+        admission, disclosed consent, immutable transcript digest, expiry and pending erasure under owner locks.
 components:
   securitySchemes:
     telephonyIvrHmac:
@@ -15198,13 +15353,13 @@ components:
           - dnd
           - offline
         presence_expires_at:
-          type: &id021
+          type: &id024
           - string
           - 'null'
           format: date-time
           description: Optional manual-state expiry, between now and seven days.
         dnd_until:
-          type: *id021
+          type: *id024
           format: date-time
           description: Optional DND deadline, between now and seven days.
         dnd_schedule:
@@ -15231,13 +15386,13 @@ components:
           - dnd
           - offline
         presence_expires_at:
-          type: &id022
+          type: &id025
           - string
           - 'null'
           format: date-time
           description: Optional manual-state expiry, between now and seven days.
         dnd_until:
-          type: *id022
+          type: *id025
           format: date-time
           description: Optional DND deadline, between now and seven days.
         dnd_schedule:
@@ -15253,7 +15408,7 @@ components:
         dnd_active:
           type: boolean
         retry_at:
-          type: *id022
+          type: *id025
           format: date-time
         timezone:
           type: string
@@ -15312,10 +15467,10 @@ components:
               enum:
               - User
               - Group
-            created: &id023
+            created: &id026
               type: string
               format: date-time
-            lastModified: *id023
+            lastModified: *id026
             version:
               type: string
               minLength: 5
@@ -15340,7 +15495,7 @@ components:
             maxLength: 120
           minItems: 1
           maxItems: 1
-        id: &id024
+        id: &id027
           type: string
           format: uuid
         externalId:
@@ -15359,7 +15514,7 @@ components:
             required:
             - value
             properties:
-              value: *id024
+              value: *id027
           minItems: 0
           maxItems: 1000
         meta:
@@ -15376,10 +15531,10 @@ components:
               enum:
               - User
               - Group
-            created: &id025
+            created: &id028
               type: string
               format: date-time
-            lastModified: *id025
+            lastModified: *id028
             version:
               type: string
               minLength: 5
@@ -15872,9 +16027,9 @@ components:
           - allow_guests
           - join_before_host
           properties:
-            allow_guests: &id026
+            allow_guests: &id029
               type: boolean
-            join_before_host: *id026
+            join_before_host: *id029
     MeetingUpdate:
       type: object
       additionalProperties: false
@@ -15937,9 +16092,9 @@ components:
           - allow_guests
           - join_before_host
           properties:
-            allow_guests: &id027
+            allow_guests: &id030
               type: boolean
-            join_before_host: *id027
+            join_before_host: *id030
         expected_version:
           type: integer
           minimum: 1
@@ -15962,10 +16117,10 @@ components:
           type: integer
           minimum: 1
           maximum: 52
-        starts_at: &id028
+        starts_at: &id031
           type: string
           format: date-time
-        ends_at: *id028
+        ends_at: *id031
         status:
           type: string
           enum:
@@ -16046,14 +16201,14 @@ components:
           - allow_guests
           - join_before_host
           properties:
-            allow_guests: &id029
+            allow_guests: &id032
               type: boolean
-            join_before_host: *id029
-        id: &id030
+            join_before_host: *id032
+        id: &id033
           type: string
           format: uuid
-        conversation_id: *id030
-        host_user_id: *id030
+        conversation_id: *id033
+        host_user_id: *id033
         version:
           type: integer
           minimum: 1
@@ -16069,7 +16224,7 @@ components:
             $ref: '#/components/schemas/MeetingOccurrence'
           minItems: 1
           maxItems: 52
-        can_manage: *id029
+        can_manage: *id032
     MeetingList:
       type: object
       additionalProperties: false
@@ -16120,10 +16275,10 @@ components:
       - completed_at
       - failure_reason
       properties:
-        id: &id031
+        id: &id034
           type: string
           format: uuid
-        call_id: *id031
+        call_id: *id034
         action:
           type: string
           enum:
@@ -16145,10 +16300,10 @@ components:
           - unknown
         dispatch:
           type: boolean
-        created_at: &id032
+        created_at: &id035
           type: string
           format: date-time
-        expires_at: *id032
+        expires_at: *id035
         completed_at:
           type:
           - string
@@ -16215,10 +16370,10 @@ components:
       required:
       - supported
       properties:
-        supported: &id033
+        supported: &id036
           type: boolean
-        configured: *id033
-        qualified: *id033
+        configured: *id036
+        qualified: *id036
         reason:
           type:
           - string
@@ -16280,7 +16435,7 @@ components:
       - enabled
       - version
       properties:
-        id: &id034
+        id: &id037
           type: string
           format: uuid
         name:
@@ -16299,7 +16454,7 @@ components:
           - simultaneous
         member_ids:
           type: array
-          items: *id034
+          items: *id037
           minItems: 1
           maxItems: 25
           uniqueItems: true
@@ -16405,11 +16560,11 @@ components:
       - byte_size
       - content_type
       properties:
-        id: &id035
+        id: &id038
           type: string
           format: uuid
-        conversation_id: *id035
-        call_id: *id035
+        conversation_id: *id038
+        call_id: *id038
         meeting_id:
           type:
           - string
@@ -16431,6 +16586,7 @@ components:
           enum:
           - recording
           - transcript
+          - summary
         status:
           type: string
           enum:
@@ -16443,16 +16599,16 @@ components:
           - failed
           - deleting
           - deleted
-        created_at: &id037
+        created_at: &id040
           type: string
           format: date-time
-        started_at: &id036
+        started_at: &id039
           type:
           - string
           - 'null'
           format: date-time
-        ended_at: *id036
-        expires_at: *id037
+        ended_at: *id039
+        expires_at: *id040
         failure_code:
           type:
           - string
@@ -16484,6 +16640,43 @@ components:
           enum:
           - video/mp4
           - application/json
+        summary_requested:
+          type: boolean
+        summary_policy_version:
+          type:
+          - string
+          - 'null'
+          enum:
+          - meeting-summary-v1
+          - null
+        summary_consent_required_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        summary_consent_accepted_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        my_summary_consent:
+          type:
+          - boolean
+          - 'null'
+        recognition_mode:
+          type:
+          - string
+          - 'null'
+          enum:
+          - post_recording
+          - null
+        recognition_model_sha256:
+          type:
+          - string
+          - 'null'
+          pattern: ^[a-f0-9]{64}$
+        can_withdraw_summary_consent:
+          type: boolean
+        summary_request_available:
+          type: boolean
     ArtifactCapabilities:
       type: object
       additionalProperties: false
@@ -16496,7 +16689,7 @@ components:
       - captions
       - automatic_capture
       properties:
-        recording: &id038
+        recording: &id041
           type: boolean
         recording_reason:
           type: string
@@ -16504,7 +16697,7 @@ components:
           maxLength: 160
         participant_consent_required:
           const: true
-        persistent_transcript: *id038
+        persistent_transcript: *id041
         persistent_transcript_reason:
           type: string
           minLength: 1
@@ -16513,6 +16706,14 @@ components:
           const: provider_events_only
         automatic_capture:
           const: false
+        recognition_mode:
+          const: post_recording
+        explicit_summary:
+          type: boolean
+        summary_consent_required:
+          const: true
+        summary_post_call_only:
+          const: true
     MeetingArtifactList:
       type: object
       additionalProperties: false
@@ -16539,10 +16740,14 @@ components:
           enum:
           - recording
           - transcript
+          - summary
         idempotency_key:
           type: string
           minLength: 8
           maxLength: 120
+        summary_requested:
+          type: boolean
+          default: false
         source_artifact_id:
           type: string
           format: uuid
@@ -16552,7 +16757,9 @@ components:
           - kind
           properties:
             kind:
-              const: transcript
+              enum:
+              - transcript
+              - summary
         then:
           required:
           - source_artifact_id
@@ -16608,10 +16815,10 @@ components:
       - library_version
       - updated_at
       properties:
-        id: &id039
+        id: &id042
           type: string
           format: uuid
-        conversation_id: *id039
+        conversation_id: *id042
         title:
           type: string
           minLength: 1
@@ -16637,7 +16844,7 @@ components:
       - actor_user_id
       - inserted_at
       properties:
-        id: &id040
+        id: &id043
           type: string
           format: uuid
         label:
@@ -16648,7 +16855,7 @@ components:
           type: integer
           minimum: 0
           maximum: 2147483647
-        actor_user_id: *id040
+        actor_user_id: *id043
         inserted_at:
           type: string
           format: date-time
@@ -16662,11 +16869,11 @@ components:
       - content_type
       - byte_size
       properties:
-        id: &id041
+        id: &id044
           type: string
           format: uuid
-        attachment_id: *id041
-        source_message_id: *id041
+        attachment_id: *id044
+        source_message_id: *id044
         content_type:
           type: string
           enum:
@@ -16879,7 +17086,7 @@ components:
           - ranking_scope
           - meeting_window_days
           properties:
-            has_more: &id042
+            has_more: &id045
               type: boolean
             next_cursor:
               type:
@@ -16897,11 +17104,11 @@ components:
               - meetings
               - artifacts
               properties:
-                messages: *id042
-                files: *id042
-                whiteboards: *id042
-                meetings: *id042
-                artifacts: *id042
+                messages: *id045
+                files: *id045
+                whiteboards: *id045
+                meetings: *id045
+                artifacts: *id045
             ranking_scope:
               const: authorized_source_candidates
             meeting_window_days:
@@ -16919,10 +17126,10 @@ components:
       - inserted_at
       - read_at
       properties:
-        id: &id043
+        id: &id046
           type: string
           format: uuid
-        call_id: *id043
+        call_id: *id046
         status:
           type: string
           enum:
@@ -16937,16 +17144,16 @@ components:
           - 'null'
           minimum: 1
           maximum: 120
-        retention_expires_at: &id044
+        retention_expires_at: &id047
           type: string
           format: date-time
-        available_at: &id045
+        available_at: &id048
           type:
           - string
           - 'null'
           format: date-time
-        inserted_at: *id044
-        read_at: *id045
+        inserted_at: *id047
+        read_at: *id048
     VoicemailMailbox:
       type: object
       additionalProperties: false
@@ -16958,10 +17165,10 @@ components:
       - notice_media
       - version
       properties:
-        id: &id046
+        id: &id049
           type: string
           format: uuid
-        user_id: *id046
+        user_id: *id049
         enabled:
           type: boolean
         retention_days:
@@ -17059,10 +17266,10 @@ components:
       - platform_role
       - platform_role_expires_at
       properties:
-        id: &id047
+        id: &id050
           type: string
           format: uuid
-        tenant_id: *id047
+        tenant_id: *id050
         display_name:
           type: string
           minLength: 1
@@ -17139,10 +17346,10 @@ components:
       - last_seen_at
       - revoked_at
       properties:
-        id: &id048
+        id: &id051
           type: string
           format: uuid
-        user_id: *id048
+        user_id: *id051
         name:
           type: string
           minLength: 1
@@ -17151,12 +17358,12 @@ components:
           type: string
           minLength: 1
           maxLength: 120
-        last_seen_at: &id049
+        last_seen_at: &id052
           type:
           - string
           - 'null'
           format: date-time
-        revoked_at: *id049
+        revoked_at: *id052
     IdentityTenant:
       type: object
       additionalProperties: false
@@ -20071,3 +20278,52 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/PhoneProvisioningReceipt'
+    ArtifactSummaryView:
+      type: object
+      additionalProperties: false
+      required:
+      - method
+      - text
+      - source_artifact_id
+      - source_sha256
+      - summary_sha256
+      - policy_version
+      properties:
+        method:
+          const: extractive_quotes
+        text:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          description: Selected unchanged transcript quotes; UTF-8 <=16384 bytes, no inferred facts.
+        source_artifact_id:
+          type: string
+          format: uuid
+        source_sha256: &id053
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        summary_sha256: *id053
+        policy_version:
+          const: meeting-summary-v1
+    SummaryConsent:
+      type: object
+      additionalProperties: false
+      required:
+      - accepted
+      - policy_version
+      properties:
+        accepted:
+          type: boolean
+        policy_version:
+          const: meeting-summary-v1
+    ArtifactSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - summary
+      properties:
+        data:
+          $ref: '#/components/schemas/MeetingArtifact'
+        summary:
+          $ref: '#/components/schemas/ArtifactSummaryView'

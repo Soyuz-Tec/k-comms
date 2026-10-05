@@ -17,6 +17,7 @@ defmodule CommsCore.RuntimePorts do
     :attachment_abandon_reconciler,
     :attachment_scan,
     :call_artifact,
+    :call_summary,
     :call_artifact_reconciler,
     :deletion,
     :erasure_reconciler,

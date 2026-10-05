@@ -24,7 +24,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "workspace_domain_discovery_v1",
                                   "calendar_sync_v1",
                                   "calendar_erasure_v1",
-                                  "phone_provider_provisioning_v1"
+                                  "phone_provider_provisioning_v1",
+                                  "uc_recognition_summaries_v1"
                                 ],
                                 ","
                               )
@@ -105,7 +106,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       agent_queue_states: 1,
       active_ivr_jobs: 1,
       workspace_domain_claims: 1,
-      retained_phone_provisioning_commands: 1
+      retained_phone_provisioning_commands: 1,
+      recognition_summary_state: 1,
+      active_summary_jobs: 1
     }
 
     compatible = %{
@@ -218,7 +221,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
           {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
           {"calendar_erasure_v1", [:calendar_erasure_state]},
-          {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]}
+          {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]},
+          {"uc_recognition_summaries_v1", [:recognition_summary_state, :active_summary_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

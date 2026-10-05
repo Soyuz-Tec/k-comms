@@ -11,7 +11,7 @@ The target is communication-compatible only when both its edge and worker pod
 templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1,uc_recognition_summaries_v1
 ```
 
 The exact qualified M1 twelve-capability and Member/History fourteen-capability
@@ -45,6 +45,8 @@ The same preflight includes owner-only aggregate UC hazards:
 | `calendar_sync_v1` | Every retained connection, OAuth challenge, export, event mapping and synchronization command; active CalendarSyncWorker and CalendarSyncReconcilerWorker jobs |
 | `calendar_erasure_v1` | Every retained erasure receipt and export tombstone; uncertain native cleanup remains pending |
 | `phone_provider_provisioning_v1` | Every retained provisioning command, including failed/expired unconsumed receipts and uncertain/applied effects; no Phone provisioning worker, outbox dispatch or automatic retry exists |
+| `uc_recognition_summaries_v1` | Retained summary rows, disclosed/withdrawn summary consent metadata, pinned recognition proof metadata, and every active summary job including orphan jobs; physical content erasure alone does not clear retained decisions |
+
 
 No owner projection returns content or exposes a foreign schema. Unsupported
 retained state blocks the target; quiescence alone does not make an older binary
@@ -116,7 +118,7 @@ expected = (
     "instant_room_expiry_worker_v1,conversation_only_human_v1,"
     "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
     "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
-    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1,uc_recognition_summaries_v1"
 )
 values = [
     deployments[name]["spec"]["template"]

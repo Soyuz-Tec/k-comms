@@ -9,6 +9,9 @@ defmodule CommsCore.AudioCalls.Artifacts.Consent do
     field(:user_id, :binary_id)
     field(:session_id, :binary_id)
     field(:accepted, :boolean, default: false)
+    field(:summary_accepted, :boolean, default: false)
+    field(:summary_policy_version, :string)
+    field(:summary_decided_at, :utc_datetime_usec)
     field(:policy_version, :string, default: "meeting-artifacts-v1")
     field(:decided_at, :utc_datetime_usec)
     timestamps()
@@ -23,6 +26,9 @@ defmodule CommsCore.AudioCalls.Artifacts.Consent do
       :user_id,
       :session_id,
       :accepted,
+      :summary_accepted,
+      :summary_policy_version,
+      :summary_decided_at,
       :policy_version,
       :decided_at
     ])

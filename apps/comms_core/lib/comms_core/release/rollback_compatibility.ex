@@ -41,7 +41,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
     {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
     {"calendar_erasure_v1", [:calendar_erasure_state]},
-    {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]}
+    {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]},
+    {"uc_recognition_summaries_v1", [:recognition_summary_state, :active_summary_jobs]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -206,6 +207,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
       conversation_only_humans: Accounts.persisted_conversation_only_human_count(),
       enterprise_identities: Accounts.rollback_enterprise_identity_hazard_count(),
       scim_credentials: ServiceAccounts.rollback_scim_credential_hazard_count(),
+      recognition_summary_state: AudioCalls.rollback_recognition_summary_hazard_count(),
+      active_summary_jobs: active_job_count(repo, :call_summary),
       retained_call_artifacts: AudioCalls.rollback_artifact_hazard_count(),
       active_artifact_jobs: active_job_count(repo, :call_artifact),
       voicemail_media: Telephony.rollback_voicemail_hazard_count(),

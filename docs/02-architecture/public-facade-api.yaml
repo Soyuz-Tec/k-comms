@@ -21,6 +21,7 @@ contexts:
       public_operations:
       - activity/3
       - artifact_playback/4
+      - artifact_summary/4
       - artifact_transcript/4
       - authorize_participant/3
       - begin_calendar_authorization/3
@@ -28,6 +29,7 @@ contexts:
       - claim_participant_eviction/2
       - complete_calendar_authorization/1
       - consent_artifact/5
+      - consent_artifact_summary/5
       - create_calendar_export/2
       - delete_artifact/4
       - deliver_meeting_reminder/3
@@ -80,6 +82,7 @@ contexts:
       - rollback_calendar_erasure_hazard_count/0
       - rollback_calendar_hazard_count/0
       - rollback_meeting_hazard_count/0
+      - rollback_recognition_summary_hazard_count/0
       owner_internal_operations:
       - activity/2
       - authorize_end/4

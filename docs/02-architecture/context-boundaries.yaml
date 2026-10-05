@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: db79b377aeff696a42ac1a211efbba26c41f72b52a14ab4531080652f385fd9f
+  sha256: 0995326d1e61acaeb4cd70bad195078dcb51c62693428e70b48f597d8948306c
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -14,6 +14,11 @@ enforcement:
   - id: compose-remaining-full-uc-owner-contracts
     previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummarizationPort
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryReceipt
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryRequest
+    - context:calls:public_contracts:add:CommsCore.AudioCalls.ArtifactSummaryView
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.AuthorizationReceipt
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.CallbackCommand
     - context:calls:public_contracts:add:CommsCore.AudioCalls.CalendarSync.ConnectionView
@@ -77,11 +82,12 @@ enforcement:
     - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
     - context:trust_governance:public_facades:add:CommsCore.Governance.CalendarProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->db79b377aeff696a42ac1a211efbba26c41f72b52a14ab4531080652f385fd9f
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->0995326d1e61acaeb4cd70bad195078dcb51c62693428e70b48f597d8948306c
     - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
       acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve
       managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No
       foreign persistence access is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"calendar-governance-protection","implementation":"CommsCore.Governance.CalendarProtection","operations":[{"arity":1,"name":"protection"}],"port":"CommsCore.AudioCalls.CalendarSync.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.CalendarSync.ProtectionReceipt","transaction":"required"}
+    - runtime_collaborations:call-artifact-governance-protection:callers:add:"CommsCore.AudioCalls.Artifacts.Summaries"
     - runtime_collaborations:shared-document-governance-protection:add:{"binding":{"application":"comms_core","key":"shared_document_protection_adapter","module":"CommsCore.Governance.DocumentProtection"},"callers":["CommsCore.SharedDocuments.Authority"],"condition":"ADR-0101
       retains Governance tenant protection first; the exact Collaboration projection denies pending author/conversation
       erasure and blocks held erasure without foreign schema or Repo access. Authority is the sole port caller.","consumer":"collaboration","graph_semantics":{"compile_dependency":"trust_governance_to_collaboration","control_flow":"collaboration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"shared-document-governance-protection","implementation":"CommsCore.Governance.DocumentProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.SharedDocuments.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.SharedDocuments.Protection","transaction":"required"}
@@ -97,6 +103,7 @@ enforcement:
     - table:calendar_exports:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.Export","owner":"calls","role":"source"}
     - table:calendar_oauth_challenges:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.OAuthChallenge","owner":"calls","role":"source"}
     - table:calendar_sync_commands:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.SyncCommand","owner":"calls","role":"source"}
+    - table:call_artifact_summaries:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Summary","owner":"calls","role":"source"}
     - table:shared_document_operations:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Operation","owner":"collaboration","role":"source"}
     - table:shared_documents:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Document","owner":"collaboration","role":"source"}
     - table:telephony_agent_states:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.AgentState","owner":"telephony","role":"source"}
@@ -105,6 +112,9 @@ enforcement:
     - table:telephony_ivr_runs:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrRun","owner":"telephony","role":"source"}
     - table:telephony_provisioning_commands:add:{"canonical_schema":"CommsCore.Telephony.ProvisioningCommand","owner":"telephony","role":"source"}
     - table:workspace_domain_claims:add:{"access":"owner_only","access_namespaces":["CommsCore.Administration"],"canonical_schema":"CommsCore.Administration.WorkspaceDomainClaim","owner":"tenant_administration","role":"source"}
+    - technical_interfaces:call-artifact-summarization:add:{"behaviour":"CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","binding":{"application":"comms_core","key":"artifact_summarization_adapter","module":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary"},"callers":["CommsCore.AudioCalls.Artifacts.Summaries"],"condition":"ADR-0102
+      permits the exact bounded local selected-quote adapter, separately disclosed original-admission consent and
+      immutable source digest. Source qualification does not establish runtime or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactSummarizationPort","CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","CommsCore.AudioCalls.ArtifactSummaryRequest","CommsCore.AudioCalls.ArtifactSummaryReceipt"],"dispatch":"configured","id":"call-artifact-summarization","implementation":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary","interface":"CommsCore.AudioCalls.ArtifactSummarizationPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"summarize"}],"owner":"calls","transaction":"independent"}
     - technical_interfaces:owned-calendar-provider-protocol:add:{"behaviour":"CommsCore.AudioCalls.CalendarSync.ProviderPort","binding":{"application":"comms_core","key":"calendar_provider_adapter","module":"CommsIntegrations.Calendar"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Effects"],"condition":"ADR-0098
       fixed delegated Google/Microsoft OAuth and owned-event operations use one absolute provider deadline inside
       an authority-sealed Connection transaction. A durable pre-effect lease survives crashes; no API request supplies
@@ -671,6 +681,11 @@ contexts:
     - CommsCore.AudioCalls.ArtifactTranscriptionPort
     - CommsCore.AudioCalls.ArtifactTranscriptionPort.Contract
     - CommsCore.AudioCalls.ArtifactProtectionPort
+    - CommsCore.AudioCalls.ArtifactSummaryView
+    - CommsCore.AudioCalls.ArtifactSummaryRequest
+    - CommsCore.AudioCalls.ArtifactSummaryReceipt
+    - CommsCore.AudioCalls.ArtifactSummarizationPort
+    - CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
     internal_namespaces:
     - CommsCore.AudioCalls
     allowed_dependencies:
@@ -1279,6 +1294,7 @@ runtime_collaborations:
   implementation: CommsCore.Governance.ArtifactProtection
   callers:
   - CommsCore.AudioCalls.Artifacts
+  - CommsCore.AudioCalls.Artifacts.Summaries
   - CommsCore.AudioCalls.MeetingErasure
   operations:
   - name: protection
@@ -1873,6 +1889,31 @@ technical_interfaces:
     existing tenant trunks and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible
     assignment and CAS before each read/effect; effects are consumed before dispatch and uncertain results reconcile
     read-only.
+- id: call-artifact-summarization
+  owner: calls
+  interface: CommsCore.AudioCalls.ArtifactSummarizationPort
+  callers:
+  - CommsCore.AudioCalls.Artifacts.Summaries
+  operations:
+  - name: configured?
+    arity: 0
+  - name: summarize
+    arity: 1
+  dispatch: configured
+  contracts:
+  - CommsCore.AudioCalls.ArtifactSummarizationPort
+  - CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+  - CommsCore.AudioCalls.ArtifactSummaryRequest
+  - CommsCore.AudioCalls.ArtifactSummaryReceipt
+  behaviour: CommsCore.AudioCalls.ArtifactSummarizationPort.Contract
+  implementation: CommsIntegrations.MeetingArtifacts.ExtractiveSummary
+  binding:
+    application: comms_core
+    key: artifact_summarization_adapter
+    module: CommsIntegrations.MeetingArtifacts.ExtractiveSummary
+  transaction: independent
+  condition: ADR-0102 permits the exact bounded local selected-quote adapter, separately disclosed original-admission
+    consent and immutable source digest. Source qualification does not establish runtime or production qualification.
 retired_modules:
 - CommsCore.Authorization
 - CommsCore.InAppNotifications
@@ -2306,6 +2347,10 @@ tables:
   telephony_provisioning_commands:
     owner: telephony
     canonical_schema: CommsCore.Telephony.ProvisioningCommand
+    role: source
+  call_artifact_summaries:
+    owner: calls
+    canonical_schema: CommsCore.AudioCalls.Artifacts.Summary
     role: source
 read_model_exceptions:
 - id: operations-cross-context-read-model

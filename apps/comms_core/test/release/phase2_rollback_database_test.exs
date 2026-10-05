@@ -417,7 +417,9 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :calendar_owner_state,
         :active_calendar_jobs,
         :calendar_erasure_state,
-        :retained_phone_provisioning_commands
+        :retained_phone_provisioning_commands,
+        :recognition_summary_state,
+        :active_summary_jobs
       ],
       &{&1, 0}
     )

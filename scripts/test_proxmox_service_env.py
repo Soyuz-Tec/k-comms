@@ -71,6 +71,24 @@ class ServiceEnvironmentTest(unittest.TestCase):
                              (self.destination / "current" / f"{service}.env").read_text())
         envs.check(self.values(), self.destination, self.owner)
 
+    def test_recognition_controls_and_secret_files_reach_only_application_replicas(self):
+        inputs = {
+            "ARTIFACT_TRANSCRIPTION_MODEL_SHA256": "a" * 64,
+            "ARTIFACT_TRANSCRIPTION_BEARER_TOKEN_FILE": "/run/secrets/transcription-token",
+            "ARTIFACT_SUMMARIES_ENABLED": "false",
+            "ARTIFACT_SUMMARIES_QUALIFIED": "false",
+            "MEETING_SUMMARY_PRIVACY_APPROVED": "false",
+        }
+        with self.source.open("a") as stream:
+            stream.write("".join(f"{name}={value}\n" for name, value in inputs.items()))
+        self.generate()
+        app = (self.destination / "current/app.env").read_text()
+        for name, value in inputs.items():
+            self.assertIn(f"{name}={value}\n", app)
+            for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+                self.assertNotIn(name, (self.destination / "current" / f"{service}.env").read_text())
+        envs.check(self.values(), self.destination, self.owner)
+
     def test_short_history_cursor_key_refuses_rotation_without_secret_output(self):
         self.generate()
         previous = os.readlink(self.destination / "current")

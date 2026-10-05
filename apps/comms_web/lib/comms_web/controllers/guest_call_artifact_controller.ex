@@ -18,7 +18,8 @@ defmodule CommsWeb.GuestCallArtifactController do
         result.capabilities
         | recording: false,
           recording_reason: "guest_participant_only",
-          persistent_transcript: false
+          persistent_transcript: false,
+          explicit_summary: false
       }
 
       conn
@@ -40,4 +41,13 @@ defmodule CommsWeb.GuestCallArtifactController do
   end
 
   def consent(conn, _), do: CommsWeb.CallArtifactController.consent(conn, %{})
+
+  def summary_consent(conn, %{"call_id" => call_id, "id" => id} = params) do
+    conversation_id = conn.assigns.current_guest_claims["conversation_id"]
+
+    CommsWeb.CallArtifactController.summary_consent(
+      conn,
+      Map.merge(params, %{"conversation_id" => conversation_id, "call_id" => call_id, "id" => id})
+    )
+  end
 end

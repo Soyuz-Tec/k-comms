@@ -266,6 +266,13 @@ export class GuestApiClient {
     ).then(unwrapData);
   }
 
+  consentSummary(_conversationId: string, callId: string, artifactId: string, accepted: boolean): Promise<MeetingArtifact> {
+    return this.request<DataResponse<MeetingArtifact>>(
+      `/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/artifacts/${encodeURIComponent(artifactId)}/summary-consent`,
+      { method: "POST", body: JSON.stringify({ accepted, policy_version: "meeting-summary-v1" }) }
+    ).then(unwrapData);
+  }
+
   convertAccount(input: {
     email: string;
     password: string;

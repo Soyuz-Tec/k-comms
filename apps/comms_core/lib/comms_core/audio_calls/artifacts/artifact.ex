@@ -9,10 +9,18 @@ defmodule CommsCore.AudioCalls.Artifacts.Artifact do
     field(:meeting_id, :binary_id)
     field(:source_artifact_id, :binary_id)
     field(:transcript_language, :string)
+    field(:summary_requested, :boolean, default: false)
+    field(:summary_source_sha256, :string)
+    field(:summary_provider_claimed_at, :utc_datetime_usec)
+    field(:summary_claim_fingerprint, :string)
+    field(:summary_effect_started_at, :utc_datetime_usec)
+    field(:recognition_provider_id, :string)
+    field(:recognition_model_sha256, :string)
+    field(:recognition_source_sha256, :string)
     field(:requested_by_user_id, :binary_id)
     field(:requested_by_device_id, :binary_id)
     field(:requested_by_session_id, :binary_id)
-    field(:kind, Ecto.Enum, values: [:recording, :transcript], default: :recording)
+    field(:kind, Ecto.Enum, values: [:recording, :transcript, :summary], default: :recording)
 
     field(:status, Ecto.Enum,
       values: [
@@ -59,6 +67,14 @@ defmodule CommsCore.AudioCalls.Artifacts.Artifact do
       :meeting_id,
       :source_artifact_id,
       :transcript_language,
+      :summary_requested,
+      :summary_source_sha256,
+      :summary_provider_claimed_at,
+      :summary_claim_fingerprint,
+      :summary_effect_started_at,
+      :recognition_provider_id,
+      :recognition_model_sha256,
+      :recognition_source_sha256,
       :requested_by_user_id,
       :requested_by_device_id,
       :requested_by_session_id,
@@ -102,5 +118,6 @@ defmodule CommsCore.AudioCalls.Artifacts.Artifact do
     |> unique_constraint([:tenant_id, :provider_job_id])
     |> unique_constraint(:call_id, name: :call_artifacts_one_capture_per_call)
     |> unique_constraint(:source_artifact_id, name: :call_artifacts_one_transcript_per_recording)
+    |> unique_constraint(:source_artifact_id, name: :call_artifacts_one_summary_per_transcript)
   end
 end
