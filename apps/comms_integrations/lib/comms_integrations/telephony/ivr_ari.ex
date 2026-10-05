@@ -82,7 +82,6 @@ defmodule CommsIntegrations.Telephony.IvrARI do
       end
     else
       {:error, _} = error -> error
-      _ -> {:error, :telephony_pbx_binding_invalid}
     end
   end
 
@@ -103,7 +102,6 @@ defmodule CommsIntegrations.Telephony.IvrARI do
       end
     else
       {:error, _} = error -> error
-      _ -> {:error, :telephony_pbx_binding_invalid}
     end
   end
 
