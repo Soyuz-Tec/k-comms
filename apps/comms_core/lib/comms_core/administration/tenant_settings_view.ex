@@ -5,6 +5,8 @@ defmodule CommsCore.Administration.TenantSettingsView do
     :allow_public_channels,
     :allow_audio_calls,
     :allow_video_calls,
+    :allow_calendar_export,
+    :calendar_export_policy_version,
     :message_edit_window_seconds,
     :max_attachment_bytes,
     :default_retention_days,

@@ -82,6 +82,16 @@ class ServiceEnvironmentTest(unittest.TestCase):
         self.assertNotIn("private-short-key", str(error.exception))
         self.assertEqual(os.readlink(self.destination / "current"), previous)
 
+    def test_calendar_configuration_and_credentials_reach_only_application(self):
+        self.source.write_text(self.source.read_text().replace(
+            "CALENDAR_GOOGLE_CLIENT_SECRET=", "CALENDAR_GOOGLE_CLIENT_SECRET=synthetic-calendar-client-secret"))
+        self.generate()
+        application = (self.destination / "current/app.env").read_text()
+        self.assertIn("CALENDAR_GOOGLE_CLIENT_SECRET=synthetic-calendar-client-secret\n", application)
+        self.assertIn("CALENDAR_GOOGLE_ENABLED=false\n", application)
+        for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+            self.assertNotIn("CALENDAR_", (self.destination / "current" / f"{service}.env").read_text())
+
     def test_history_cursor_rejects_recovery_secret_without_publishing_or_logging(self):
         self.generate()
         previous = os.readlink(self.destination / "current")

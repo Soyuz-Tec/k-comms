@@ -126,6 +126,8 @@ import { createMeetingArtifactsApi, type MeetingArtifactsApi } from "./api/domai
 import { createRichContentApi, type RichContentApi } from "./api/domains/rich-content";
 import { createVoicemailApi, type VoicemailApi } from "./api/domains/voicemail";
 
+import { createCalendarApi, type CalendarApi } from "./api/domains/calendar";
+
 export class ApiClient {
   private readonly transport: MemberSessionTransport;
   private readonly accountsApi: AccountsApi;
@@ -139,6 +141,7 @@ export class ApiClient {
   private readonly integrationsApi: IntegrationsApi;
   private readonly callsApi: CallsApi;
   private readonly meetingsApi: MeetingsApi;
+  private readonly calendarApi: CalendarApi;
   private readonly telephonyApi: TelephonyApi;
   private readonly messagingApi: MessagingApi;
   private readonly filesApi: FilesApi;
@@ -173,6 +176,7 @@ export class ApiClient {
     this.notificationsApi = createNotificationsApi(request);
     this.integrationsApi = createIntegrationsApi(request);
     this.callsApi = createCallsApi(request);
+    this.calendarApi = createCalendarApi(request);
     this.meetingsApi = createMeetingsApi(request);
     this.telephonyApi = createTelephonyApi(request);
     this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
@@ -180,6 +184,13 @@ export class ApiClient {
     this.systemApi = createSystemApi(request);
     this.whiteboardsApi = createWhiteboardsApi(request);
   }
+
+  calendarConnections(...args: Parameters<CalendarApi["calendarConnections"]>) { return this.calendarApi.calendarConnections(...args); }
+  authorizeCalendar(...args: Parameters<CalendarApi["authorizeCalendar"]>) { return this.calendarApi.authorizeCalendar(...args); }
+  unlinkCalendar(...args: Parameters<CalendarApi["unlinkCalendar"]>) { return this.calendarApi.unlinkCalendar(...args); }
+  calendarExports(...args: Parameters<CalendarApi["calendarExports"]>) { return this.calendarApi.calendarExports(...args); }
+  createCalendarExport(...args: Parameters<CalendarApi["createCalendarExport"]>) { return this.calendarApi.createCalendarExport(...args); }
+  resolveCalendarExport(...args: Parameters<CalendarApi["resolveCalendarExport"]>) { return this.calendarApi.resolveCalendarExport(...args); }
 
   meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }
   createMeeting(conversationId: string, input: MeetingInput): Promise<Meeting> { return this.meetingsApi.createMeeting(conversationId, input); }

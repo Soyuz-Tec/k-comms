@@ -66,5 +66,9 @@ defmodule CommsIntegrations.Calendar.IdentityVerifier do
     do: :crypto.hash_equals(a, b)
 
   defp secure_equal?(_, _), do: false
-  defp bounded?(value, min, max), do: is_binary(value) and byte_size(value) in min..max
+
+  defp bounded?(value, min, max),
+    do:
+      is_binary(value) and byte_size(value) in min..max and
+        Regex.match?(~r/\A[\x21-\x7e]+\z/, value)
 end

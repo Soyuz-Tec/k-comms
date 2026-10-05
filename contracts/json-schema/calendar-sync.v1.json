@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.soyuz-tec.io/contracts/calendar-sync.v1.json",
+  "title": "Explicit hosted Calendar synchronization v1",
+  "$defs": {
+    "CalendarConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "provider",
+        "version",
+        "status",
+        "consent_generation",
+        "new_exports_allowed",
+        "permission_status",
+        "provider_grant_revocation",
+        "managed_events_pending_removal",
+        "last_success_at",
+        "safe_reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "google",
+            "microsoft"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "awaiting_consent",
+            "ready",
+            "reauthorization_required",
+            "removing",
+            "held_cleanup_blocked",
+            "removed"
+          ]
+        },
+        "consent_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "new_exports_allowed": {
+          "type": "boolean"
+        },
+        "permission_status": {
+          "type": "string",
+          "enum": [
+            "unverified",
+            "scopes_verified",
+            "verified"
+          ]
+        },
+        "provider_grant_revocation": {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "pending",
+            "confirmed",
+            "external_unconfirmed",
+            "failed"
+          ]
+        },
+        "managed_events_pending_removal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_success_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "safe_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CalendarExport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "connection_id",
+        "meeting_id",
+        "version",
+        "status",
+        "desired_meeting_version",
+        "applied_meeting_version",
+        "occurrence_count",
+        "safe_reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "connection_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "meeting_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "synced",
+            "conflict",
+            "stopping",
+            "removed",
+            "blocked",
+            "failed",
+            "uncertain"
+          ]
+        },
+        "desired_meeting_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "applied_meeting_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "occurrence_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "safe_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CalendarProviderCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "configured",
+        "qualified",
+        "safe_reason"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "google",
+            "microsoft"
+          ]
+        },
+        "configured": {
+          "type": "boolean"
+        },
+        "qualified": {
+          "type": "boolean"
+        },
+        "safe_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "CalendarConnectionsResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "meta"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/CalendarConnection"
+          }
+        },
+        "meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "policy",
+            "providers"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "one_way_hosted_occurrences"
+              ]
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "export_allowed",
+                "version"
+              ],
+              "properties": {
+                "export_allowed": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "providers": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#/$defs/CalendarProviderCapability"
+              }
+            }
+          }
+        }
+      }
+    },
+    "CalendarAuthorizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "export_policy_version"
+      ],
+      "properties": {
+        "export_policy_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "export",
+            "cleanup"
+          ]
+        }
+      }
+    },
+    "CalendarAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "authorization_url",
+        "expires_at"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": [
+            "google",
+            "microsoft"
+          ]
+        },
+        "authorization_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://(?:accounts\\.google\\.com|login\\.microsoftonline\\.com)/"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "CalendarAuthorizationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/CalendarAuthorization"
+        }
+      }
+    },
+    "CalendarConnectionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/CalendarConnection"
+        }
+      }
+    },
+    "CalendarExportResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/CalendarExport"
+        }
+      }
+    },
+    "CalendarUnlinkRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "CalendarExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection_id",
+        "meeting_id",
+        "meeting_version"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "meeting_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "meeting_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "CalendarExportResolveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "decision"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "reexport_current",
+            "stop_syncing"
+          ]
+        },
+        "meeting_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decision": {
+                "const": "reexport_current"
+              }
+            },
+            "required": [
+              "decision"
+            ]
+          },
+          "then": {
+            "required": [
+              "meeting_version"
+            ]
+          }
+        }
+      ]
+    },
+    "CalendarExportsResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data",
+        "meta"
+      ],
+      "properties": {
+        "data": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/CalendarExport"
+          }
+        },
+        "meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "truncated"
+          ],
+          "properties": {
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/CalendarConnection"
+    },
+    {
+      "$ref": "#/$defs/CalendarExport"
+    },
+    {
+      "$ref": "#/$defs/CalendarAuthorization"
+    },
+    {
+      "$ref": "#/$defs/CalendarConnectionsResponse"
+    },
+    {
+      "$ref": "#/$defs/CalendarExportsResponse"
+    }
+  ]
+}

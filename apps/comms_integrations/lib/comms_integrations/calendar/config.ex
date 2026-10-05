@@ -100,5 +100,6 @@ defmodule CommsIntegrations.Calendar.Config do
   defp bounded?(value, min, max),
     do:
       is_binary(value) and byte_size(value) in min..max and
+        Regex.match?(~r/\A[\x21-\x7e]+\z/, value) and
         not String.contains?(value, ["\r", "\n", "\0"])
 end

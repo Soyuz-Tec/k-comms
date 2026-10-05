@@ -45,6 +45,13 @@ defmodule CommsCore.AudioCalls do
           | CommsCore.AudioCalls.MeetingErasurePlan.t()
           | CommsCore.AudioCalls.MeetingView.t()
           | CommsCore.AudioCalls.ProviderCall.t()
+          | CommsCore.AudioCalls.CalendarSync.AuthorizationReceipt.t()
+          | CommsCore.AudioCalls.CalendarSync.CallbackCommand.t()
+          | CommsCore.AudioCalls.CalendarSync.ConnectionView.t()
+          | CommsCore.AudioCalls.CalendarSync.ExportView.t()
+          | CommsCore.AudioCalls.CalendarSync.ErasurePlan.t()
+          | CommsCore.AudioCalls.CalendarSync.IdentityFenceCommand.t()
+          | CommsCore.AudioCalls.CalendarSync.IdentityFenceReceipt.t()
 
   @type public_value :: public_scalar() | public_map() | public_contract()
   @type public_input ::
@@ -92,8 +99,96 @@ defmodule CommsCore.AudioCalls do
   @spec with_join_authorized(binary(), binary(), public_map(), public_input(), function()) ::
           public_response()
 
+  @spec list_calendar_connections(public_map()) :: public_response()
+  defdelegate list_calendar_connections(subject),
+    to: CommsCore.AudioCalls.CalendarSync.Connections,
+    as: :list
+
+  @spec begin_calendar_authorization(:google | :microsoft, public_map(), public_map()) ::
+          public_response()
+  defdelegate begin_calendar_authorization(provider, attrs, subject),
+    to: CommsCore.AudioCalls.CalendarSync.Connections,
+    as: :begin
+
+  @spec complete_calendar_authorization(CommsCore.AudioCalls.CalendarSync.CallbackCommand.t()) ::
+          public_response()
+  defdelegate complete_calendar_authorization(command),
+    to: CommsCore.AudioCalls.CalendarSync.Connections,
+    as: :callback
+
+  @spec unlink_calendar_connection(binary(), public_map(), public_map()) :: public_response()
+  defdelegate unlink_calendar_connection(id, attrs, subject),
+    to: CommsCore.AudioCalls.CalendarSync.Connections,
+    as: :unlink
+
+  @spec list_calendar_exports(public_map(), public_map()) :: public_response()
+  defdelegate list_calendar_exports(subject, attrs),
+    to: CommsCore.AudioCalls.CalendarSync.Exports,
+    as: :list
+
+  @spec create_calendar_export(public_map(), public_map()) :: public_response()
+  defdelegate create_calendar_export(attrs, subject),
+    to: CommsCore.AudioCalls.CalendarSync.Exports,
+    as: :create
+
+  @spec resolve_calendar_export(binary(), public_map(), public_map()) :: public_response()
+  defdelegate resolve_calendar_export(id, attrs, subject),
+    to: CommsCore.AudioCalls.CalendarSync.Exports,
+    as: :resolve
+
+  @spec perform_calendar_command(binary(), pos_integer(), module()) :: public_response()
+  defdelegate perform_calendar_command(id, generation, caller),
+    to: CommsCore.AudioCalls.CalendarSync.Effects,
+    as: :perform
+
+  @spec reconcile_calendar_commands(pos_integer(), module()) :: public_response()
+  defdelegate reconcile_calendar_commands(limit, caller),
+    to: CommsCore.AudioCalls.CalendarSync.Effects,
+    as: :reconcile
+
+  @spec fence_calendar_tenant(binary()) :: {:ok, non_neg_integer()} | {:error, public_error()}
+  defdelegate fence_calendar_tenant(tenant),
+    to: CommsCore.AudioCalls.CalendarSync.IdentityFences,
+    as: :tenant
+
+  @spec fence_calendar_identity(CommsCore.AudioCalls.CalendarSync.IdentityFenceCommand.t()) ::
+          public_response()
+  defdelegate fence_calendar_identity(command),
+    to: CommsCore.AudioCalls.CalendarSync.IdentityFences,
+    as: :apply
+
+  @spec prepare_calendar_governance_erasure(binary(), :user | :conversation | :message, binary()) ::
+          public_response()
+  defdelegate prepare_calendar_governance_erasure(tenant, type, target),
+    to: CommsCore.AudioCalls.CalendarSync.Erasure,
+    as: :prepare
+
+  @spec calendar_governance_erasure_pending?(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, boolean()} | {:error, public_error()}
+  defdelegate calendar_governance_erasure_pending?(tenant, type, target),
+    to: CommsCore.AudioCalls.CalendarSync.Erasure,
+    as: :pending?
+
   @doc false
-  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id), to: Lifecycle
+  def release_tenant_fingerprint_fragment(repo, tenant_id),
+    do:
+      Map.merge(
+        Lifecycle.release_tenant_fingerprint_fragment(repo, tenant_id),
+        CommsCore.AudioCalls.CalendarSync.ReleaseInventory.tenant_fingerprint_fragment(
+          repo,
+          tenant_id
+        )
+      )
+
+  @spec rollback_calendar_hazard_count() :: non_neg_integer()
+  defdelegate rollback_calendar_hazard_count(),
+    to: CommsCore.AudioCalls.CalendarSync.ReleaseInventory,
+    as: :hazard_count
+
+  @spec rollback_calendar_erasure_hazard_count() :: non_neg_integer()
+  defdelegate rollback_calendar_erasure_hazard_count(),
+    to: CommsCore.AudioCalls.CalendarSync.ReleaseInventory,
+    as: :erasure_hazard_count
 
   @spec schedule_meeting(binary(), public_map(), public_map()) ::
           {:ok, CommsCore.AudioCalls.MeetingView.t()} | {:error, public_error()}

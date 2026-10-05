@@ -2388,6 +2388,75 @@ def validate_member_workflow_contract(
                     raise ValueError(f"Standalone member workflow schema diverges from canonical OpenAPI: {filename}:{name}")
 
 
+def validate_calendar_contract(openapi: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Keep the delegated Calendar surface private, scoped and version checked."""
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    operations = {
+        ("/api/v1/calendar/connections", "get"): ("200", "CalendarConnectionsResponse", None),
+        ("/api/v1/calendar/oauth/{provider}/authorize", "post"): ("200", "CalendarAuthorizationResponse", "CalendarAuthorizationRequest"),
+        ("/api/v1/calendar/connections/{connection_id}/unlink", "post"): ("200", "CalendarConnectionResponse", "CalendarUnlinkRequest"),
+        ("/api/v1/calendar/exports", "get"): ("200", "CalendarExportsResponse", None),
+        ("/api/v1/calendar/exports", "post"): ("201", "CalendarExportResponse", "CalendarExportRequest"),
+        ("/api/v1/calendar/exports/{export_id}/resolve", "post"): ("200", "CalendarExportResponse", "CalendarExportResolveRequest"),
+    }
+    for (path, method), (status, response_name, body_name) in operations.items():
+        operation = paths.get(path, {}).get(method, {})
+        response = operation.get("responses", {}).get(status, {})
+        if operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError("Calendar owner operations require explicit current human authentication")
+        if response.get("headers", {}).get("Cache-Control", {}).get("schema") != {"type": "string", "const": "private, no-store"}:
+            raise ValueError("Calendar owner responses require private no-store receipts")
+        if response.get("content", {}).get("application/json", {}).get("schema") != {"$ref": "#/components/schemas/" + response_name}:
+            raise ValueError("Calendar operations must return their safe owner projection")
+        if body_name:
+            body = operation.get("requestBody", {})
+            if body.get("required") is not True or body.get("content", {}).get("application/json", {}).get("schema") != {"$ref": "#/components/schemas/" + body_name}:
+                raise ValueError("Calendar mutations require their bounded JSON compare-and-set body")
+
+    fields = {
+        "CalendarConnection": {"id", "provider", "version", "status", "consent_generation", "new_exports_allowed", "permission_status", "provider_grant_revocation", "managed_events_pending_removal", "last_success_at", "safe_reason"},
+        "CalendarExport": {"id", "connection_id", "meeting_id", "version", "status", "desired_meeting_version", "applied_meeting_version", "occurrence_count", "safe_reason"},
+        "CalendarAuthorization": {"provider", "authorization_url", "expires_at"},
+        "CalendarProviderCapability": {"provider", "configured", "qualified", "safe_reason"},
+        "CalendarExportRequest": {"connection_id", "meeting_id", "meeting_version"},
+        "CalendarUnlinkRequest": {"version"},
+    }
+    for name, expected in fields.items():
+        value = schemas.get(name, {})
+        if value.get("additionalProperties") is not False or set(value.get("properties", {})) != expected or set(value.get("required", [])) != expected:
+            raise ValueError("Calendar public objects must retain exact content-free fields and exclude credentials/browser binding")
+    for name, keys in {"CalendarExportRequest": ["meeting_version"], "CalendarUnlinkRequest": ["version"], "CalendarExportResolveRequest": ["version", "meeting_version"], "CalendarAuthorizationRequest": ["export_policy_version"]}.items():
+        for key in keys:
+            if schemas.get(name, {}).get("properties", {}).get(key) != {"type": "integer", "minimum": 1}:
+                raise ValueError("Calendar authority and source versions must remain positive integers")
+    resolve = schemas.get("CalendarExportResolveRequest", {})
+    expected_condition = [{"if": {"properties": {"decision": {"const": "reexport_current"}}, "required": ["decision"]}, "then": {"required": ["meeting_version"]}}]
+    if resolve.get("additionalProperties") is not False or set(resolve.get("required", [])) != {"version", "decision"} or set(resolve.get("properties", {})) != {"version", "decision", "meeting_version"} or resolve.get("properties", {}).get("decision", {}).get("enum") != ["reexport_current", "stop_syncing"] or resolve.get("allOf") != expected_condition:
+        raise ValueError("Calendar conflict resolution requires an explicit decision and current meeting version for reexport")
+    capability = schemas.get("CalendarProviderCapability", {}).get("properties", {})
+    if capability.get("configured") != {"type": "boolean"} or capability.get("qualified") != {"type": "boolean"}:
+        raise ValueError("Calendar configured and qualified must remain separate facts")
+    callback = paths.get("/api/v1/calendar/oauth/{provider}/callback", {}).get("get", {})
+    redirect = callback.get("responses", {}).get("303", {}).get("headers", {})
+    if callback.get("security") != [] or redirect.get("Location", {}).get("schema", {}).get("pattern") != r"^/app/you\?section=calendar&calendar_result=(connected|rejected)(?![\s\S])" or redirect.get("Cache-Control", {}).get("schema", {}).get("const") != "private, no-store":
+        raise ValueError("Calendar callback must retain one bound public exchange and a fixed private profile redirect")
+    if schemas.get("CalendarConnectionsResponse", {}).get("properties", {}).get("data", {}).get("maxItems") != 2 or schemas.get("CalendarExportsResponse", {}).get("properties", {}).get("data", {}).get("maxItems") != 100:
+        raise ValueError("Calendar own-connection/export collections must remain bounded")
+
+    def portable(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: item.replace("#/components/schemas/", "#/$defs/") if key == "$ref" else portable(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [portable(item) for item in value]
+        return value
+
+    expected = {name: portable(value) for name, value in schemas.items() if name.startswith("Calendar")}
+    roots = {"CalendarConnection", "CalendarExport", "CalendarAuthorization", "CalendarConnectionsResponse", "CalendarExportsResponse"}
+    if payload.get("$defs") != expected or {item.get("$ref") for item in payload.get("oneOf", [])} != {"#/$defs/" + name for name in roots}:
+        raise ValueError("Standalone Calendar schema must match every canonical safe wire definition")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -2413,6 +2482,7 @@ def main() -> None:
     validate_whiteboard_contract(openapi)
     validate_enterprise_identity_contract(openapi)
     validate_member_workflow_contract(openapi, schemas)
+    validate_calendar_contract(openapi, schemas["calendar-sync.v1.json"])
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

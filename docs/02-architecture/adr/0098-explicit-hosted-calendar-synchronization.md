@@ -1,6 +1,6 @@
 # ADR 0098: Explicit hosted-calendar synchronization
 
-Status: Proposed; isolated source increment, not provider qualified  
+Status: Accepted
 Date: 2026-10-05  
 Owners: Calls, Identity, Governance, Integrations
 
@@ -133,15 +133,16 @@ synthetic down/up drill is not production rollback authority.
 
 ## Implementation and qualification state
 
-This isolated increment currently contains the dedicated SecretBox, typed
-technical DTO/port, fixed-provider configuration and OAuth/event/account-binding
-adapters with synthetic protocol/security test source. Owner persistence,
-browser-bound challenge consumption, public owner API, source-transaction
-outbox, worker/reconciler, Governance and immutable release integration remain
-required before the feature can be enabled. No UI advertises implemented
-calendar synchronization from this source foundation.
+This isolated increment contains dedicated SecretBox and typed provider ports,
+fixed Google/Microsoft delegated OAuth/event adapters, owner persistence,
+one-use browser-bound challenge consumption, authenticated owner API,
+source-transaction command insertion, registered worker/reconciler, current
+eligibility fencing, Governance completion barriers, release inventories and
+Profile/Meeting/admin controls. Each meeting requires explicit hosted-meeting
+opt-in. Providers remain disabled by default and provider-qualified status
+remains false. This describes authored source, not runtime qualification.
 
-The branch must first integrate the actual parent meeting/authority changes.
+The Calendar source integrates the Member/History parent checkpoint.
 Required gates then include compile warnings as errors, architecture source and
 actual xrefs with unchanged baseline, meaningful real PostgreSQL wait/revocation
 races, adapter security tests, HTTP/browser proof, migration refusal, synthetic
@@ -167,3 +168,29 @@ delivery and immutable staging/production gates still apply.
 
 Official documentation and discovery were read on 2026-10-05 using anonymous
 public GETs. Those reads are not real OAuth/calendar qualification.
+
+## Integration and qualification boundary
+
+The Calendar table migration 20261006000300 owns only Calls tables. The separate
+TenantAdministration migration 20261006000310 owns the opt-in export policy.
+Their down guards are literal owner-only inventories, run before their DDL.
+No historical parent migration, architecture validator, or baseline exception
+is widened. The original unpublished mixed migration is retained privately for
+review; this split changes ownership composition without changing its intended
+final schema. The unpublished erasure-receipt version constraint is also
+corrected from a fixed value to a positive monotonic version so repeated
+pending/proven preparation can retain its current proof state.
+
+Meeting mutation retains a typed prelock receipt before any Meeting row lock
+and consumes it on the same transaction after the mutation. Its record phase
+never reacquires Connections. User-held lifecycle callbacks only fence and
+queue cleanup; they do not enter Governance or providers, and ordinary logout
+keeps offline consent. Same-principal cleanup reauthorization cannot clear a
+consent fence, resurrect a mapping or enable new exports.
+
+Provider 404 for a known object, accepted delete, and Graph duplicate or
+continuation results remain pending until bounded scoped reconciliation proves
+all managed copies absent. A Microsoft external-unconfirmed grant revoke is
+not a Governance completion proof. Expired grants remain pending. The current
+source increment has authored tests and static checks; backend/HTTP/browser,
+migration and live-provider qualification are pending and are not claimed here.

@@ -37,10 +37,10 @@ defmodule CommsIntegrations.Calendar.Events do
     with true <- command.operation in [:create, :update, :delete, :get, :reconcile],
          {:ok, marker} <- Ecto.UUID.cast(command.marker_id),
          true <- marker == command.marker_id,
-         true <- bounded?(command.access_token, 1, 16_384),
+         true <- token?(command.access_token, 1, 16_384),
          :ok <- event_identity(command),
          :ok <- content(command, config),
-         true <- command.operation != :update or bounded?(command.etag, 1, 1024) do
+         true <- command.operation != :update or token?(command.etag, 1, 1024) do
       :ok
     else
       _ -> {:error, :invalid_calendar_event_command}
@@ -87,8 +87,13 @@ defmodule CommsIntegrations.Calendar.Events do
     b = URI.parse(origin)
 
     {a.scheme, a.host, a.port} == {b.scheme, b.host, b.port} and is_nil(a.userinfo) and
-      is_nil(a.query) and is_nil(a.fragment) and is_binary(a.path) and
-      Regex.match?(~r"^/meetings/[0-9a-f-]{36}$", a.path)
+      is_nil(a.fragment) and is_binary(a.path) and
+      ((is_nil(a.query) and Regex.match?(~r"\A/meetings/[0-9a-f-]{36}\z", a.path)) or
+         (a.path == "/app/meetings" and is_binary(a.query) and
+            Regex.match?(
+              ~r"\Ameeting=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z",
+              a.query
+            )))
   end
 
   defp authenticated_url?(_, _), do: false
@@ -275,7 +280,7 @@ defmodule CommsIntegrations.Calendar.Events do
     marker = get_in(event, ["extendedProperties", "private", "kcommsManaged"])
 
     if marker == command.marker_id and event["id"] == external_id(:google, command.marker_id) and
-         bounded?(event["etag"], 1, 1024) do
+         token?(event["etag"], 1, 1024) do
       {:ok, %{id: event["id"], etag: event["etag"]}}
     else
       {:error, :calendar_managed_event_binding_failed}
@@ -296,7 +301,7 @@ defmodule CommsIntegrations.Calendar.Events do
     exact = command.operation in [:create, :reconcile] or id == command.external_id
 
     if valid_marker and exact and bounded?(id, 1, 2048) and
-         bounded?(event["@odata.etag"], 1, 1024) do
+         token?(event["@odata.etag"], 1, 1024) do
       {:ok, %{id: id, etag: event["@odata.etag"]}}
     else
       {:error, :calendar_managed_event_binding_failed}
@@ -309,6 +314,11 @@ defmodule CommsIntegrations.Calendar.Events do
     do:
       {:ok,
        struct!(EventReceipt, Keyword.merge([provider: command.provider, outcome: outcome], attrs))}
+
+  defp token?(value, min, max),
+    do:
+      is_binary(value) and byte_size(value) in min..max and
+        Regex.match?(~r/\A[\x21-\x7e]+\z/, value)
 
   defp bounded?(value, min, max),
     do:

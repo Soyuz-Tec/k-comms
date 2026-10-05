@@ -47,6 +47,17 @@ defmodule CommsCore.Administration.CallLifecyclePort do
       else: {:error, :invalid_call_lifecycle_command}
   end
 
+  defp validate_command(%CallLifecycleCommand{
+         operation: :calendar_export_disabled,
+         tenant_id: tenant,
+         media_kind: nil,
+         reason: reason
+       }) do
+    if valid_uuid?(tenant) and valid_reason?(reason),
+      do: :ok,
+      else: {:error, :invalid_call_lifecycle_command}
+  end
+
   defp validate_command(_command), do: {:error, :invalid_call_lifecycle_command}
 
   defp validate_result({:ok, %CallLifecycleReceipt{revoked_participant_count: count} = receipt})

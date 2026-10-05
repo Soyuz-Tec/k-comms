@@ -63,3 +63,10 @@ data:
   WEBHOOK_PROVIDER_MODE: disabled
   WEBHOOK_ALLOWED_HOSTS: ""
   WEBHOOK_SECRET_ENCRYPTION_KEY_ID: primary
+  # Optional hosted Calendar export; provider credentials belong in provider Secrets.
+  CALENDAR_SECRET_ENCRYPTION_KEY_ID: primary
+  CALENDAR_GOOGLE_ENABLED: "false"
+  CALENDAR_GOOGLE_CLIENT_ID: ""
+  CALENDAR_MICROSOFT_ENABLED: "false"
+  CALENDAR_MICROSOFT_CLIENT_ID: ""
+  CALENDAR_MICROSOFT_TENANT_ID: ""

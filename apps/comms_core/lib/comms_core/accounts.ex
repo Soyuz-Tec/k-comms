@@ -128,7 +128,9 @@ defmodule CommsCore.Accounts do
 
   @spec lock_calendar_source_users(CommsCore.Accounts.CalendarSourceLockQuery.t()) ::
           {:ok, CommsCore.Accounts.CalendarSourceGrant.t()} | {:error, atom()}
-  defdelegate lock_calendar_source_users(query), to: CommsCore.Accounts.CalendarAuthority, as: :source
+  defdelegate lock_calendar_source_users(query),
+    to: CommsCore.Accounts.CalendarAuthority,
+    as: :source
 
   @spec admin_revoke_session_command(binary(), binary(), public_map(), public_map()) ::
           public_response()

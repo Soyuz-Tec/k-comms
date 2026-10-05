@@ -24,7 +24,13 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :calendar_connections,
+    :calendar_oauth_challenges,
+    :calendar_exports,
+    :calendar_event_mappings,
+    :calendar_sync_commands,
+    :calendar_erasure_receipts
   ]
 
   defmodule ReadOnlyRepo do
@@ -50,7 +56,13 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "audio_calls" => "call-internal-id",
             "audio_call_participants" => "participant-internal-id",
             "member_workspaces" => "private-workspace-internal-id",
-            "audit_resource_history_snapshots" => "history-snapshot-internal-id"
+            "audit_resource_history_snapshots" => "history-snapshot-internal-id",
+            "calendar_connections" => "calendar-connection-internal-id",
+            "calendar_oauth_challenges" => "calendar-challenge-internal-id",
+            "calendar_exports" => "calendar-export-internal-id",
+            "calendar_event_mappings" => "calendar-mapping-internal-id",
+            "calendar_sync_commands" => "calendar-command-internal-id",
+            "calendar_erasure_receipts" => "calendar-erasure-internal-id"
           },
           table
         )

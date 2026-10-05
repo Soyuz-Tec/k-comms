@@ -10,6 +10,7 @@ import {
 import { useOptionalCallSession } from "../calls/CallSessionProvider";
 import { beginNewInstantRoomVisit } from "../instant-room/idempotency";
 import { clearMemberInstantRoomContinuity } from "../instant-room/memberContinuity";
+import { CalendarConnectionsPanel } from "../calendar-sync/CalendarConnectionsPanel";
 import { SettingsPage } from "../settings/SettingsPage";
 
 /*
@@ -69,6 +70,7 @@ export function YouPage() {
                 {showOperations && <Link to="/ops"><AppIcon name="activity" /><span>Service operations</span><AppIcon name="arrowUpRight" /></Link>}
               </div>
             </nav>
+            <CalendarConnectionsPanel />
             <section className="you-account-actions" aria-label="Signed-in account">
               <dl>
                 <div><dt>User</dt><dd>{session.user.display_name}</dd></div>

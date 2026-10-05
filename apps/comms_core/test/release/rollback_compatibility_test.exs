@@ -18,7 +18,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "scheduled_meeting_lifecycle_v1",
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
-                                  "governance_history_v1"
+                                  "governance_history_v1",
+                                  "calendar_sync_v1",
+                                  "calendar_erasure_v1"
                                 ],
                                 ","
                               )
@@ -89,6 +91,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       rich_messages: 1,
       rich_whiteboards: 1,
       member_workspaces: 1,
+      calendar_owner_state: 1,
+      calendar_erasure_state: 1,
+      active_calendar_jobs: 1,
       governance_history_snapshots: 1,
       active_history_purge_jobs: 1
     }
@@ -197,7 +202,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
            [:scheduled_meetings, :active_meeting_reminder_jobs]},
           {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
           {"member_workspace_v1", [:member_workspaces]},
-          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+          {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
+          {"calendar_erasure_v1", [:calendar_erasure_state]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

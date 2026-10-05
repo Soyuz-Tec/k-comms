@@ -7,10 +7,11 @@ defmodule CommsCore.Governance.CalendarProtection do
   alias CommsCore.Repo
 
   @impl true
+  @spec protection(ProtectionQuery.t()) :: {:ok, ProtectionReceipt.t()} | {:error, atom()}
   def protection(%ProtectionQuery{deadline_ms: deadline} = query) when is_integer(deadline) do
     with true <- Repo.in_transaction?(),
          {:ok, tenant} <- Ecto.UUID.cast(query.tenant_id),
-         true <- is_list(query.author_user_ids) and length(query.author_user_ids) in 1..5000,
+         true <- is_list(query.author_user_ids) and length(query.author_user_ids) in 0..5000,
          true <- Enum.all?(query.author_user_ids, &match?({:ok, _}, Ecto.UUID.cast(&1))),
          true <-
            is_nil(query.conversation_id) or

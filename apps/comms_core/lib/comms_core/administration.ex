@@ -161,4 +161,9 @@ defmodule CommsCore.Administration do
   defdelegate list_audit_events(params, subject), to: AuditQueries, as: :list
 
   defp revoke_tenant_media(command), do: CallLifecyclePort.revoke_tenant_media(command)
+  @doc false
+  @spec rollback_calendar_policy_hazard_count() :: non_neg_integer()
+  defdelegate rollback_calendar_policy_hazard_count(),
+    to: CommsCore.Administration.CalendarPolicyQueries,
+    as: :rollback_hazard_count
 end

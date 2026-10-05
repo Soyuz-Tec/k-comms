@@ -45,4 +45,14 @@ defmodule CommsCore.Administration.CalendarPolicyQueries do
     if System.monotonic_time(:millisecond) >= deadline, do: Repo.rollback(:forbidden)
     :ok
   end
+
+  def rollback_hazard_count,
+    do:
+      Repo.aggregate(
+        from(s in TenantSettings,
+          where: s.allow_calendar_export or s.calendar_export_policy_version != 1
+        ),
+        :count,
+        :id
+      )
 end

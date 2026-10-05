@@ -33,7 +33,9 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
-    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+    {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
+    {"calendar_erasure_v1", [:calendar_erasure_state]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -210,6 +212,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
       rich_messages: Messaging.rollback_rich_content_hazard_count(),
       rich_whiteboards: Whiteboards.rollback_rich_content_hazard_count(),
       member_workspaces: Accounts.rollback_member_workspace_hazard_count(),
+      calendar_owner_state: AudioCalls.rollback_calendar_hazard_count(),
+      calendar_erasure_state: AudioCalls.rollback_calendar_erasure_hazard_count(),
+      active_calendar_jobs:
+        active_job_count(repo, :calendar_sync) + active_job_count(repo, :calendar_sync_reconciler),
       governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(

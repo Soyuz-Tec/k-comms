@@ -2,7 +2,9 @@ defmodule CommsCore.AudioCalls.CalendarSync.Budget do
   @moduledoc false
   alias CommsCore.Repo
   def deadline, do: System.monotonic_time(:millisecond) + 15_000
-  def network_deadline(deadline), do: min(deadline, System.monotonic_time(:millisecond) + 5_000)
+  # Leave a bounded acknowledgement margin within the same authority deadline.
+  def network_deadline(deadline),
+    do: min(deadline - 500, System.monotonic_time(:millisecond) + 5_000)
 
   def check!(deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)
