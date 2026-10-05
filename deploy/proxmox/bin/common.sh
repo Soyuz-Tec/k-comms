@@ -521,11 +521,15 @@ current_app_capabilities() {
 
 image_rollback_capabilities() {
   local capabilities
+  # Keep the raw label's trailing bytes separate from the CLI's one newline.
+  # Command substitution alone would erase malformed trailing newlines too.
   capabilities="$(podman image inspect "$1" \
-    --format '{{index .Labels "io.k-comms.rollback-capabilities"}}')" || return 1
+    --format '{{index .Labels "io.k-comms.rollback-capabilities"}}' && printf '.')" || return 1
+  capabilities=${capabilities%.}
+  capabilities=${capabilities%$'\n'}
   case "$capabilities" in
     ""|"<no value>"|"<nil>") printf '\n' ;;
-    *) printf '%s\n' "$capabilities" ;;
+    *) validate_rollback_capabilities "$capabilities"; printf '%s\n' "$capabilities" ;;
   esac
 }
 
@@ -533,11 +537,15 @@ validate_rollback_capabilities() {
   local capabilities=$1
   local capability
   local -a parts
-  [[ "$capabilities" =~ ^[a-z0-9_,]*$ ]] || die "unsafe rollback capabilities"
+  local -A seen=()
+  [[ -z "$capabilities" ]] && return 0
+  [[ "$capabilities" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] || die "unsafe rollback capabilities"
   IFS=, read -r -a parts <<<"$capabilities"
   for capability in "${parts[@]}"; do
     [[ -n "$capability" && ",$K_COMMS_CAPABILITIES," == *",$capability,"* ]] ||
       die "unknown rollback capability"
+    [[ -z "${seen[$capability]+present}" ]] || die "duplicate rollback capability"
+    seen["$capability"]=1
   done
 }
 

@@ -26,6 +26,37 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
                      "rich_content_erasure_v1"
                    ])
 
+  test "the actual one-shot commands explain malformed capability refusal before hazard evaluation" do
+    names =
+      ~w(K_COMMS_RUNTIME_PURPOSE K_COMMS_ROLLBACK_TARGET_REVISION K_COMMS_ROLLBACK_TARGET_CAPABILITIES K_COMMS_ROLLBACK_WRITES_QUIESCED)
+
+    previous = Map.new(names, &{&1, System.get_env(&1)})
+
+    try do
+      System.put_env("K_COMMS_RUNTIME_PURPOSE", "one_shot")
+      System.put_env("K_COMMS_ROLLBACK_TARGET_REVISION", "synthetic-invalid-capabilities")
+
+      System.put_env(
+        "K_COMMS_ROLLBACK_TARGET_CAPABILITIES",
+        "guest_identity_v1,guest_identity_v1"
+      )
+
+      System.put_env("K_COMMS_ROLLBACK_WRITES_QUIESCED", "true")
+
+      for command <- [
+            &Release.assert_guest_rollback_compatible!/0,
+            &Release.assert_communication_rollback_compatible!/0
+          ] do
+        assert_raise RuntimeError, ~r/compatibility check refused:.*unique known names/, command
+      end
+    after
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end
+  end
+
   test "only active exact-worker true-boolean history purge continuations are rollback hazards" do
     worker = RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
     other_worker = "CommsWorkers.UnrelatedHistoryRollbackProbe"

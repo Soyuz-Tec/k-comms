@@ -161,6 +161,42 @@ defmodule CommsCore.Release.EnvironmentTest do
              )
   end
 
+  test "rollback rejects malformed or unknown capability claims even when writers are quiesced" do
+    environment = %{
+      "K_COMMS_RUNTIME_PURPOSE" => "one_shot",
+      "K_COMMS_ROLLBACK_TARGET_REVISION" => "sha-malformed-claim",
+      "K_COMMS_ROLLBACK_WRITES_QUIESCED" => "true"
+    }
+
+    for capabilities <- [
+          "guest_identity_v1,guest_identity_v1",
+          @communication_capabilities <> ",governance_history_v1",
+          "," <> @communication_capabilities,
+          @communication_capabilities <> ",",
+          String.replace(@communication_capabilities, ",", ",,", global: false),
+          " " <> @communication_capabilities,
+          @communication_capabilities <> "\n",
+          @communication_capabilities <> ",future_unreviewed_v99",
+          :not_a_string
+        ],
+        validate <- [
+          &Release.validate_guest_rollback_environment/1,
+          &Release.validate_communication_rollback_environment/1
+        ] do
+      input = Map.put(environment, "K_COMMS_ROLLBACK_TARGET_CAPABILITIES", capabilities)
+      assert {:error, :rollback_target_capabilities_invalid} = validate.(&Map.get(input, &1))
+    end
+
+    for legacy <- [nil, ""] do
+      input = Map.put(environment, "K_COMMS_ROLLBACK_TARGET_CAPABILITIES", legacy)
+
+      assert {:ok, %{capabilities: capabilities}} =
+               Release.validate_communication_rollback_environment(&Map.get(input, &1))
+
+      assert capabilities == MapSet.new()
+    end
+  end
+
   test "communication rollback environment requires quiescence for every partial target" do
     compatible = %{
       "K_COMMS_RUNTIME_PURPOSE" => "one_shot",
