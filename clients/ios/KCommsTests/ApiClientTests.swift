@@ -245,8 +245,9 @@ final class ApiClientTests: XCTestCase {
     }
     @MainActor func testNativeSocketRejectsExpiredAndHeaderInjectionTickets() {
         let origin = URL(string: "https://synthetic.example")!
-        for ticket in [SocketTicket(ticket: "synthetic-only", expiresIn: 0), SocketTicket(ticket: "synthetic\r\nother: value", expiresIn: 30), SocketTicket(ticket: "", expiresIn: 30)] {
-            XCTAssertThrowsError(try PhoenixRealtime.handshakeRequest(origin: origin, ticket: ticket))
+        XCTAssertThrowsError(try PhoenixRealtime.handshakeRequest(origin: origin, ticket: SocketTicket(ticket: "synthetic-only", expiresIn: 0)))
+        for value in ["synthetic\r\nother: value", "synthetic\rother", "synthetic\nother", "synthetic\tother", "synthetic\0other", "synthetic other", "syntheticé", ""] {
+            XCTAssertThrowsError(try PhoenixRealtime.handshakeRequest(origin: origin, ticket: SocketTicket(ticket: value, expiresIn: 30)), value.debugDescription)
         }
     }
 }

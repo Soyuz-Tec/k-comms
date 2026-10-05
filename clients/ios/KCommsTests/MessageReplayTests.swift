@@ -54,7 +54,19 @@ final class MessageReplayTests: XCTestCase {
         var replay = MessageReplay()
         let rows = try (1...2001).map { try message(Int64($0), status: "deleted", revision: "2026-10-05T11:00:00Z") }
         XCTAssertThrowsError(try replay.reconcile([page(rows)], after: 0, through: 2001, conversation: conversation, tenant: tenant))
+        XCTAssertTrue(replay.messages.isEmpty); XCTAssertTrue(replay.labels.isEmpty)
         let original = try message(2001); replay.merge(original); XCTAssertNil(replay.messages[original.id])
+        XCTAssertThrowsError(try replay.accept(page([message(2002)]), conversation: conversation, tenant: tenant))
+    }
+    func testAuthorPrivacyBudgetClearsCachedContentAndRefusesLaterReads() throws {
+        var replay = MessageReplay(); replay.merge(try message(1))
+        try replay.replaceLabels([SenderLabel(id: sender, displayName: "Retained name", redacted: false)])
+        let redactions = (1...2001).map { SenderLabel(id: "redacted-\($0)", displayName: "Former member", redacted: true) }
+        XCTAssertThrowsError(try replay.replaceLabels(redactions))
+        XCTAssertTrue(replay.messages.isEmpty); XCTAssertTrue(replay.labels.isEmpty)
+        replay.merge(try message(2)); XCTAssertTrue(replay.messages.isEmpty)
+        XCTAssertThrowsError(try replay.replaceLabels([]))
+        XCTAssertThrowsError(try replay.accept(page([message(3)]), conversation: conversation, tenant: tenant))
     }
     func testReplacementLabelSidecarRemovesOldDisplayName() throws {
         var replay = MessageReplay(); replay.merge(try message(1))

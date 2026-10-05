@@ -65,17 +65,26 @@ struct MessageReplay {
     }
     /// Replace the whole authorized sidecar. A missing author must not keep an old name.
     mutating func replaceLabels(_ current: [SenderLabel]) throws {
-        for label in current where label.redacted { redactedAuthors.insert(label.id) }
-        guard redactedAuthors.count <= 2000 else { privacyBudgetExceeded = true; throw NativeClientError.replayPrivacyBudgetExceeded }
+        guard !privacyBudgetExceeded else { throw NativeClientError.replayPrivacyBudgetExceeded }
+        for label in current where label.redacted && !redactedAuthors.contains(label.id) {
+            guard redactedAuthors.count < 2000 else { exceedPrivacyBudget(); throw NativeClientError.replayPrivacyBudgetExceeded }
+            redactedAuthors.insert(label.id)
+        }
         let visible = Set(messages.values.map(\.senderUserId))
         labels = Dictionary(current.filter { visible.contains($0.id) }.map {
             ($0.id, redactedAuthors.contains($0.id) ? SenderLabel(id: $0.id, displayName: "Former member", redacted: true) : $0)
         }, uniquingKeysWith: { _, last in last })
     }
+    private mutating func exceedPrivacyBudget() {
+        privacyBudgetExceeded = true
+        messages.removeAll(keepingCapacity: false); labels.removeAll(keepingCapacity: false)
+    }
     private mutating func rememberRemoval(_ id: String) {
-        if tombstones.count < 2000 { tombstones.insert(id) } else if !tombstones.contains(id) { privacyBudgetExceeded = true }
+        guard !privacyBudgetExceeded else { return }
+        if tombstones.count < 2000 { tombstones.insert(id) } else if !tombstones.contains(id) { exceedPrivacyBudget() }
     }
     mutating func merge(_ message: Message) {
+        guard !privacyBudgetExceeded else { return }
         if message.status != "active" { rememberRemoval(message.id) }
         if privacyBudgetExceeded || (message.status == "active" && tombstones.contains(message.id)) { return }
         if let old = messages[message.id] {

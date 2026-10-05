@@ -36,7 +36,7 @@ enum RealtimeSignal { case connected, contentChanged, authorityChanged, callChan
     static func handshakeRequest(origin: URL, ticket: SocketTicket) throws -> URLRequest {
         let canonical = try ApiClient.validatedOrigin(origin.absoluteString)
         guard ticket.expiresIn > 0, !ticket.ticket.isEmpty, ticket.ticket.utf8.count <= 8192,
-              !ticket.ticket.contains("\r"), !ticket.ticket.contains("\n") else { throw NativeClientError.invalidResponse }
+              ticket.ticket.utf8.allSatisfy({ (0x21...0x7e).contains($0) }) else { throw NativeClientError.invalidResponse }
         var components = URLComponents(url: canonical, resolvingAgainstBaseURL: false)!
         components.scheme = "wss"; components.path = "/socket/websocket"
         components.queryItems = [URLQueryItem(name: "vsn", value: "2.0.0")]
