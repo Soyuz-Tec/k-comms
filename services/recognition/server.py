@@ -10,7 +10,7 @@ import sys
 import tempfile
 import uuid
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from protocol import MAX_MEDIA_BYTES, MAX_RESPONSE_BYTES
 
 TOKEN = os.environ.get("RECOGNITION_BEARER_TOKEN", "")
@@ -40,10 +40,13 @@ class LimitsAndAuthentication:
             await send({"type": "http.response.start", "status": 403, "headers": [(b"cache-control", b"no-store")]})
             return await send({"type": "http.response.body", "body": b""})
         used = 0
+        upload_finished = False
         upload_deadline = asyncio.get_running_loop().time() + 30
 
         async def bounded_receive():
-            nonlocal used
+            nonlocal used, upload_finished
+            if upload_finished:
+                return await receive()
             remaining = upload_deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise HTTPException(408, "upload deadline exceeded")
@@ -54,12 +57,14 @@ class LimitsAndAuthentication:
             used += len(message.get("body", b""))
             if used > MAX_MEDIA_BYTES + 65_536:
                 raise HTTPException(413, "upload exceeds approved bound")
+            if message["type"] == "http.request" and not message.get("more_body", False):
+                upload_finished = True
             return message
         await self.app(scope, bounded_receive, send)
 
 
 @api.post("/v1/audio/transcriptions")
-async def transcribe(file: UploadFile = File(...), model: str = Form(...),
+async def transcribe(request: Request, file: UploadFile = File(...), model: str = Form(...),
                      response_format: str = Form(...), language: str | None = Form(None)):
     if (model != "tiny.en" or response_format != "verbose_json" or
             language not in (None, "en") or
@@ -86,14 +91,48 @@ async def transcribe(file: UploadFile = File(...), model: str = Form(...),
                 operation_id = str(uuid.uuid4())
                 args = [sys.executable, str(Path(__file__).with_name("engine.py")),
                         str(source), str(output), language or "", operation_id]
+                deadline = asyncio.get_running_loop().time() + 55
                 process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                waiter = asyncio.create_task(asyncio.to_thread(process.wait))
+
+                async def watch_disconnect():
+                    while not await request.is_disconnected():
+                        await asyncio.sleep(0.05)
+
+                monitor = asyncio.create_task(watch_disconnect())
                 try:
-                    await asyncio.to_thread(process.wait, timeout=55)
-                except (subprocess.TimeoutExpired, asyncio.CancelledError):
+                    completed, _ = await asyncio.wait(
+                        (waiter, monitor), timeout=max(0, deadline - asyncio.get_running_loop().time()),
+                        return_when=asyncio.FIRST_COMPLETED)
+                    if not completed:
+                        raise HTTPException(504, "recognition deadline exceeded")
+                    if monitor in completed:
+                        await monitor
+                        raise HTTPException(499, "recognition request disconnected")
+                    await waiter
+                except asyncio.CancelledError:
+                    raise HTTPException(504, "recognition request cancelled") from None
+                finally:
                     if process.poll() is None:
-                        process.kill()
-                    await asyncio.to_thread(process.wait)
-                    raise HTTPException(504, "recognition deadline exceeded")
+                        try:
+                            process.kill()
+                        except ProcessLookupError:
+                            pass
+                    monitor.cancel()
+
+                    async def join_tasks():
+                        await asyncio.gather(waiter, monitor, return_exceptions=True)
+
+                    cleanup = asyncio.create_task(join_tasks())
+                    cancelled = False
+                    while not cleanup.done():
+                        try:
+                            await asyncio.shield(cleanup)
+                        except asyncio.CancelledError:
+                            cancelled = True
+                    cleanup.result()
+                    if cancelled:
+                        raise asyncio.CancelledError
                 if process.returncode != 0 or not output.exists() or output.stat().st_size > MAX_RESPONSE_BYTES:
                     raise HTTPException(422, "recognition could not complete within approved bounds")
                 return json.loads(output.read_text(encoding="utf-8"))
