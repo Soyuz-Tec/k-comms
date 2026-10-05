@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Kept contact search within the available tablet workspace width and condensed
+  the mobile Files header so the first file stays near the top of the page,
+  with visible search labels and full-size controls.
 - Let staging qualification rehearse a rollback after a retried deployment. A
   deploy that succeeds behind a qualification that does not -- a dropped SSH
   session mid-rehearsal is enough -- leaves the candidate receipt naming itself

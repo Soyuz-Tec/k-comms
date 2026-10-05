@@ -48,7 +48,11 @@
   text-transform: none;
 }
 
-@media (max-width: 760px), (max-height: 560px) {
+@media (max-width: 1099px), (max-height: 560px) {
+  .directory-page .directory-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .directory-page .member-segmented-control {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     border-radius: var(--radius-md);

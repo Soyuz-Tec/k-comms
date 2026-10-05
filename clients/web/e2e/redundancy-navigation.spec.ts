@@ -20,6 +20,16 @@ async function expectCompactTargets(navigation: Locator) {
   }
 }
 
+async function expectRouteFocus(page: Page, destination: Locator) {
+  await expect(destination).toBeVisible();
+  // A URL update can precede React's commit and its route-orientation effect.
+  // Keep browser frames moving while waiting for that effect on a paused clock.
+  await expect(async () => {
+    await page.clock.runFor(20);
+    await expect(destination).toBeFocused({ timeout: 0 });
+  }).toPass({ timeout: 5_000, intervals: [20] });
+}
+
 async function expectKeyboardDockRecovery(page: Page, action: Locator) {
   const dock = page.locator("#workspace-navigation");
   await action.press("Escape");
@@ -60,11 +70,8 @@ test("compact administration retains section targets, keyboard focus and query s
   await expect(people).toBeFocused();
   await people.press("Enter");
   await expect(page).toHaveURL(/\/admin\?section=people&review=kept$/);
-  // Route orientation uses a browser frame to focus the selected surface.
-  // Settle that frame before exercising the separate dock recovery action.
-  await page.clock.runFor(100);
   await expect(people).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("heading", { name: "People", level: 1, exact: true })).toBeFocused();
+  await expectRouteFocus(page, page.getByRole("heading", { name: "People", level: 1, exact: true }));
   await expect(page.getByRole("heading", { name: "People, roles and sessions", exact: true })).toBeVisible();
   await expectKeyboardDockRecovery(page, people);
   await expectNoDocumentOverflow(page);
@@ -100,9 +107,8 @@ test("compact operations retains section targets, keyboard focus and queue discl
   await expect(queues).toBeFocused();
   await queues.press("Enter");
   await expect(page).toHaveURL(/\/ops#ops-queues$/);
-  await page.clock.runFor(100);
   await expect(queueDetails).toHaveAttribute("open", "");
-  await expect(queueDetails.getByRole("heading", { name: "Queues", exact: true })).toBeFocused();
+  await expectRouteFocus(page, queueDetails.getByRole("heading", { name: "Queues", exact: true }));
   await expect(queueDetails.getByText("No platform queue jobs.", { exact: true })).toBeVisible();
   await expectKeyboardDockRecovery(page, queues);
   await expectNoDocumentOverflow(page);

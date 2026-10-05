@@ -897,7 +897,7 @@
 
 @media (max-width: 760px), (max-height: 560px) {
   .files-page { gap: .5rem; padding-top: .75rem; }
-  .files-page-heading { align-items: center; gap: .75rem; }
+  .files-page .files-page-heading { flex-direction: row; align-items: center; gap: .75rem; margin-bottom: 0; }
   .files-page-heading > div:first-child { min-width: 0; }
   .files-heading-actions { flex-wrap: nowrap; align-items: center; gap: .5rem; }
   .files-page-heading .button { min-height: 44px; }

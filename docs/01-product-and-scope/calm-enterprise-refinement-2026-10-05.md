@@ -51,6 +51,9 @@ and lifecycle.
 - Check WCAG A/AA rules without suppressing contrast or layout failures.
 - Keep the existing file action tracks and responsive table geometry. Profile
   fields align without stretching input heights; mobile forms remain stacked.
+- Keep directory controls within the sidebar-adjusted space at tablet widths.
+  At 390px, the Files header retains one row of actions, visible search labels
+  and 44px controls, with the first file starting before 200px down the page.
 - Pass existing lint, type, unit, responsive/reference/accessibility browser,
   production build, PWA, asset-budget, contract, and documentation checks.
 - Avoid repeating primary destinations in the sidebar and page tabs. Keep in-page
