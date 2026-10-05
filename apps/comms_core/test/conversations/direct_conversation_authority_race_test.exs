@@ -35,7 +35,10 @@ defmodule CommsCore.Conversations.DirectConversationAuthorityRaceTest do
         end)
 
       assert_receive {:starter_backend, starter_backend}, 5_000
-      {query, blockers} = wait_for_lock(starter_backend)
+
+      {query, blockers} =
+        wait_for_lock(starter_backend, revoker_backend, &user_directory_lock?/1)
+
       assert user_directory_lock?(query)
       assert revoker_backend in blockers
 
@@ -70,7 +73,10 @@ defmodule CommsCore.Conversations.DirectConversationAuthorityRaceTest do
 
       revoker = actor(parent, :revoker, fn -> revoke(@operation, account, subject) end)
       assert_receive {:revoker_backend, revoker_backend}, 5_000
-      {query, blockers} = wait_for_lock(revoker_backend)
+
+      {query, blockers} =
+        wait_for_lock(revoker_backend, starter_backend, &user_revocation_lock?/1)
+
       assert user_revocation_lock?(query)
       assert starter_backend in blockers
 
@@ -146,7 +152,14 @@ defmodule CommsCore.Conversations.DirectConversationAuthorityRaceTest do
       end)
 
     assert_receive {:starter_backend, starter_backend}, 5_000
-    {query, blockers} = wait_for_lock(starter_backend)
+
+    {query, blockers} =
+      wait_for_lock(
+        starter_backend,
+        holder_backend,
+        &String.contains?(&1, ~s(FROM "conversations"))
+      )
+
     assert String.contains?(query, ~s(FROM "conversations"))
     assert holder_backend in blockers
 
@@ -283,22 +296,30 @@ defmodule CommsCore.Conversations.DirectConversationAuthorityRaceTest do
       )
   end
 
-  defp wait_for_lock(backend, attempts \\ 300)
-  defp wait_for_lock(_backend, 0), do: flunk("actor did not reach an actual database lock wait")
+  defp wait_for_lock(backend, blocker, matcher, attempts \\ 300)
 
-  defp wait_for_lock(backend, attempts) do
-    case unboxed(fn ->
-           Repo.query!(
-             "SELECT query, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock' AND cardinality(pg_blocking_pids(pid)) > 0",
-             [backend]
-           ).rows
-         end) do
-      [[query, blockers]] ->
+  defp wait_for_lock(_backend, _blocker, _matcher, 0),
+    do:
+      flunk("actor did not reach the expected query and blocker in an actual database lock wait")
+
+  defp wait_for_lock(backend, blocker, matcher, attempts) do
+    rows =
+      unboxed(fn ->
+        Repo.query!(
+          "SELECT query, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock' AND cardinality(pg_blocking_pids(pid)) > 0",
+          [backend]
+        ).rows
+      end)
+
+    # Query text is a statistics snapshot; wait events and blockers are read
+    # separately. A transition can report the previous query with the new wait.
+    case Enum.find(rows, fn [query, blockers] -> matcher.(query) and blocker in blockers end) do
+      [query, blockers] ->
         {query, blockers}
 
-      [] ->
+      nil ->
         Process.sleep(10)
-        wait_for_lock(backend, attempts - 1)
+        wait_for_lock(backend, blocker, matcher, attempts - 1)
     end
   end
 
