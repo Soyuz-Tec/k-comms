@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { MutableRefObject, ReactNode } from "react";
 import { Link } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { AppIcon } from "../../components/AppIcon";
@@ -31,6 +31,7 @@ interface ConversationSidebarProps {
   showBrowseChannels: boolean;
   showCreateConversation: boolean;
   showOnboardingSpotlight: boolean;
+  setupGuide?: ReactNode;
   showSearch: boolean;
   needsFirstTeammate: boolean;
   needsTeammateAccessReview: boolean;
@@ -70,6 +71,7 @@ export function ConversationSidebar({
   showBrowseChannels,
   showCreateConversation,
   showOnboardingSpotlight,
+  setupGuide,
   showSearch,
   needsFirstTeammate,
   needsTeammateAccessReview,
@@ -242,6 +244,8 @@ export function ConversationSidebar({
           </div>
         </section>
       )}
+
+      {setupGuide}
 
       {showCreateConversation && (
         <CreateConversationForm

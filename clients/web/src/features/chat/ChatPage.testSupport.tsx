@@ -2,6 +2,7 @@
 // installs the provider and transport doubles before the component loads.
 import { useLocation, useNavigate } from "react-router";
 import { vi } from "vitest";
+import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 import type {
   Conversation,
   ConversationMembership,
@@ -334,6 +335,11 @@ export function resetChatPageHarness() {
   uploadHarness.sha256.mockReset().mockResolvedValue("checksum");
   uploadHarness.upload.mockReset().mockResolvedValue(undefined);
   Object.assign(harness.api, {
+    memberWorkspace: vi.fn().mockResolvedValue(workspaceFixture()),
+    updateOnboarding: vi.fn().mockImplementation(async ({ action }: { action: string }) => workspaceFixture({
+      version: 2, onboarding: { dismissed_at: action === "dismiss" ? "2026-10-05T00:00:00Z" : null, profile_reviewed_at: null, active_devices: 1, has_teammates: true }
+    })),
+    updateMemberWorkspace: vi.fn(),
     socketTicket: vi
       .fn()
       .mockResolvedValue({ ticket: "one-time-ticket", expires_in: 60 }),

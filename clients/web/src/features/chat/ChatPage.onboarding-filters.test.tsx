@@ -16,21 +16,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation } from "../../types";
 import { participantDisambiguator } from "../../lib/participantIdentity";
 import { ChatPage } from "./ChatPage";
+import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 
 const harness = getChatPageHarness();
 
 describe("ChatPage durable sequence recovery", () => {
   beforeEach(resetChatPageHarness);
 
-  it("offers optional first-run device and notification setup and persists skipping the guide", async () => {
+  it("offers explicit browser setup and synchronizes skipping the guide", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
-    expect(screen.getByRole("link", { name: "Check audio & video" })).toHaveAttribute("href", "/app/you?section=audio-video");
-    expect(screen.getByRole("link", { name: "Set up notifications" })).toHaveAttribute("href", "/app/you?section=notifications");
-    await user.click(screen.getByRole("button", { name: "Skip for now" }));
-    expect(screen.queryByRole("link", { name: "Check audio & video" })).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
+    const welcome = await screen.findByRole("region", { name: "Start your first conversation" });
+    expect(within(welcome).getByRole("link", { name: "Check audio & video" })).toHaveAttribute("href", "/app/you?section=audio-video");
+    expect(within(welcome).getByRole("link", { name: "Set up notifications" })).toHaveAttribute("href", "/app/you?section=notifications");
+    await user.click(within(welcome).getByRole("button", { name: "Skip for now" }));
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Check audio & video" })).not.toBeInTheDocument());
+    expect(harness.api.updateOnboarding).toHaveBeenCalledWith({ version: 1, action: "dismiss" });
+    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBeNull();
   });
 
   it("opens global content search from the Go To route and clears the hint on close", async () => {
@@ -81,9 +84,12 @@ describe("ChatPage durable sequence recovery", () => {
   it("provides usable first actions when the workspace has no conversations", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
-    window.localStorage.setItem("k-comms:onboarding:tenant-1:user-1", "dismissed");
+    harness.api.memberWorkspace!.mockResolvedValue(workspaceFixture({ onboarding: {
+      dismissed_at: "2026-10-05T00:00:00Z", profile_reviewed_at: null, active_devices: 1, has_teammates: true
+    } }));
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
+    await waitFor(() => expect(harness.api.memberWorkspace).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Start a conversation" }));
     expect(screen.getByRole("heading", { name: "New conversation" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -139,7 +145,7 @@ describe("ChatPage durable sequence recovery", () => {
     );
 
     expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Message Grace" }));
+    await user.click(await screen.findByRole("button", { name: "Message Grace" }));
     const opening = await screen.findByRole("button", { name: "Opening Grace…" });
     expect(opening).toBeDisabled();
     expect(opening).toHaveAttribute("aria-busy", "true");
@@ -158,7 +164,7 @@ describe("ChatPage durable sequence recovery", () => {
     });
   });
 
-  it("disambiguates duplicate usernames in onboarding without exposing internal IDs", () => {
+  it("disambiguates duplicate usernames in onboarding without exposing internal IDs", async () => {
     harness.conversations = [];
     harness.users = [
       harness.users[0]!,
@@ -169,7 +175,7 @@ describe("ChatPage durable sequence recovery", () => {
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
     expect(
-      screen.getByRole("button", {
+      await screen.findByRole("button", {
         name: `Message Grace · #${participantDisambiguator("grace-one")}`
       })
     ).toBeVisible();
@@ -182,19 +188,20 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
   });
 
-  it("shows only the next useful onboarding action and persists dismissal locally", async () => {
+  it("shows the next useful action and synchronizes dismissal without local authority", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
-    expect(screen.getByRole("heading", { name: "Start your first conversation" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Start your first conversation" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Message Grace" })).toBeVisible();
     expect(screen.queryByText("Choose notification preferences")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start a conversation" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Dismiss welcome guide" }));
-    expect(screen.queryByRole("heading", { name: "Start your first conversation" })).not.toBeInTheDocument();
-    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Start your first conversation" })).not.toBeInTheDocument());
+    expect(harness.api.updateOnboarding).toHaveBeenCalledWith({ version: 1, action: "dismiss" });
+    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBeNull();
   });
 
   it("routes an owner with only the bootstrap room directly to one invitation action", async () => {
@@ -210,7 +217,7 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
 
-    const firstTeammate = screen.getByRole("link", { name: "Invite your first teammate" });
+    const firstTeammate = await screen.findByRole("link", { name: "Invite your first teammate" });
     expect(firstTeammate).toHaveAttribute("href", "/admin?section=people#admin-invitations");
     expect(screen.getAllByRole("link", { name: "Invite your first teammate" })).toHaveLength(1);
 

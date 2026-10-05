@@ -3,7 +3,7 @@ import type {
   ApiDownload,
   ApiRequest,
   ApiRequestOptions,
-  AuditExportFile
+  ApiExportFile
 } from "../contracts";
 import { ApiError, retryAfterSeconds } from "../errors";
 import {
@@ -162,7 +162,7 @@ export class MemberSessionTransport {
   private async executeDownload(
     path: string,
     options: ApiRequestOptions
-  ): Promise<AuditExportFile> {
+  ): Promise<ApiExportFile> {
     const requestGeneration = this.sessionGeneration;
     const requestSession = this.session;
     const requestAccessToken = this.session?.access_token;
@@ -176,7 +176,11 @@ export class MemberSessionTransport {
       headers.set("Authorization", `Bearer ${requestAccessToken}`);
     }
 
-    const response = await fetch(this.url(path), { ...options, headers });
+    const { response, body } = await fetchWithApiDeadline(this.url(path), { ...options, headers }, async (result) => {
+      if (result.ok) return result.blob();
+      const contentType = result.headers.get("content-type") || "";
+      return contentType.includes("application/json") ? result.json() : result.text();
+    });
     const shouldRetry = options.retryAuthentication !== false;
     if (
       response.status === 401 &&
@@ -204,14 +208,10 @@ export class MemberSessionTransport {
     }
 
     if (!response.ok) {
-      const contentType = response.headers.get("content-type") || "";
-      const payload: unknown = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
-      throw responseError(response, payload);
+      throw responseError(response, body);
     }
 
-    const blob = await response.blob();
+    const blob = body as Blob;
     if (!this.sessionMatches(requestGeneration, requestSession)) {
       throw new ApiError(
         409,
@@ -220,6 +220,8 @@ export class MemberSessionTransport {
       );
     }
 
+    const history = historyExportReceipt(response.headers);
+    const usage = usageExportReceipt(response.headers);
     return {
       blob,
       filename: attachmentFilename(
@@ -228,7 +230,9 @@ export class MemberSessionTransport {
       count: nonNegativeHeaderInteger(
         response.headers.get("x-export-row-count")
       ),
-      truncated: response.headers.get("x-export-truncated") === "true"
+      truncated: response.headers.get("x-export-truncated") === "true",
+      ...(history ? { history } : {}),
+      ...(usage ? { usage } : {})
     };
   }
 
@@ -330,4 +334,35 @@ function sessionChangedError(): ApiError {
     "session_changed",
     "Your account changed before the request completed. Try again."
   );
+}
+
+function historyExportReceipt(headers: Headers): ApiExportFile["history"] {
+  const snapshot = headers.get("x-history-snapshot");
+  if (!snapshot && !headers.has("x-history-coverage")) return undefined;
+  const coverage = headers.get("x-history-coverage");
+  const maximum = headers.get("x-export-maximum-rows");
+  const count = headers.get("x-export-row-count");
+  const truncated = headers.get("x-export-truncated");
+  const observedAt = headers.get("x-history-observed-at");
+  if (!snapshot || !["available", "partial", "unavailable"].includes(coverage || "") ||
+      headers.get("x-history-retained-only") !== "true" || maximum !== "5000" ||
+      !count || !/^\d+$/.test(count) || Number(count) > 5000 ||
+      !["true", "false"].includes(truncated || "") || !observedAt || !Number.isFinite(Date.parse(observedAt))) {
+    throw new ApiError(502, "invalid_history_export", "The history export receipt could not be verified. Retry the same snapshot.");
+  }
+  return { snapshot, coverage: coverage as "available" | "partial" | "unavailable", retainedOnly: true, maximumRows: 5000, observedAt };
+}
+
+function usageExportReceipt(headers: Headers): ApiExportFile["usage"] {
+  const from = headers.get("x-usage-from");
+  if (!from && !headers.has("x-usage-through")) return undefined;
+  const through = headers.get("x-usage-through");
+  const observedAt = headers.get("x-usage-observed-at");
+  const unavailable = headers.get("x-usage-unavailable-sources");
+  if (!from || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !through || !/^\d{4}-\d{2}-\d{2}$/.test(through) ||
+      headers.get("x-usage-time-zone") !== "UTC" || !observedAt || !Number.isFinite(Date.parse(observedAt)) ||
+      !unavailable || !/^[0-6]$/.test(unavailable)) {
+    throw new ApiError(502, "invalid_usage_export", "The usage export receipt could not be verified.");
+  }
+  return { from, through, observedAt, timeZone: "UTC", unavailableSources: Number(unavailable) };
 }

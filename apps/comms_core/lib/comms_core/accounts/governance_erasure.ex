@@ -10,6 +10,7 @@ defmodule CommsCore.Accounts.GovernanceErasure do
     Device,
     GovernanceErasureCommand,
     GovernanceErasureReceipt,
+    MemberWorkspaces,
     Session,
     User
   }
@@ -125,6 +126,9 @@ defmodule CommsCore.Accounts.GovernanceErasure do
              Enum.uniq(command.pending_deletion_user_ids)
            ),
          :ok <- ensure_drained(user),
+         # Private organization retains User references. Scrub it while all
+         # canonical User parents still hold the weaker identity-write fence.
+         :ok <- MemberWorkspaces.erase_user!(user.tenant_id, user.id),
          # The caller must finish all lower resource/content contributions before
          # this last identity step: unique key changes may strengthen the lock.
          {:ok, _anonymized_user} <- anonymize_user(user) do
@@ -249,7 +253,12 @@ defmodule CommsCore.Accounts.GovernanceErasure do
   end
 
   defp ensure_owner_safe(
-         %User{role: :owner, status: :active} = user,
+         %User{
+           role: :owner,
+           status: :active,
+           account_type: :human,
+           access_scope: :workspace
+         } = user,
          pending_deletion_user_ids
        ) do
     remaining =
@@ -258,6 +267,7 @@ defmodule CommsCore.Accounts.GovernanceErasure do
         [candidate],
         candidate.tenant_id == ^user.tenant_id and candidate.id != ^user.id and
           candidate.role == :owner and candidate.status == :active and
+          candidate.account_type == :human and candidate.access_scope == :workspace and
           candidate.id not in ^pending_deletion_user_ids
       )
       |> Repo.aggregate(:count)

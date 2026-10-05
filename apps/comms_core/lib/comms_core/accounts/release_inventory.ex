@@ -8,6 +8,7 @@ defmodule CommsCore.Accounts.ReleaseInventory do
     Device,
     FederatedIdentity,
     MfaFactor,
+    MemberWorkspace,
     ScimResource,
     Session,
     User
@@ -40,10 +41,15 @@ defmodule CommsCore.Accounts.ReleaseInventory do
       )
   end
 
+  @spec member_workspace_hazard_count(module()) :: non_neg_integer()
+  def member_workspace_hazard_count(repo) when is_atom(repo),
+    do: repo.aggregate(MemberWorkspace, :count)
+
   @spec tenant_fingerprint_fragment(module(), Ecto.UUID.t()) :: %{
           users: [Ecto.UUID.t()],
           sessions: [Ecto.UUID.t()],
-          devices: [Ecto.UUID.t()]
+          devices: [Ecto.UUID.t()],
+          member_workspaces: [Ecto.UUID.t()]
         }
   def tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
@@ -60,6 +66,13 @@ defmodule CommsCore.Accounts.ReleaseInventory do
           from(session in Session,
             where: session.tenant_id == ^tenant_id,
             select: session.id
+          )
+        ),
+      member_workspaces:
+        repo.all(
+          from(workspace in MemberWorkspace,
+            where: workspace.tenant_id == ^tenant_id,
+            select: workspace.id
           )
         ),
       devices:

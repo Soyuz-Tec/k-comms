@@ -375,6 +375,9 @@ defmodule CommsWeb.Router do
       :delete
     )
 
+    get("/me/workspace", MemberWorkspaceController, :show)
+    put("/me/workspace", MemberWorkspaceController, :update)
+    patch("/me/onboarding", MemberWorkspaceController, :onboarding)
     get("/telephony/config", TelephonyController, :config)
     get("/telephony/calls", TelephonyController, :index)
     get("/telephony/calls/:id", TelephonyController, :show)
@@ -466,6 +469,10 @@ defmodule CommsWeb.Router do
 
     get("/admin/tenant", AdminTenantController, :show)
     patch("/admin/tenant", AdminTenantController, :update)
+    get("/admin/usage", UsageReportController, :index)
+    get("/admin/usage/export", UsageReportController, :export)
+    get("/admin/role-permissions", RolePermissionController, :index)
+    post("/admin/users/:id/role-preview", RolePermissionController, :preview)
     get("/admin/users", AdminUserController, :index)
     patch("/admin/users/:id", AdminUserController, :update)
     get("/admin/users/:user_id/sessions", AdminUserController, :sessions)
@@ -504,6 +511,8 @@ defmodule CommsWeb.Router do
     get("/admin/deletion-requests", DeletionRequestController, :index)
     post("/admin/deletion-requests", DeletionRequestController, :create)
     patch("/admin/deletion-requests/:id", DeletionRequestController, :update)
+    get("/admin/deletion-requests/:id/timeline", DeletionRequestHistoryController, :index)
+    get("/admin/deletion-requests/:id/timeline/export", DeletionRequestHistoryController, :export)
 
     get("/ops", OpsController, :show)
     post("/ops/retry", OpsController, :retry)

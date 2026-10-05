@@ -49,6 +49,7 @@ defmodule CommsWeb.Presenter do
   defdelegate retention_policy(value), to: Governance
   defdelegate legal_hold(value), to: Governance
   defdelegate deletion_request(value), to: Governance
+  defdelegate deletion_request_timeline(value), to: Governance
 
   defdelegate message(value), to: ConversationContent
   defdelegate attachment(value), to: ConversationContent

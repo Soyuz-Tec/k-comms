@@ -18,9 +18,11 @@ import type {
 } from "../../types";
 import { useCallSession } from "../calls/CallSessionProvider";
 import { callAvailabilityGuidance } from "../calls/callAvailability";
+import { useMemberWorkspace, isPrivateAccessDenied } from "../member-workspace/useMemberWorkspace";
+import { ContactToggle, PrivateContacts } from "../member-workspace/PrivateContacts";
 import "./DirectoryPage.css";
 
-type DirectorySection = "people" | "rooms";
+type DirectorySection = "people" | "rooms" | "contacts" | "groups";
 type StartMode = "message" | CallMediaKind;
 
 interface DirectoryRoom {
@@ -50,7 +52,17 @@ export function DirectoryPage() {
     setConversations,
     videoCallsAvailable
   } = useWorkspaceData();
-  const [section, setSection] = useState<DirectorySection>("people");
+  const memberWorkspace = useMemberWorkspace();
+  const privateIdentity = useRef(memberWorkspace.identity);
+  privateIdentity.current = memberWorkspace.identity;
+  const requestedSection = searchParams.get("section");
+  const section: DirectorySection = requestedSection === "rooms" || requestedSection === "contacts" || requestedSection === "groups" ? requestedSection : "people";
+  function setSection(value: DirectorySection) {
+    const next = new URLSearchParams(searchParams);
+    next.set("section", value);
+    next.delete("q");
+    setSearchParams(next);
+  }
   const query = (searchParams.get("q") || "").slice(0, section === "people" ? 120 : 160);
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [publicRooms, setPublicRooms] = useState<PublicChannel[]>([]);
@@ -82,6 +94,12 @@ export function DirectoryPage() {
     setPageError(null);
     setNextCursor(null);
     setHasMore(false);
+    setPeople([]);
+    setPublicRooms([]);
+    if (section === "contacts" || section === "groups") {
+      setLoading(false);
+      return () => { requestGeneration.current += 1; };
+    }
 
     const timer = window.setTimeout(() => {
       const load = section === "people"
@@ -119,7 +137,7 @@ export function DirectoryPage() {
       window.clearTimeout(timer);
       requestGeneration.current += 1;
     };
-  }, [allowPublicRooms, api, query, retryGeneration, section]);
+  }, [allowPublicRooms, api, memberWorkspace.identity, query, retryGeneration, section]);
 
   if (!session) return null;
   const audioEnabled =
@@ -162,12 +180,41 @@ export function DirectoryPage() {
     setActionFailure(null);
     try {
       const response = await api.directConversation(person.id);
+      if (generation !== requestGeneration.current) return;
       retainConversation(response.data);
       openConversation(response.data, mode);
     } catch (reason: unknown) {
       if (generation === requestGeneration.current) setActionFailure({ id: person.id, message: errorText(reason), retry: () => void startWithPerson(person, mode) });
     } finally {
       setBusyAction((current) => current === actionKey ? null : current);
+    }
+  }
+
+  async function startPrivateRecipients(ids: string[], title: string | null, mode: StartMode, expectedVersion: number) {
+    const generation = requestGeneration.current;
+    const identity = memberWorkspace.identity;
+    setBusyAction("private-recipients");
+    setError(null);
+    let attemptedCreation = false;
+    try {
+      const current = await memberWorkspace.refresh();
+      if (!current || identity !== privateIdentity.current || generation !== requestGeneration.current) return;
+      if (current.version !== expectedVersion) throw new Error("Contacts changed elsewhere. Review the current selected people before starting.");
+      const activeIds = new Set(current.contacts.map(({ id }) => id));
+      if (!ids.length || ids.some((id) => !activeIds.has(id))) throw new Error("A selected contact is unavailable. Review the current list before starting.");
+      attemptedCreation = true;
+      const conversation = ids.length === 1
+        ? (await api.directConversation(ids[0]!)).data
+        : await api.createConversation({ title: title || "Contact conversation", kind: "group", visibility: "private", member_ids: ids });
+      if (identity !== privateIdentity.current || generation !== requestGeneration.current) return;
+      retainConversation(conversation);
+      openConversation(conversation, mode);
+    } catch (reason: unknown) {
+      if (identity !== privateIdentity.current || generation !== requestGeneration.current) return;
+      if (isPrivateAccessDenied(reason)) memberWorkspace.denyAccess();
+      setError(`${errorText(reason)}${attemptedCreation ? " Check your conversations before starting again if the request may have reached the server." : ""}`);
+    } finally {
+      if (identity === privateIdentity.current) setBusyAction(null);
     }
   }
 
@@ -180,6 +227,7 @@ export function DirectoryPage() {
       let conversation = room.conversation;
       if (!room.joined) {
         const response = await api.joinPublicChannel(room.conversation.id);
+        if (generation !== requestGeneration.current) return;
         conversation = response.data.conversation;
         retainConversation(conversation);
         setPublicRooms((current) => current.map((candidate) =>
@@ -194,6 +242,7 @@ export function DirectoryPage() {
             : candidate
         ));
       }
+      if (generation !== requestGeneration.current) return;
       openConversation(conversation, mode);
     } catch (reason: unknown) {
       if (generation === requestGeneration.current) setActionFailure({ id: room.conversation.id, message: errorText(reason), retry: () => void openRoom(room, mode) });
@@ -279,6 +328,8 @@ export function DirectoryPage() {
           >
             Rooms
           </button>
+          <button type="button" aria-pressed={section === "contacts"} onClick={() => setSection("contacts")}>Contacts</button>
+          <button type="button" aria-pressed={section === "groups"} onClick={() => setSection("groups")}>Groups</button>
         </div>
         <label className="member-search">
           <span className="sr-only">Search {section}</span>
@@ -304,14 +355,22 @@ export function DirectoryPage() {
         )}
       </div>
 
-      {loading ? (
+      {section === "people" && memberWorkspace.error && <p role="alert">Contact changes: {memberWorkspace.error}</p>}
+
+      {section === "contacts" || section === "groups" ? (
+        <PrivateContacts key={memberWorkspace.identity} controller={memberWorkspace} section={section} query={query}
+          onStart={startPrivateRecipients} busyAction={busyAction !== null} audioEnabled={audioEnabled} videoEnabled={videoEnabled}
+          availabilityDescriptionId={callAvailabilityDescriptionId} />
+      ) : loading ? (
         <div className="member-status-view" role="status">
           <span className="spinner" aria-hidden="true" />
           Loading directory…
         </div>
       ) : error ? null : section === "people" ? (
         <DirectoryPeople
+          key={memberWorkspace.identity}
           people={people}
+          contacts={memberWorkspace}
           actionFailure={actionFailure}
           busyAction={busyAction}
           audioEnabled={audioEnabled}
@@ -357,6 +416,7 @@ export function DirectoryPage() {
 
 function DirectoryPeople({
   people,
+  contacts,
   actionFailure,
   busyAction,
   audioEnabled,
@@ -367,6 +427,7 @@ function DirectoryPeople({
   onStart
 }: {
   people: DirectoryPerson[];
+  contacts: ReturnType<typeof useMemberWorkspace>;
   actionFailure: DirectoryActionFailure | null;
   busyAction: string | null;
   audioEnabled: boolean;
@@ -399,6 +460,7 @@ function DirectoryPeople({
             {(person.presence_state || person.timezone) && <small>{[person.presence_state && ({ available: "Available", away: "Away", busy: "Busy", dnd: "Do not disturb", offline: "Offline" }[person.presence_state]), person.timezone].filter(Boolean).join(" · ")}</small>}
             {actionFailure?.id === person.id && <DirectoryActionError failure={actionFailure} name={identifier} />}
           </div>
+          <ContactToggle person={person} controller={contacts} name={identifier} />
           <QuickActions
             name={identifier}
             busyAction={busyAction}

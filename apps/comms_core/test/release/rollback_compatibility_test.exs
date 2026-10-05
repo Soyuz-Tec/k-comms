@@ -16,7 +16,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "uc_voicemail_lifecycle_v1",
                                   "uc_advanced_telephony_v1",
                                   "scheduled_meeting_lifecycle_v1",
-                                  "rich_content_erasure_v1"
+                                  "rich_content_erasure_v1",
+                                  "member_workspace_v1",
+                                  "governance_history_v1"
                                 ],
                                 ","
                               )
@@ -85,7 +87,10 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       scheduled_meetings: 1,
       active_meeting_reminder_jobs: 1,
       rich_messages: 1,
-      rich_whiteboards: 1
+      rich_whiteboards: 1,
+      member_workspaces: 1,
+      governance_history_snapshots: 1,
+      active_history_purge_jobs: 1
     }
 
     compatible = %{
@@ -190,7 +195,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
            [:advanced_controls, :active_control_jobs, :active_routing_jobs]},
           {"scheduled_meeting_lifecycle_v1",
            [:scheduled_meetings, :active_meeting_reminder_jobs]},
-          {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]}
+          {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
+          {"member_workspace_v1", [:member_workspaces]},
+          {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)
@@ -210,6 +217,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
     end
 
     for invalid <- [
+          Map.delete(clean_hazards, :member_workspaces),
+          Map.delete(clean_hazards, :governance_history_snapshots),
+          Map.put(clean_hazards, :active_history_purge_jobs, -1),
           Map.delete(clean_hazards, :enterprise_identities),
           Map.put(clean_hazards, :voicemail_media, nil),
           Map.put(clean_hazards, :rich_whiteboards, -1),

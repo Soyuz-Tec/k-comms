@@ -90,13 +90,30 @@ describe("PeoplePanel", () => {
     const invitations = vi.fn().mockResolvedValue([]);
     const updatedUser = { ...managedUser, role: "admin" as const, version: 5 };
     const updateAdminUser = vi.fn().mockResolvedValue(updatedUser);
+    const previewAdminUserRole = vi.fn().mockResolvedValue({
+      target_id: managedUser.id,
+      current_role: "member",
+      requested_role: "admin",
+      current_version: 4,
+      target_status: "active",
+      target_access_scope: "workspace",
+      role_policy_allows: true,
+      blockers: [],
+      added: [{ capability: "manage_user_lifecycle", scope: "tenant", conditions: ["active_tenant", "active_identity", "current_session", "workspace_access", "recent_step_up"] }],
+      removed: [],
+      advisory: true,
+      scope: "tenant",
+      governance_review_required: true
+    });
     const user = userEvent.setup();
-    renderPanel({ invitations, updateAdminUser });
+    renderPanel({ invitations, updateAdminUser, previewAdminUserRole });
 
     const roleSelect = screen.getByLabelText("Role for Taylor Member");
     await user.selectOptions(roleSelect, "admin");
     expect(updateAdminUser).not.toHaveBeenCalled();
-    expect(screen.getByRole("alertdialog", { name: "Apply this access change?" })).toHaveTextContent("Member to Administrator");
+    expect(screen.getByRole("alertdialog", { name: "Review this role change" })).toHaveTextContent("Member to Administrator");
+    expect(previewAdminUserRole).toHaveBeenCalledWith("user-1", { role: "admin", version: 4 });
+    expect(await screen.findByText("Change account roles and status")).toBeVisible();
 
     await user.type(screen.getByLabelText("Audit reason"), "Promotion approved by workspace owner");
     await user.click(screen.getByRole("button", { name: "Confirm change" }));
@@ -107,7 +124,7 @@ describe("PeoplePanel", () => {
       version: 4
     }));
     expect(await screen.findByRole("status")).toHaveTextContent("Taylor Member updated");
-    expect(screen.queryByRole("alertdialog", { name: "Apply this access change?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "Review this role change" })).not.toBeInTheDocument();
     await waitFor(() => expect(roleSelect).toHaveFocus());
   });
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,7 @@ DATABASE_SSL_SERVER_NAME
 DATABASE_URL
 DIRECT_AUDIO_P2P_ENABLED
 DIRECT_AUDIO_STUN_URLS
+GOV_HISTORY_CURSOR_KEY
 HSTS_ENABLED
 IMMERSIVE_MODE_ENABLED
 INSTANT_ROOMS_ENABLED
@@ -188,6 +190,43 @@ def require(condition: bool, message: str) -> None:
         raise EnvironmentError(message)
 
 
+def history_key_is_dedicated(values: dict[str, str]) -> bool:
+    key = values.get("GOV_HISTORY_CURSOR_KEY", "")
+    if not key:
+        return True
+
+    def materials(value: str) -> set[bytes]:
+        result = {value.encode("utf-8")}
+        try:
+            decoded = base64.b64decode(value, validate=True)
+            if len(decoded) == 32:
+                result.add(decoded)
+        except (ValueError, UnicodeEncodeError):
+            pass
+        return result
+
+    history_materials = materials(key)
+    for name, value in values.items():
+        if name == "GOV_HISTORY_CURSOR_KEY" or not (
+            name == "RELEASE_COOKIE"
+            or re.search(r"(SECRET|PASSWORD|TOKEN|SIGNING_KEY|ENCRYPTION_KEYS?)(?:$|_)", name)
+        ):
+            continue
+        candidates = [value]
+        if name.endswith("_KEYS_JSON"):
+            try:
+                keys = json.loads(value)
+                if isinstance(keys, dict):
+                    candidates.extend(item for item in keys.values() if isinstance(item, str))
+            except ValueError:
+                pass
+        elif name.endswith("_KEYS"):
+            candidates.extend(part.partition(":")[2] for part in value.split(",") if ":" in part)
+        if any(history_materials & materials(candidate) for candidate in candidates):
+            return False
+    return True
+
+
 def secure(path: Path, mode: int, owner: int, directory: bool = False) -> None:
     info = path.lstat()
     require((stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
@@ -213,6 +252,11 @@ def parse_source(source: Path, owner: int = 0) -> dict[str, str]:
         values[name] = value
     for name in sorted(REQUIRED_KEYS):
         require(bool(values.get(name)), f"Required environment input is missing or empty: {name}")
+    history_key = values.get("GOV_HISTORY_CURSOR_KEY", "")
+    require(not history_key or len(history_key.encode("utf-8")) >= 32,
+            "GOV_HISTORY_CURSOR_KEY must contain at least 32 bytes when configured")
+    require(history_key_is_dedicated(values),
+            "GOV_HISTORY_CURSOR_KEY must use dedicated secret material")
     return values
 
 

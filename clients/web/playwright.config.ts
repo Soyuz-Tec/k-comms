@@ -103,7 +103,7 @@ export default defineConfig({
             // A deliberate subset keeps the cross-engine gate bounded. Device
             // emulation does not qualify physical iOS media or backgrounding.
             name: "mobile-webkit",
-            testMatch: /(?:client-recovery|mobile-webkit|whiteboard)\.spec\.ts/,
+            testMatch: /(?:client-recovery|mobile-webkit|whiteboard|full-uc-member-setup|full-uc-usage-report)\.spec\.ts/,
             use: { ...devices["iPhone 13"] }
           }
         ]

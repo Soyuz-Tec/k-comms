@@ -16,7 +16,9 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "uc_voicemail_lifecycle_v1",
                                   "uc_advanced_telephony_v1",
                                   "scheduled_meeting_lifecycle_v1",
-                                  "rich_content_erasure_v1"
+                                  "rich_content_erasure_v1",
+                                  "member_workspace_v1",
+                                  "governance_history_v1"
                                 ],
                                 ","
                               )
@@ -217,7 +219,8 @@ defmodule CommsCore.Release.EnvironmentTest do
     # Omitting any new capability must disable the database-free fast path.
     for capability <- ~w(enterprise_identity_v1 uc_artifact_lifecycle_v1
                          uc_voicemail_lifecycle_v1 uc_advanced_telephony_v1
-                         scheduled_meeting_lifecycle_v1 rich_content_erasure_v1) do
+                         scheduled_meeting_lifecycle_v1 rich_content_erasure_v1
+                         member_workspace_v1 governance_history_v1) do
       missing =
         @communication_capabilities
         |> String.split(",")

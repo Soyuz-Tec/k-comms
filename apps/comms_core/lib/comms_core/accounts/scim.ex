@@ -468,12 +468,19 @@ defmodule CommsCore.Accounts.Scim do
        ), do: {:error, :scim_group_authority_denied}, else: :ok
   end
 
-  defp preserve_owner!(%User{role: :owner, status: :active} = user) do
+  defp preserve_owner!(
+         %User{
+           role: :owner,
+           status: :active,
+           account_type: :human,
+           access_scope: :workspace
+         } = user
+       ) do
     if Repo.aggregate(
          from(u in User,
            where:
              u.tenant_id == ^user.tenant_id and u.status == :active and u.role == :owner and
-               u.account_type == :human
+               u.account_type == :human and u.access_scope == :workspace
          ),
          :count
        ) <= 1, do: Repo.rollback(:last_owner_required)

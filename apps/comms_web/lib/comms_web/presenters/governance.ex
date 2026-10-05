@@ -89,4 +89,32 @@ defmodule CommsWeb.Presenters.Governance do
       updated_at: request.updated_at
     }
   end
+
+  def deletion_request_timeline(%CommsCore.Governance.DeletionRequestTimeline{} = timeline) do
+    %{
+      request: deletion_request(timeline.request),
+      events: Enum.map(timeline.events, &history_event/1),
+      limit: timeline.limit,
+      next_cursor: timeline.next_cursor,
+      snapshot: timeline.snapshot,
+      observed_at: timeline.observed_at,
+      snapshot_observed_at: timeline.snapshot_observed_at,
+      coverage: timeline.coverage
+    }
+  end
+
+  defp history_event(%CommsCore.Governance.HistoryEvent{} = event) do
+    %{
+      id: event.id,
+      actor: Map.from_struct(event.actor),
+      inserted_at: event.inserted_at,
+      action: event.action,
+      status: event.status,
+      attempt: event.attempt,
+      error_code: event.error_code,
+      version: event.version,
+      proof_versions: event.proof_versions,
+      counts: event.counts
+    }
+  end
 end

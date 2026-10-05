@@ -16,6 +16,8 @@ const session = {
     display_name: "Workspace Owner",
     email: "owner@example.test",
     role: "owner" as "owner" | "member",
+    account_type: "human" as const,
+    access_scope: "workspace" as "workspace" | "conversation_only",
     status: "active",
     platform_role: null,
     platform_role_expires_at: null
@@ -43,10 +45,12 @@ vi.mock("./SafetyPanel", () => ({ SafetyPanel: () => <h2>Safety review</h2> }));
 vi.mock("./GovernancePanel", () => ({ GovernancePanel: () => <h2>Governance controls</h2> }));
 vi.mock("./IntegrationsPanel", () => ({ IntegrationsPanel: () => <h2>Integrations</h2> }));
 vi.mock("./AuditPanel", () => ({ AuditPanel: () => <h2>Audit evidence</h2> }));
+vi.mock("./UsageReportsPanel", () => ({ UsageReportsPanel: () => <h2>Retained usage</h2> }));
 
 describe("AdminPage section routing", () => {
   beforeEach(() => {
     session.user.role = "owner";
+    session.user.access_scope = "workspace";
   });
 
   it("keeps workspace totals available on demand without preceding every task with cards", async () => {
@@ -89,6 +93,19 @@ describe("AdminPage section routing", () => {
 
     expect(screen.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("section=workspace"));
+  });
+
+  it("opens retained usage from the actual owner administration route", () => {
+    render(<MemoryRouter initialEntries={["/admin?section=usage"]}><AdminPage /></MemoryRouter>);
+    expect(screen.getByRole("heading", { name: "Retained usage" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("does not show aggregate Usage navigation to a conversation-only owner", () => {
+    session.user.access_scope = "conversation_only";
+    render(<MemoryRouter initialEntries={["/admin?section=usage"]}><AdminPage /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "Usage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Retained usage" })).not.toBeInTheDocument();
   });
 
   it("returns an unauthorized member to the canonical inbox root", async () => {

@@ -31,6 +31,16 @@ describe("workspace switcher", () => {
     expect(workspaceDestinations(owner, []).some(({ id }) => id === "ops")).toBe(false);
   });
 
+  it("preserves admitted conversation navigation while hiding admin tools for a limited legacy owner", () => {
+    const limited: Session = { ...session, user: { ...session.user,
+      account_type: "human", access_scope: "conversation_only", role: "owner" } };
+    const destinations = workspaceDestinations(limited, [conversation]);
+    expect(destinations.some(({ id }) => id === "admin")).toBe(false);
+    expect(destinations.find(({ id }) => id === conversation.id)).toMatchObject({
+      path: "/app/?conversation=room%2Fone"
+    });
+  });
+
   it("disambiguates identical people and room names so every result remains searchable", async () => {
     const user = userEvent.setup();
     const conversations = Array.from({ length: 14 }, (_, index) => ({ ...conversation, id: `dm-${index}`, kind: "direct" as const,

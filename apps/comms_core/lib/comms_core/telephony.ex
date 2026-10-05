@@ -215,4 +215,10 @@ defmodule CommsCore.Telephony do
   defdelegate reconcile_control(id, command_id, subject),
     to: CommsCore.Telephony.Controls,
     as: :reconcile
+
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.Telephony.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.Telephony.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject), to: CommsCore.Telephony.UsageReports, as: :project
 end

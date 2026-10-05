@@ -39,7 +39,9 @@ defmodule CommsCore.Messaging do
 
   @typedoc "Named DTOs owned by this bounded context."
   @type public_contract ::
-          CommsCore.Messaging.ActivityView.t()
+          CommsCore.Messaging.UsageQuery.t()
+          | CommsCore.Messaging.UsageProjection.t()
+          | CommsCore.Messaging.ActivityView.t()
           | CommsCore.Messaging.DeliveryCursorView.t()
           | CommsCore.Messaging.MessageView.t()
           | CommsCore.Messaging.MessageDeletionCandidate.t()
@@ -173,4 +175,10 @@ defmodule CommsCore.Messaging do
   defdelegate mark_read(conversation_id, sequence, subject), to: DeliveryCursors
   defdelegate list_delivery_cursors(conversation_id, subject), to: DeliveryCursors, as: :list
   defdelegate activity(conversation_id, subject, opts \\ []), to: Activity, as: :list
+  @doc "Content-free usage over currently retained owner records within an inclusive UTC range."
+  @spec usage_projection(CommsCore.Messaging.UsageQuery.t(), map()) ::
+          {:ok, CommsCore.Messaging.UsageProjection.t()}
+          | {:error, :invalid_usage_query | :forbidden | :step_up_required}
+  defdelegate usage_projection(query, subject), to: CommsCore.Messaging.UsageReports, as: :project
+
 end

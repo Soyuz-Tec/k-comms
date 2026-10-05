@@ -1241,6 +1241,7 @@ def workload(kind: str, name: str) -> dict:
                 ("DATABASE_URL", False),
                 ("SECRET_KEY_BASE", False),
                 ("PASSWORD_RECOVERY_SIGNING_KEY", False),
+                ("GOV_HISTORY_CURSOR_KEY", True),
                 ("S3_ACCESS_KEY_ID", False),
                 ("S3_SECRET_ACCESS_KEY", False),
                 ("WEBHOOK_SECRET_ENCRYPTION_KEY", True),

@@ -5,6 +5,7 @@ import type { ApiClient } from "../../api";
 import { StepUpCancelledError, StepUpProvider } from "../../app/step-up";
 import type { Conversation, DeletionRequest, LegalHold, Message, RetentionPolicy, User } from "../../types";
 import { GovernancePanel } from "./GovernancePanel";
+import { historyPage } from "./deletionTimeline.testSupport";
 
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: { stepUp: vi.fn() } }) }));
 
@@ -70,6 +71,7 @@ function apiFixture(overrides: Partial<ApiClient> = {}): ApiClient {
     retentionPolicies: vi.fn().mockResolvedValue([]),
     legalHolds: vi.fn().mockResolvedValue([]),
     deletionRequests: vi.fn().mockResolvedValue([]),
+    deletionHistory: vi.fn().mockImplementation(async (id: string) => historyPage({ request: deletionFixture({ id }) })),
     ...overrides
   } as unknown as ApiClient;
 }
@@ -444,9 +446,9 @@ describe("GovernancePanel scoped lifecycle evidence", () => {
   it("loads later message targets without losing a selection and presents recorded processing evidence", async () => {
     const message: Message = { id: "message-1", tenant_id: "tenant-1", conversation_id: activeConversation.id, sender_user_id: activeUser.id, sender_device_id: "device-1", client_message_id: "client-1", conversation_sequence: 1, body: "First release message", metadata: {}, status: "active", inserted_at: "2026-07-12T10:00:00Z", attachments: [], reactions: [] };
     const messages = vi.fn().mockResolvedValueOnce({ data: [message], page: { has_more: true, next_after_sequence: 1 } }).mockRejectedValueOnce(new Error("Message page interrupted")).mockResolvedValueOnce({ data: [message, { ...message, id: "message-201", conversation_sequence: 201, body: "Later release target" }], page: { has_more: false, next_after_sequence: null } });
-    const request = deletionFixture({ status: "approved", execution_attempts: 2, execution_error: "legal_hold_active", execution_started_at: "2026-07-12T10:01:00Z", evidence: { eligible_count: 3 } });
+    const request = deletionFixture({ status: "approved", execution_attempts: 2, execution_error: "verification_pending", execution_started_at: "2026-07-12T10:01:00Z", evidence: { messages_tombstoned: 3 } });
     const user = userEvent.setup();
-    render(<StepUpProvider><GovernancePanel api={apiFixture({ messages, deletionRequests: vi.fn().mockResolvedValue([request]) })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ messages, deletionRequests: vi.fn().mockResolvedValue([request]), deletionHistory: vi.fn().mockResolvedValue(historyPage({ request })) })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
     const controls = within(screen.getByRole("heading", { name: "Deletion requests" }).closest("section")!);
     await user.selectOptions(controls.getByLabelText("Target type"), "message");
     await user.selectOptions(controls.getByLabelText("Message conversation"), activeConversation.id);
@@ -460,10 +462,12 @@ describe("GovernancePanel scoped lifecycle evidence", () => {
     expect(messages).toHaveBeenLastCalledWith(activeConversation.id, 1, 200);
     await user.type(controls.getByLabelText("Filter loaded messages"), "Later");
     expect(controls.getByLabelText("Deletion message")).toHaveValue(message.id);
-    await user.click(controls.getByText("Request details"));
-    expect(controls.getByText("Execution attempts: 2")).toBeVisible();
-    expect(controls.getByRole("note")).toHaveTextContent("legal_hold_active");
-    expect(controls.getByText(/"eligible_count": 3/)).toBeVisible();
+    await user.click(controls.getByText("Request details and history"));
+    await controls.findByText("Execution attempts");
+    expect(controls.getByText("Execution attempts").nextElementSibling).toHaveTextContent("2");
+    expect(controls.getByText("Verification pending")).toBeVisible();
+    expect(controls.getByText("Messages tombstoned").nextElementSibling).toHaveTextContent("3");
+    expect(controls.queryByText(/"messages_tombstoned": 3/)).not.toBeInTheDocument();
   });
 });
 

@@ -1,6 +1,10 @@
 import type { AccountSession, AuditEvent, DataResponse, DeletionRequest, Invitation, LegalHold, ListResponse, ModerationCase, OperationsSnapshot, RetentionPolicy, TenantAdministration, User, UserRole } from "../../types";
 import type { ApiDownload, ApiRequest, AuditExportFile, AuditExportInput, UpdateTenantInput } from "../contracts";
 import type { AuditPage, ModerationCaseDetail, ModerationCaseQuery } from "../../types/administration";
+import type { DeletionHistoryExportFile, DeletionHistoryPage, DeletionHistoryQuery } from "../../types/deletionHistory";
+import type { FixedRolePermission, UserRoleChangePreview } from "../../types/rolePermissions";
+import type { UsageExportFile, UsageQuery, UsageReport } from "../../types/usage";
+import { ApiError } from "../errors";
 
 interface AdministrationApiSupport {
   operationId: () => string;
@@ -18,6 +22,32 @@ export function createAdministrationApi(request: ApiRequest, download: ApiDownlo
           body: JSON.stringify(input)
         }).then((response) => response.data);
       },
+
+    previewAdminUserRole(id: string, input: { role: UserRole; version: number }): Promise<UserRoleChangePreview> {
+      return request<DataResponse<UserRoleChangePreview>>(`/api/v1/admin/users/${encodeURIComponent(id)}/role-preview`, {
+        method: "POST", body: JSON.stringify(input)
+      }).then((response) => response.data);
+    },
+
+    fixedRolePermissions(): Promise<FixedRolePermission[]> {
+      return request<ListResponse<FixedRolePermission>>("/api/v1/admin/role-permissions").then((response) => response.data);
+    },
+
+    usageReport(input: UsageQuery = {}): Promise<UsageReport> {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) { if (value) params.set(key, value); }
+      return request<DataResponse<UsageReport>>(`/api/v1/admin/usage${params.size ? `?${params}` : ""}`).then((response) => response.data);
+    },
+
+    async exportUsageReport(input: UsageQuery = {}): Promise<UsageExportFile> {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) { if (value) params.set(key, value); }
+      const file = await download(`/api/v1/admin/usage/export${params.size ? `?${params}` : ""}`);
+      if (!file.usage || (input.from && file.usage.from !== input.from) || (input.through && file.usage.through !== input.through)) {
+        throw new ApiError(502, "invalid_usage_export", "The usage export receipt could not be verified.");
+      }
+      return { blob: file.blob, filename: `usage-${file.usage.from}-${file.usage.through}.csv`, usage: file.usage };
+    },
 
     adminUserSessions(userId: string): Promise<AccountSession[]> {
         return request<ListResponse<AccountSession>>(`/api/v1/admin/users/${encodeURIComponent(userId)}/sessions`).then(
@@ -175,6 +205,24 @@ export function createAdministrationApi(request: ApiRequest, download: ApiDownlo
           (response) => response.data
         );
       },
+
+    deletionHistory(id: string, input: DeletionHistoryQuery = {}): Promise<DeletionHistoryPage> {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) {
+        if (value !== undefined && value !== "") params.set(key, String(value));
+      }
+      return request<DataResponse<DeletionHistoryPage>>(`/api/v1/admin/deletion-requests/${encodeURIComponent(id)}/timeline${params.size ? `?${params}` : ""}`)
+        .then((response) => response.data);
+    },
+
+    async exportDeletionHistory(id: string, snapshot: string, limit = 5000): Promise<DeletionHistoryExportFile> {
+      const params = new URLSearchParams({ snapshot, limit: String(limit) });
+      const file = await download(`/api/v1/admin/deletion-requests/${encodeURIComponent(id)}/timeline/export?${params}`);
+      if (!file.history || file.history.snapshot !== snapshot) {
+        throw new ApiError(502, "invalid_history_export", "The history export receipt could not be verified. Retry the same snapshot.");
+      }
+      return { ...file, filename: "deletion-request-history.csv", history: file.history };
+    },
 
     createDeletionRequest(input: { target_type: "user" | "conversation" | "message"; target_id: string; reason: string }): Promise<DeletionRequest> {
         const targetField = input.target_type === "user" ? "subject_user_id" : `${input.target_type}_id`;

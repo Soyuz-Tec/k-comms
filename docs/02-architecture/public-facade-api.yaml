@@ -6,6 +6,9 @@ contexts:
       collaboration_operations:
       - append/2
       - authorization_denied/3
+      - resource_history_page/1
+      - purge_resource_history_snapshots/2
+      - rollback_history_snapshot_hazard_count/0
       - list/1
       - record/1
       - release_tenant_fingerprint_fragment/2
@@ -659,6 +662,8 @@ contexts:
       - create_legal_hold_view/2
       - create_retention_policy_view/2
       - delete_message/2
+      - deletion_request_timeline/3
+      - export_deletion_request_history/3
       - enqueue_due_retention/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2

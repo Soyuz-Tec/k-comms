@@ -8,6 +8,9 @@ defmodule CommsCore.Governance.Authorization do
     case Accounts.access_grant(subject) do
       {:ok, %AccessGrant{} = grant} ->
         cond do
+          grant.account_type != :human or grant.access_scope != :workspace ->
+            Accounts.audit_authorization_denial(:govern_tenant, subject, :forbidden)
+
           grant.role not in [:owner, :compliance_admin] ->
             Accounts.audit_authorization_denial(:govern_tenant, subject, :forbidden)
 
