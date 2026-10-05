@@ -8,6 +8,7 @@ import { VoicemailAdminPanel } from "./VoicemailAdminPanel";
 import { PhoneRoutingPanel } from "./PhoneRoutingPanel";
 import { IvrAdminPanel } from "./IvrAdminPanel";
 import { QueueSupervisorPanel } from "./QueueSupervisorPanel";
+import { PhoneProvisioningPanel, usePhoneProvisioningAuthority } from "./PhoneProvisioningPanel";
 import { useTelephony } from "./TelephonyProvider";
 import type { PhoneConfiguration, PhoneNumberInput } from "./types";
 import { phoneNumberInputError, phoneReadiness } from "./types";
@@ -18,6 +19,12 @@ function AssignedMemberSelect({ initialUserId, members }: { initialUserId: strin
 }
 
 export function PhoneAdminPanel() {
+  const authority = usePhoneProvisioningAuthority();
+  if (!authority.allowed) return <p role="alert">Phone setup requires a current owner or administrator with full workspace access.</p>;
+  return <PhoneAdminContent key={authority.generation} isCurrent={authority.isCurrent} />;
+}
+
+function PhoneAdminContent({ isCurrent }: { isCurrent: () => boolean }) {
   const { api } = useSession();
   const { users } = useWorkspaceData();
   const { runWithStepUp } = useStepUp();
@@ -27,52 +34,62 @@ export function PhoneAdminPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [managementEnabled, setManagementEnabled] = useState<boolean | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
   const generation = useRef(0);
   const load = useCallback(async () => {
+    if (!isCurrent()) return;
     const version = ++generation.current;
     setLoading(true);
     setError(null);
     try {
       const result = await api.phoneAdminConfiguration();
-      if (version === generation.current) setConfiguration(result);
-    } catch (reason: unknown) { if (version === generation.current) setError(errorText(reason)); }
-    finally { if (version === generation.current) setLoading(false); }
-  }, [api]);
-  useEffect(() => { void load(); return () => { generation.current += 1; }; }, [load]);
+      if (isCurrent() && version === generation.current) setConfiguration(result);
+    } catch (reason: unknown) { if (isCurrent() && version === generation.current) setError(errorText(reason)); }
+    finally { if (isCurrent() && version === generation.current) setLoading(false); }
+  }, [api, isCurrent]);
+  useEffect(() => { setManagementEnabled(null); setBusy(false); setSaved(false); void load(); return () => { generation.current += 1; }; }, [load]);
 
   const number = configuration?.number;
   const readiness = phoneReadiness(configuration);
-  const eligibleUsers = users.filter((user) => user.status === "active" && user.account_type !== "service" && user.account_type !== "guest");
+  const eligibleUsers = users.filter((user) => user.status === "active" && user.account_type === "human" && user.access_scope === "workspace");
   const assignedUser = eligibleUsers.find((user) => user.id === number?.user_id);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!isCurrent()) return;
     const form = new FormData(event.currentTarget);
     const input = Object.fromEntries(["phone_number", "extension", "user_id", "inbound_trunk_id", "outbound_trunk_id", "reason"].map((name) => [name, String(form.get(name) ?? "").trim()])) as unknown as PhoneNumberInput;
+    input.version = configuration?.number?.version ?? 0;
     setError(null);
     setSaved(false);
     const validationError = phoneNumberInputError(input, eligibleUsers.map(({ id }) => id));
     if (validationError) { setError(validationError); return; }
+    const serial = generation.current;
     setBusy(true);
     try {
-      const result = await runWithStepUp(() => api.updatePhoneNumber(input));
+      const result = await runWithStepUp(() => {
+        if (!isCurrent()) throw new Error("Phone setup authority changed. Refresh your current access.");
+        return api.updatePhoneNumber(input);
+      });
+      if (!isCurrent() || serial !== generation.current) return;
       setConfiguration((current) => current ? { ...current, number: result, line_assigned: true, configured: phoneReadiness(current).providerReady } : current);
       if (reasonRef.current) reasonRef.current.value = "";
       setSaved(true);
       await refresh();
-    } catch (reason: unknown) { if (!stepUpWasCancelled(reason)) setError(errorText(reason)); }
-    finally { setBusy(false); }
+    } catch (reason: unknown) { if (isCurrent() && serial === generation.current && !stepUpWasCancelled(reason)) setError(errorText(reason)); }
+    finally { if (isCurrent() && serial === generation.current) setBusy(false); }
   }
 
   return <section className="phone-admin-panel" aria-labelledby="phone-admin-heading">
     <h2 id="phone-admin-heading">Workspace phone setup</h2>
     <p>Set up one carrier number and one member extension for this workspace. Complete each step with your service operator.</p>
+    <PhoneProvisioningPanel onApplied={async () => { await load(); if (isCurrent()) await refresh(); }} onManagementMode={setManagementEnabled} />
     {error && <p className="form-error" role="alert">{error}</p>}
     {saved && <p role="status">Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.</p>}
     {loading && <p role="status">Loading phone settings…</p>}
     {!loading && !configuration && <button className="button ghost" type="button" onClick={() => void load()}>Retry phone settings</button>}
-    {configuration && <form key={number ? [number.id, number.phone_number, number.extension, number.user_id, number.inbound_trunk_id, number.outbound_trunk_id].join(":") : "new"} noValidate onSubmit={(event) => void submit(event)}>
+    {configuration && managementEnabled === false && <form key={number ? [number.id, number.phone_number, number.extension, number.user_id, number.inbound_trunk_id, number.outbound_trunk_id].join(":") : "new"} noValidate onSubmit={(event) => void submit(event)}>
       <ol className="phone-setup-steps">
         <li>
           <h3>1. Provider</h3>

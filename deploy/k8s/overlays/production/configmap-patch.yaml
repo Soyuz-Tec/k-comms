@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: k-comms-config
 data:
+  # ADR-0107 provider effects require separate qualification; keep OFF.
+  TELEPHONY_PROVISIONING_ENABLED: "false"
+  TELEPHONY_PROVISIONING_BINDINGS: "{}"
   PHX_HOST: comms.example.invalid
   PUBLIC_APP_URL: https://comms.example.invalid
   POOL_SIZE: "30"

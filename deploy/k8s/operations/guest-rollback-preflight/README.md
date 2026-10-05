@@ -4,19 +4,19 @@ This one-shot operation is the mandatory compatibility gate before applying an
 older K-Comms application bundle. It runs from the **currently deployed image**
 after edge and worker writers have been quiesced. It never runs migration
 rollback and never mutates guest, instant-room, bounded join-receipt,
-presence-lease, identity, UC media, scheduling or rich-content data. The retained
+presence-lease, identity, UC media, scheduling, rich-content or Phone receipt data. The retained
 directory name is stable for existing operator automation.
 
 The target is communication-compatible only when both its edge and worker pod
 templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1,enterprise_identity_v1,uc_artifact_lifecycle_v1,uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1
 ```
 
 The exact qualified M1 twelve-capability and Member/History fourteen-capability
 annotations are preserved as known subsets. M1 requires zero Member/History
-row and continuation-job hazards. Both older targets require zero retained IVR
+row and continuation-job hazards. Both older targets require zero retained Phone provisioning receipts and zero retained IVR
 menu, run, receipt, agent-state and IVR-marked call rows, and zero active IVR jobs. Missing, partial, unknown, or different
 annotations classify the target as legacy. For a legacy target, the release operation requires an exclusive
 database client and evaluates each state hazard against the target capability
@@ -42,11 +42,16 @@ The same preflight includes owner-only aggregate UC hazards:
 | `governance_history_v1` | All retained audit history snapshots, including expired rows, and active `continue:true` purge jobs; empty periodic cron jobs do not require retained history state |
 | `ivr_routing_v1` | All retained IVR menu, run, receipt and explicit agent-state rows, including completed/expired rows; calls marked `ivr` or `ivr_destination`; available, scheduled, executing or retryable `TelephonyIvrWorker` jobs |
 | `workspace_domain_discovery_v1` | Every retained domain claim, including pending, verified, opted-out and expired rows; no Discovery worker exists |
+| `calendar_sync_v1` | Every retained connection, OAuth challenge, export, event mapping and synchronization command; active CalendarSyncWorker and CalendarSyncReconcilerWorker jobs |
+| `calendar_erasure_v1` | Every retained erasure receipt and export tombstone; uncertain native cleanup remains pending |
+| `phone_provider_provisioning_v1` | Every retained provisioning command, including failed/expired unconsumed receipts and uncertain/applied effects; no Phone provisioning worker, outbox dispatch or automatic retry exists |
 
 No owner projection returns content or exposes a foreign schema. Unsupported
 retained state blocks the target; quiescence alone does not make an older binary
 safe. Unknown probe outcomes refuse proof. Do not drop factors, media, schedules
-or erasure lineage to force rollback. The target bundle and its capability
+or erasure lineage or Phone effect receipts to force rollback. Phone migration
+`20261006000700` refuses down migration; application compatibility does not
+authorize dropping its table/history. The target bundle and its capability
 annotations must retain the approved immutable target's provenance; rendering
 current templates must not upgrade an older image's capability declaration.
 
@@ -111,7 +116,7 @@ expected = (
     "instant_room_expiry_worker_v1,conversation_only_human_v1,"
     "enterprise_identity_v1,uc_artifact_lifecycle_v1,"
     "uc_voicemail_lifecycle_v1,uc_advanced_telephony_v1,"
-    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1"
+    "scheduled_meeting_lifecycle_v1,rich_content_erasure_v1,member_workspace_v1,governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1"
 )
 values = [
     deployments[name]["spec"]["template"]

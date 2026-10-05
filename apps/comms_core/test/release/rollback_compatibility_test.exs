@@ -23,7 +23,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "ivr_routing_v1",
                                   "workspace_domain_discovery_v1",
                                   "calendar_sync_v1",
-                                  "calendar_erasure_v1"
+                                  "calendar_erasure_v1",
+                                  "phone_provider_provisioning_v1"
                                 ],
                                 ","
                               )
@@ -103,7 +104,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       ivr_state: 1,
       agent_queue_states: 1,
       active_ivr_jobs: 1,
-      workspace_domain_claims: 1
+      workspace_domain_claims: 1,
+      retained_phone_provisioning_commands: 1
     }
 
     compatible = %{
@@ -215,7 +217,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]},
           {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
           {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
-          {"calendar_erasure_v1", [:calendar_erasure_state]}
+          {"calendar_erasure_v1", [:calendar_erasure_state]},
+          {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)
@@ -258,6 +261,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           Map.delete(clean_hazards, :workspace_domain_claims),
           Map.put(clean_hazards, :workspace_domain_claims, -1),
           Map.put(clean_hazards, :workspace_domain_claims, "0"),
+          Map.delete(clean_hazards, :retained_phone_provisioning_commands),
+          Map.put(clean_hazards, :retained_phone_provisioning_commands, -1),
           Map.delete(clean_hazards, :member_workspaces),
           Map.delete(clean_hazards, :governance_history_snapshots),
           Map.put(clean_hazards, :active_history_purge_jobs, -1),

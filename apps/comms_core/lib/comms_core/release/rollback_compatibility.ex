@@ -40,7 +40,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]},
     {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
     {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
-    {"calendar_erasure_v1", [:calendar_erasure_state]}
+    {"calendar_erasure_v1", [:calendar_erasure_state]},
+    {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -230,7 +231,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(
           RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
-        )
+        ),
+      retained_phone_provisioning_commands: Telephony.rollback_phone_provisioning_hazard_count()
     })
   end
 

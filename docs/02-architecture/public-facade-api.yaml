@@ -601,6 +601,7 @@ contexts:
       - advance_route/2
       - agent_queue_state/1
       - answer/3
+      - apply_phone_provisioning/3
       - bind_control/3
       - claim_cleanup/2
       - claim_control/2
@@ -611,6 +612,7 @@ contexts:
       - complete_cleanup/3
       - complete_control/3
       - complete_dispatch/3
+      - complete_phone_provisioning/3
       - complete_voicemail/3
       - config/1
       - control_capabilities/1
@@ -624,6 +626,7 @@ contexts:
       - get_call/2
       - handle_ivr_webhook/2
       - handle_webhook/2
+      - inspect_phone_provisioning/2
       - ivr_config/1
       - join/3
       - list_calls/2
@@ -632,10 +635,12 @@ contexts:
       - list_voicemails/2
       - mailbox_config/1
       - mark_voicemail_read/2
+      - phone_provisioning_state/1
       - provision/2
       - purge_voicemail/2
       - queue_supervisor_snapshot/1
       - reconcile_control/3
+      - reconcile_phone_provisioning/3
       - reject/2
       - request_control/3
       - save_ivr/2
@@ -656,8 +661,10 @@ contexts:
       - rollback_agent_state_hazard_count/0
       - rollback_control_hazard_count/0
       - rollback_ivr_hazard_count/0
+      - rollback_phone_provisioning_hazard_count/0
       - rollback_voicemail_hazard_count/0
       owner_internal_operations:
+      - authorize_phone_provisioning_io/3
       - callback/2
       - list_calls/1
       - route_provider_request/2

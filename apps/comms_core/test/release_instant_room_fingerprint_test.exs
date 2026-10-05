@@ -38,7 +38,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calendar_exports,
     :calendar_event_mappings,
     :calendar_sync_commands,
-    :calendar_erasure_receipts
+    :calendar_erasure_receipts,
+    :phone_provisioning_commands
   ]
 
   defmodule ReadOnlyRepo do
@@ -78,7 +79,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "calendar_exports" => "calendar-export-internal-id",
             "calendar_event_mappings" => "calendar-mapping-internal-id",
             "calendar_sync_commands" => "calendar-command-internal-id",
-            "calendar_erasure_receipts" => "calendar-erasure-internal-id"
+            "calendar_erasure_receipts" => "calendar-erasure-internal-id",
+            "telephony_provisioning_commands" => "phone-receipt-internal-id"
           },
           table
         )
@@ -137,6 +139,7 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     assert output =~ "call_participants=1"
     assert output =~ "telephony_ivr_runs=1"
     assert output =~ "telephony_agent_states=1"
+    assert output =~ "phone_provisioning_commands=1"
     assert output =~ ~r/ fingerprint_sha256=[0-9a-f]{64}\z/
 
     for forbidden <- [
@@ -144,7 +147,8 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
           "tenant-internal-id",
           "user-internal-id",
           "message-internal-id",
-          "call-internal-id"
+          "call-internal-id",
+          "phone-receipt-internal-id"
         ] do
       refute output =~ forbidden
     end

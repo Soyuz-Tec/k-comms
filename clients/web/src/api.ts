@@ -92,6 +92,7 @@ import { createNotificationsApi } from "./api/domains/notifications";
 import { createIntegrationsApi } from "./api/domains/integrations";
 import { createCallsApi } from "./api/domains/calls";
 import { createTelephonyApi } from "./api/domains/telephony";
+import type { PhoneProvisioningInput, PhoneProvisioningAction } from "./features/telephony/provisioning-types";
 import type { TelephonyApi } from "./api/domains/telephony";
 import type { PhoneNumberInput } from "./features/telephony/types";
 import { createMessagingApi } from "./api/domains/messaging";
@@ -670,6 +671,10 @@ export class ApiClient {
 
   phoneConfiguration() { return this.telephonyApi.phoneConfiguration(); }
   phoneAdminConfiguration() { return this.telephonyApi.phoneAdminConfiguration(); }
+  phoneProvisioningState() { return this.telephonyApi.phoneProvisioningState(); }
+  inspectPhoneProvisioning(input: PhoneProvisioningInput) { return this.telephonyApi.inspectPhoneProvisioning(input); }
+  applyPhoneProvisioning(id: string, input: PhoneProvisioningAction) { return this.telephonyApi.applyPhoneProvisioning(id, input); }
+  reconcilePhoneProvisioning(id: string, input: PhoneProvisioningAction) { return this.telephonyApi.reconcilePhoneProvisioning(id, input); }
   phoneNumberAssignment() { return this.telephonyApi.phoneNumberAssignment(); }
   updatePhoneNumber(input: PhoneNumberInput) { return this.telephonyApi.updatePhoneNumber(input); }
   phoneCalls(options: Parameters<TelephonyApi["phoneCalls"]>[0] = {}) { return this.telephonyApi.phoneCalls(options); }

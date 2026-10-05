@@ -47,7 +47,8 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :calendar_exports,
     :calendar_event_mappings,
     :calendar_sync_commands,
-    :calendar_erasure_receipts
+    :calendar_erasure_receipts,
+    :phone_provisioning_commands
   ]
 
   def run do

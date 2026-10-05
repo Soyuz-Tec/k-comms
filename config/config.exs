@@ -86,6 +86,8 @@ config :comms_core,
   attachment_cleanup_claim_timeout_seconds: 900,
   attachment_cleanup_reconcile_limit: 100,
   push_delivery_status: :unavailable,
+  telephony_provisioning_enabled: false,
+  telephony_provisioning_adapter: CommsIntegrations.Telephony.ProvisioningLiveKit,
   session_ttl_seconds: 2_592_000,
   session_absolute_ttl_seconds: 2_592_000
 

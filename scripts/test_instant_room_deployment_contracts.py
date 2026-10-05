@@ -23,7 +23,7 @@ ROLLBACK_CAPABILITIES = (
     "scheduled_meeting_lifecycle_v1,"
     "rich_content_erasure_v1,"
     "member_workspace_v1,"
-    "governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1"
+    "governance_history_v1,shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1,calendar_sync_v1,calendar_erasure_v1,phone_provider_provisioning_v1"
 )
 LIFECYCLE_VALUES = {
     "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS": "3600",
@@ -73,6 +73,8 @@ class InstantRoomDeploymentContractTest(unittest.TestCase):
                     self.assertEqual(env[key], "false")
                 self.assertEqual(env["AUDIO_PROVIDER_MODE"], "disabled")
                 self.assertEqual(env["TELEPHONY_PROVIDER_MODE"], "disabled")
+                self.assertEqual(env["TELEPHONY_PROVISIONING_ENABLED"], "false")
+                self.assertEqual(env["TELEPHONY_PROVISIONING_BINDINGS"], "{}")
 
         # Long-running application deployments inherit configured features;
         # maintenance overrides belong only to the one-shot containers.

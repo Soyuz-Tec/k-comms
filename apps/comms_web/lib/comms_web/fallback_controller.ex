@@ -73,6 +73,31 @@ defmodule CommsWeb.FallbackController do
          {503, Atom.to_string(reason),
           "Calendar synchronization is not configured for this deployment"}
 
+  defp error(:telephony_provisioning_disabled),
+    do: {503, "telephony_provisioning_disabled", "Phone provider management is unavailable"}
+
+  defp error(:invalid_provisioning_request),
+    do: {422, "invalid_provisioning_request", "The provider setup request is invalid"}
+
+  defp error(:provider_binding_forbidden),
+    do:
+      {403, "provider_binding_forbidden", "This provider binding is unavailable to the workspace"}
+
+  defp error(:telephony_outcome_unknown),
+    do:
+      {409, "telephony_outcome_unknown",
+       "Reconcile the original provider outcome before starting another effect"}
+
+  defp error(reason)
+       when reason in [
+              :provider_inspection_stale,
+              :telephony_lease_expired,
+              :telephony_effect_in_progress,
+              :telephony_reconciliation_unavailable,
+              :telephony_provider_management_required
+            ],
+       do: {409, Atom.to_string(reason), "Refresh the provider setup receipt before continuing"}
+
   defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],
     do: {401, Atom.to_string(reason), "The authenticator or recovery code is invalid or expired"}
 

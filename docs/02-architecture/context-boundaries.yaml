@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 357e3725def6310983a00f0663688aac87b7661c84bbcd0e33a46653bbc88532
+  sha256: db79b377aeff696a42ac1a211efbba26c41f72b52a14ab4531080652f385fd9f
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -57,6 +57,10 @@ enforcement:
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderPort
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderPort.Contract
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrProviderRequest
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningAuthorityPort
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningPort
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningPort.Contract
+    - context:telephony:public_contracts:add:CommsCore.Telephony.ProvisioningRequest
     - context:telephony:public_contracts:add:CommsCore.Telephony.QueueSupervisorSnapshot
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.CalendarPolicy
     - context:tenant_administration:public_contracts:add:CommsCore.Administration.CalendarPolicyLockQuery
@@ -73,7 +77,7 @@ enforcement:
     - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
     - context:trust_governance:public_facades:add:CommsCore.Governance.CalendarProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->357e3725def6310983a00f0663688aac87b7661c84bbcd0e33a46653bbc88532
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->db79b377aeff696a42ac1a211efbba26c41f72b52a14ab4531080652f385fd9f
     - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
       acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve
       managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No
@@ -99,6 +103,7 @@ enforcement:
     - table:telephony_ivr_event_receipts:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrEventReceipt","owner":"telephony","role":"source"}
     - table:telephony_ivr_menus:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrMenu","owner":"telephony","role":"source"}
     - table:telephony_ivr_runs:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.IvrRun","owner":"telephony","role":"source"}
+    - table:telephony_provisioning_commands:add:{"canonical_schema":"CommsCore.Telephony.ProvisioningCommand","owner":"telephony","role":"source"}
     - table:workspace_domain_claims:add:{"access":"owner_only","access_namespaces":["CommsCore.Administration"],"canonical_schema":"CommsCore.Administration.WorkspaceDomainClaim","owner":"tenant_administration","role":"source"}
     - technical_interfaces:owned-calendar-provider-protocol:add:{"behaviour":"CommsCore.AudioCalls.CalendarSync.ProviderPort","binding":{"application":"comms_core","key":"calendar_provider_adapter","module":"CommsIntegrations.Calendar"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Effects"],"condition":"ADR-0098
       fixed delegated Google/Microsoft OAuth and owned-event operations use one absolute provider deadline inside
@@ -112,9 +117,18 @@ enforcement:
       qualified ARI adapter defaults unavailable, shares the existing application event relay with voicemail, and
       requires exact server-owned bindings and provider proof before opening a digit window or confirming handoff.","contracts":["CommsCore.Telephony.IvrProviderPort","CommsCore.Telephony.IvrProviderPort.Contract","CommsCore.Telephony.IvrProviderRequest","CommsCore.Telephony.IvrEvent"],"dispatch":"configured","id":"telephony-ivr-provider","implementation":"CommsIntegrations.Telephony.IvrARI","interface":"CommsCore.Telephony.IvrProviderPort","operations":[{"arity":0,"name":"ready?"},{"arity":1,"name":"prepare"},{"arity":1,"name":"play"},{"arity":1,"name":"destination"},{"arity":2,"name":"verify_event"}],"owner":"telephony","transaction":"independent"}
     - technical_interfaces:telephony-provider-controls:callers:add:"CommsCore.Telephony.Ivr"
+    - technical_interfaces:telephony-provider-provisioning-authority:add:{"callers":["CommsIntegrations.Telephony.ProvisioningLiveKit"],"condition":"ADR-0107
+      admits only the configured adapter module and exact typed leased command. Telephony rechecks current owner,
+      persisted step-up, eligible assignee, DID binding and CAS before every read and durably consumes the one effect
+      before provider Create. No request may bypass the owner facade or repeat a consumed effect.","contracts":["CommsCore.Telephony.ProvisioningAuthorityPort","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"direct","id":"telephony-provider-provisioning-authority","interface":"CommsCore.Telephony.ProvisioningAuthorityPort","operations":[{"arity":3,"name":"authorize_io"}],"owner":"telephony","transaction":"independent"}
+    - technical_interfaces:telephony-provider-provisioning:add:{"behaviour":"CommsCore.Telephony.ProvisioningPort.Contract","binding":{"application":"comms_core","key":"telephony_provisioning_adapter","module":"CommsIntegrations.Telephony.ProvisioningLiveKit"},"callers":["CommsCore.Telephony.Provisioning","CommsWeb.PhoneProvisioningController"],"condition":"ADR-0107
+      permits only bounded secret-free inspection and a one-shot dispatch-rule create for operator-bound existing
+      tenant trunks and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible assignment
+      and CAS before each read/effect; effects are consumed before dispatch and uncertain results reconcile read-only.","contracts":["CommsCore.Telephony.ProvisioningPort","CommsCore.Telephony.ProvisioningPort.Contract","CommsCore.Telephony.ProvisioningRequest"],"dispatch":"configured","id":"telephony-provider-provisioning","implementation":"CommsIntegrations.Telephony.ProvisioningLiveKit","interface":"CommsCore.Telephony.ProvisioningPort","operations":[{"arity":1,"name":"status"},{"arity":1,"name":"inspect"},{"arity":1,"name":"apply"}],"owner":"telephony","transaction":"independent"}
     - technical_interfaces:telephony-voicemail-provider:callers:add:"CommsCore.Telephony.Ivr"
     - technical_interfaces:telephony-voicemail-storage:callers:add:"CommsCore.Telephony.Ivr"
     - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Ivr"
+    - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Provisioning"
     adr: docs/02-architecture/adr/0110-compose-remaining-full-uc-owner-contracts.md
     removal_condition: Remove this exact frozen Member-to-integration transition only after these owner contracts
       are protected; it authorizes no later widening.
@@ -717,6 +731,10 @@ contexts:
     - CommsCore.Telephony.IvrProviderRequest
     - CommsCore.Telephony.IvrProviderPort
     - CommsCore.Telephony.IvrProviderPort.Contract
+    - CommsCore.Telephony.ProvisioningRequest
+    - CommsCore.Telephony.ProvisioningAuthorityPort
+    - CommsCore.Telephony.ProvisioningPort
+    - CommsCore.Telephony.ProvisioningPort.Contract
     internal_namespaces:
     - CommsCore.Telephony
     allowed_dependencies:
@@ -1480,6 +1498,7 @@ technical_interfaces:
   - CommsCore.Telephony.Mailboxes
   - CommsCore.Telephony.Routing
   - CommsWeb.FallbackController
+  - CommsCore.Telephony.Provisioning
   operations:
   - name: from
     arity: 1
@@ -1809,6 +1828,51 @@ technical_interfaces:
   condition: ADR-0098 fixed delegated Google/Microsoft OAuth and owned-event operations use one absolute provider
     deadline inside an authority-sealed Connection transaction. A durable pre-effect lease survives crashes; no
     API request supplies endpoints/scopes/provider IDs. Default providers are off and qualification is not claimed.
+- id: telephony-provider-provisioning-authority
+  owner: telephony
+  interface: CommsCore.Telephony.ProvisioningAuthorityPort
+  callers:
+  - CommsIntegrations.Telephony.ProvisioningLiveKit
+  operations:
+  - name: authorize_io
+    arity: 3
+  dispatch: direct
+  contracts:
+  - CommsCore.Telephony.ProvisioningAuthorityPort
+  - CommsCore.Telephony.ProvisioningRequest
+  transaction: independent
+  condition: ADR-0107 admits only the configured adapter module and exact typed leased command. Telephony rechecks
+    current owner, persisted step-up, eligible assignee, DID binding and CAS before every read and durably consumes
+    the one effect before provider Create. No request may bypass the owner facade or repeat a consumed effect.
+- id: telephony-provider-provisioning
+  owner: telephony
+  interface: CommsCore.Telephony.ProvisioningPort
+  callers:
+  - CommsCore.Telephony.Provisioning
+  - CommsWeb.PhoneProvisioningController
+  operations:
+  - name: status
+    arity: 1
+  - name: inspect
+    arity: 1
+  - name: apply
+    arity: 1
+  dispatch: configured
+  contracts:
+  - CommsCore.Telephony.ProvisioningPort
+  - CommsCore.Telephony.ProvisioningPort.Contract
+  - CommsCore.Telephony.ProvisioningRequest
+  behaviour: CommsCore.Telephony.ProvisioningPort.Contract
+  implementation: CommsIntegrations.Telephony.ProvisioningLiveKit
+  binding:
+    application: comms_core
+    key: telephony_provisioning_adapter
+    module: CommsIntegrations.Telephony.ProvisioningLiveKit
+  transaction: independent
+  condition: ADR-0107 permits only bounded secret-free inspection and a one-shot dispatch-rule create for operator-bound
+    existing tenant trunks and DIDs. Telephony persists the lease and rechecks current owner, step-up, eligible
+    assignment and CAS before each read/effect; effects are consumed before dispatch and uncertain results reconcile
+    read-only.
 retired_modules:
 - CommsCore.Authorization
 - CommsCore.InAppNotifications
@@ -2239,6 +2303,10 @@ tables:
     access: owner_only
     access_namespaces:
     - CommsCore.AudioCalls
+  telephony_provisioning_commands:
+    owner: telephony
+    canonical_schema: CommsCore.Telephony.ProvisioningCommand
+    role: source
 read_model_exceptions:
 - id: operations-cross-context-read-model
   module: CommsCore.Operations

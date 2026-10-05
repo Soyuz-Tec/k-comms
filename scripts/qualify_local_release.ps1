@@ -3273,6 +3273,7 @@ function Get-FixedInstantRoomTenantFingerprint {
         "ephemeral_join_receipts=[0-9]+ audit_events=[0-9]+ " +
         "outbox_events=[0-9]+ calls=[0-9]+ call_participants=[0-9]+ " +
         "member_workspaces=[0-9]+ audit_history_snapshots=[0-9]+ shared_documents=[0-9]+ shared_document_operations=[0-9]+ workspace_domain_claims=[0-9]+ " +
+        "phone_provisioning_commands=[0-9]+ " +
         "fingerprint_sha256=[0-9a-f]{64}$"
     $fingerprints = @(
         $result.Output |

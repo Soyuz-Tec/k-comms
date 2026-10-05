@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PhoneAdminPanel } from "./PhoneAdminPanel";
 
-const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { api: { phoneIvrConfiguration: vi.fn().mockResolvedValue({ menu: null, available: false, max_active_callers: 100, approved_prompts: [] }), voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string }[] }; });
-vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api }) }));
+import type { Session } from "../../types";
+
+const harness = vi.hoisted(() => { const load = vi.fn(); const update = vi.fn(); return { session: null as Session | null, api: { phoneIvrConfiguration: vi.fn().mockResolvedValue({ menu: null, available: false, max_active_callers: 100, approved_prompts: [] }), phoneProvisioningState: vi.fn().mockResolvedValue({ provider: { enabled: false, ready: false, reason: "provider_management_disabled", number_purchase: false, trunk_credentials_edit: false }, assignment_version: 0, commands: [] }), voicemailMailbox: vi.fn().mockResolvedValue(null), phoneRoutes: vi.fn().mockResolvedValue({ data: [], limit: 100 }), phoneCapabilities: vi.fn().mockResolvedValue({}), phoneAdminConfiguration: load, updatePhoneNumber: update }, load, update, stepUp: vi.fn(), refresh: vi.fn(), users: [] as { id: string; display_name: string; status: string; account_type?: string; access_scope?: string }[] }; });
+vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api, session: harness.session }) }));
 vi.mock("../../app/workspace-data", () => ({ useWorkspaceData: () => ({ users: harness.users }) }));
 vi.mock("../../app/step-up", () => ({ useStepUp: () => ({ runWithStepUp: harness.stepUp }), stepUpWasCancelled: () => false }));
 vi.mock("./TelephonyProvider", () => ({ useTelephony: () => ({ refresh: harness.refresh }) }));
@@ -21,8 +23,21 @@ async function fillAssignment() {
   return user;
 }
 
+
+function currentSession(): Session {
+  return { access_token: "private-owner-access", refresh_token: "private-owner-refresh", token_type: "Bearer", expires_in: 900,
+    tenant: { id: "tenant", slug: "workspace", name: "Workspace", status: "active" },
+    user: { id: "owner", tenant_id: "tenant", display_name: "Owner", role: "owner", status: "active", version: 1, account_type: "human", access_scope: "workspace" },
+    device: { id: "device", user_id: "owner", name: "Browser", platform: "test" } };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
 describe("phone provisioning", () => {
-  beforeEach(() => { vi.clearAllMocks(); harness.users = [{ id: "user-1", display_name: "Member One", status: "active" }, { id: "service-1", display_name: "Automation", status: "active", account_type: "service" }, { id: "guest-1", display_name: "Guest", status: "active", account_type: "guest" }, { id: "inactive-1", display_name: "Inactive", status: "suspended" }]; harness.load.mockResolvedValue(configuration); harness.stepUp.mockImplementation((action: () => Promise<unknown>) => action()); harness.refresh.mockResolvedValue(undefined); harness.update.mockResolvedValue({ id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" }); });
+  beforeEach(() => { vi.clearAllMocks(); harness.session = currentSession(); harness.users = [{ id: "user-1", display_name: "Member One", status: "active", account_type: "human", access_scope: "workspace" }, { id: "service-1", display_name: "Automation", status: "active", account_type: "service" }, { id: "guest-1", display_name: "Guest", status: "active", account_type: "guest" }, { id: "inactive-1", display_name: "Inactive", status: "suspended" }]; harness.load.mockResolvedValue(configuration); harness.stepUp.mockImplementation((action: () => Promise<unknown>) => action()); harness.refresh.mockResolvedValue(undefined); harness.update.mockResolvedValue({ id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" }); });
   it("guides setup from provider to verification and saves only through step-up with an audit reason", async () => {
     render(<PhoneAdminPanel />);
     const user = await fillAssignment();
@@ -35,7 +50,7 @@ describe("phone provisioning", () => {
     await user.click(screen.getByRole("button", { name: "Save phone line" }));
     await screen.findByText("Phone assignment saved. Carrier connectivity still needs to be verified with your service operator.");
     expect(harness.stepUp).toHaveBeenCalledOnce();
-    await waitFor(() => expect(harness.update).toHaveBeenCalledWith({ phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "First phone pilot" }));
+    await waitFor(() => expect(harness.update).toHaveBeenCalledWith({ phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "First phone pilot", version: 0 }));
     expect(harness.refresh).toHaveBeenCalled();
     expect(screen.getByLabelText("Reason for this change")).toHaveValue("");
     expect(screen.getByText("Phone service is off")).toBeVisible();
@@ -78,7 +93,7 @@ describe("phone provisioning", () => {
     harness.load.mockResolvedValue({ ...configuration, line_assigned: true, number: { id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1" } });
     const view = render(<PhoneAdminPanel />);
     expect(await screen.findByLabelText("Assigned member")).toHaveValue("");
-    harness.users = [{ id: "user-1", display_name: "Member One", status: "active" }];
+    harness.users = [{ id: "user-1", display_name: "Member One", status: "active", account_type: "human", access_scope: "workspace" }];
     view.rerender(<PhoneAdminPanel />);
     expect(screen.getByLabelText("Assigned member")).toHaveValue("user-1");
     expect(harness.update).not.toHaveBeenCalled();
@@ -92,5 +107,57 @@ describe("phone provisioning", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Retry phone settings" }));
     expect(await screen.findByLabelText("Phone number")).toBeVisible();
     expect(harness.update).not.toHaveBeenCalled();
+  });
+
+  it("does not replay a delayed manual configuration across same-identity access and role changes", async () => {
+    const old = deferred<unknown>();
+    harness.load.mockImplementationOnce(() => old.promise).mockResolvedValue(configuration);
+    const view = render(<PhoneAdminPanel />);
+    await waitFor(() => expect(harness.load).toHaveBeenCalledOnce());
+    const s = currentSession();
+    harness.session = { ...s, access_token: "rotated-private-access", user: { ...s.user, role: "admin", version: 2 } };
+    view.rerender(<PhoneAdminPanel />);
+    await screen.findByLabelText("Phone number");
+    await act(async () => old.resolve({ ...configuration, number: { id: "old-line", phone_number: "+442012345678", user_id: "user-1", extension: "909" } }));
+    expect(screen.getByLabelText("Phone number")).toHaveValue("");
+    expect(screen.queryByText(/\+442012345678/)).not.toBeInTheDocument();
+    expect(harness.load).toHaveBeenCalledTimes(2);
+    expect(harness.update).not.toHaveBeenCalled();
+  });
+
+  it("does not publish an old manual save completion after refresh credential and version changes", async () => {
+    const old = deferred<unknown>();
+    harness.update.mockImplementationOnce(() => old.promise);
+    const view = render(<PhoneAdminPanel />);
+    const user = await fillAssignment();
+    await user.click(screen.getByRole("button", { name: "Save phone line" }));
+    await waitFor(() => expect(harness.update).toHaveBeenCalledOnce());
+    const s = currentSession();
+    harness.session = { ...s, refresh_token: "rotated-private-refresh", user: { ...s.user, version: 2 } };
+    view.rerender(<PhoneAdminPanel />);
+    await screen.findByLabelText("Phone number");
+    await act(async () => old.resolve({ id: "old-line", phone_number: "+442012345678", extension: "909", user_id: "user-1", inbound_trunk_id: "ST_old", outbound_trunk_id: "ST_old_out" }));
+    expect(screen.getByLabelText("Phone number")).toHaveValue("");
+    expect(screen.queryByText(/Phone assignment saved/)).not.toBeInTheDocument();
+    expect(harness.refresh).not.toHaveBeenCalled();
+    expect(harness.update).toHaveBeenCalledOnce();
+  });
+
+  it("preserves an equivalent-session draft then erases manual setup on permission withdrawal", async () => {
+    const view = render(<PhoneAdminPanel />);
+    await fillAssignment();
+    const s = currentSession();
+    harness.session = { ...s, tenant: { ...s.tenant }, user: { ...s.user }, device: { ...s.device }, received_at: 1000 };
+    view.rerender(<PhoneAdminPanel />);
+    expect(screen.getByLabelText("Phone number")).toHaveValue("+14155550123");
+    expect(screen.getByLabelText("Reason for this change")).toHaveValue("First phone pilot");
+    expect(harness.load).toHaveBeenCalledOnce();
+    harness.session = { ...s, user: { ...s.user, access_scope: "conversation_only", version: 2 } };
+    view.rerender(<PhoneAdminPanel />);
+    expect(screen.getByRole("alert")).toHaveTextContent("current owner or administrator with full workspace access");
+    expect(screen.queryByLabelText("Phone number")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Reason for this change")).not.toBeInTheDocument();
+    expect(harness.update).not.toHaveBeenCalled();
+    expect(view.container.innerHTML).not.toContain("private-owner-access");
   });
 });

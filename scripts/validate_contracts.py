@@ -12,6 +12,8 @@ import yaml
 from jsonschema.validators import validator_for
 from openapi_spec_validator import validate as validate_openapi
 
+from validate_phone_provisioning_contracts import validate_phone_provisioning_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts"
@@ -2681,6 +2683,7 @@ def main() -> None:
     validate_message_contract(schemas["message-created.v1.json"], openapi)
     validate_call_contract(openapi)
     validate_telephony_contract(openapi)
+    validate_phone_provisioning_contract(openapi, schemas["phone-provider-provisioning.v1.json"])
     validate_instant_room_contract(openapi)
     validate_guest_contract(openapi)
     validate_whiteboard_contract(openapi)
