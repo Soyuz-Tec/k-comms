@@ -23,9 +23,12 @@ contexts:
       - artifact_playback/4
       - artifact_transcript/4
       - authorize_participant/3
+      - begin_calendar_authorization/3
       - cancel_meeting/3
       - claim_participant_eviction/2
+      - complete_calendar_authorization/1
       - consent_artifact/5
+      - create_calendar_export/2
       - delete_artifact/4
       - deliver_meeting_reminder/3
       - end_call/6
@@ -35,17 +38,22 @@ contexts:
       - get_meeting/2
       - handle_artifact_callback/2
       - list_artifacts/3
+      - list_calendar_connections/1
+      - list_calendar_exports/2
       - list_meetings/2
       - list_participants/3
       - list_sessions/2
       - meeting_calendar/2
       - moderation_target/4
+      - perform_calendar_command/3
       - process_artifact/2
       - reconcile_artifacts/1
+      - reconcile_calendar_commands/2
       - record_participant_eviction/4
       - record_participant_mute/3
       - remove_participant/4
       - request_artifact/4
+      - resolve_calendar_export/3
       - schedule_meeting/3
       - search_artifacts/2
       - search_meetings/2
@@ -54,18 +62,23 @@ contexts:
       - start_meeting/6
       - start_with_join_authorized/5
       - stop_artifact/4
+      - unlink_calendar_connection/3
       - update_meeting/3
       - usage_projection/2
       - with_join_authorized/5
       collaboration_operations:
+      - calendar_governance_erasure_pending?/3
       - governance_erasure_pending?/3
       - meeting_governance_erasure_pending?/3
+      - prepare_calendar_governance_erasure/3
       - prepare_governance_erasure/3
       - prepare_meeting_governance_erasure/3
       - release_tenant_fingerprint_fragment/2
       - revoke_conversation_access/1
       - revoke_for_conversation/3
       - rollback_artifact_hazard_count/0
+      - rollback_calendar_erasure_hazard_count/0
+      - rollback_calendar_hazard_count/0
       - rollback_meeting_hazard_count/0
       owner_internal_operations:
       - activity/2
@@ -74,6 +87,8 @@ contexts:
       - can_end?/2
       - end_call/4
       - end_call/5
+      - fence_calendar_identity/1
+      - fence_calendar_tenant/1
       - list_sessions/1
       - revoke_for_call/3
       - revoke_for_device/3
@@ -384,6 +399,9 @@ contexts:
       - lock_access_grant/1
       - lock_active_directory_users/1
       - lock_active_human_directory_users/2
+      - lock_calendar_actor/1
+      - lock_calendar_source_users/1
+      - lock_calendar_worker/1
       - lock_content_write_grant/2
       - lock_guest_identity_parents/1
       - lock_push_registration_identity/3
@@ -401,6 +419,7 @@ contexts:
       - resolve_user_views/2
       - resume_ephemeral_guest_identity/1
       - retention_actor_id/1
+      - revalidate_calendar_actor/1
       - revoke_guest_session/2
       - rollback_enterprise_identity_hazard_count/0
       - rollback_member_workspace_hazard_count/0
@@ -571,9 +590,9 @@ contexts:
       public_operations: []
       collaboration_operations:
       - authorized_job_worker?/2
-      - job_worker_name!/1
-      owner_internal_operations:
       - job_worker!/1
+      - job_worker_name!/1
+      owner_internal_operations: []
   telephony:
     CommsCore.Telephony:
       public_operations:
@@ -671,11 +690,13 @@ contexts:
       - create_bootstrap_tenant/1
       - delete_release_qualification_tenant/1
       - get_bootstrap_tenant_by_slug/1
+      - lock_calendar_policy/1
       - lock_call_policy/1
       - release_tenant_fingerprint_id/2
       - retained_workspace_domain_claim_count/1
       - retention_defaults/1
       - retention_tenant_ids/1
+      - rollback_calendar_policy_hazard_count/0
       - workspace_domain_release_fingerprint_fragment/2
       owner_internal_operations:
       - authorize_audit_tenant/1
@@ -748,6 +769,11 @@ contexts:
       public_operations: []
       collaboration_operations:
       - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.CalendarProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/1
       owner_internal_operations: []
     CommsCore.Governance.DocumentProtection:
       public_operations: []

@@ -675,6 +675,84 @@ if config_env() == :prod do
   public_app_uri = URI.parse(public_app_url)
   recovery_signing_key = System.fetch_env!("PASSWORD_RECOVERY_SIGNING_KEY")
 
+  calendar_keys_encoded = optional_secret.("CALENDAR_SECRET_ENCRYPTION_KEYS")
+  calendar_current_key_id = System.get_env("CALENDAR_ENCRYPTION_KEY_ID", "primary")
+
+  if calendar_keys_encoded do
+    entries = String.split(calendar_keys_encoded, ",", trim: false)
+
+    unless length(entries) in 1..8 and
+             Enum.all?(entries, fn entry ->
+               case String.split(entry, ":", parts: 2) do
+                 [id, encoded] ->
+                   Regex.match?(~r/\A[A-Za-z0-9_.-]{1,64}\z/, id) and
+                     Regex.match?(~r/\A[A-Za-z0-9+\/]{43}=\z/, encoded)
+
+                 _ ->
+                   false
+               end
+             end),
+           do: raise("Calendar keyring must contain 1 to 8 exact key_id:Base64 entries")
+  end
+
+  calendar_keys = parse_keyring.(calendar_keys_encoded, "CALENDAR_SECRET_ENCRYPTION_KEYS")
+
+  unless Regex.match?(~r/\A[A-Za-z0-9_.-]{1,64}\z/, calendar_current_key_id) and
+           (is_nil(calendar_keys) or Map.has_key?(calendar_keys, calendar_current_key_id)),
+         do: raise("Calendar active key identifier must select a configured key")
+
+  calendar_origin = URI.to_string(%URI{public_app_uri | path: nil, query: nil, fragment: nil})
+
+  calendar_providers =
+    Map.new([:google, :microsoft], fn provider ->
+      prefix = "CALENDAR_" <> (provider |> Atom.to_string() |> String.upcase())
+
+      enabled =
+        parse_boolean.(System.get_env(prefix <> "_ENABLED", "false"), prefix <> "_ENABLED")
+
+      client_id = System.get_env(prefix <> "_CLIENT_ID")
+      client_secret = optional_secret.(prefix <> "_CLIENT_SECRET")
+      tenant_id = System.get_env(prefix <> "_TENANT_ID")
+
+      if enabled do
+        unless is_map(calendar_keys) and public_app_uri.scheme == "https" and
+                 public_app_uri.port == 443 and
+                 is_binary(client_id) and byte_size(client_id) in 1..512 and
+                 Regex.match?(~r/\A[\x21-\x7e]+\z/, client_id) and
+                 is_binary(client_secret) and byte_size(client_secret) in 16..4096 and
+                 Regex.match?(~r/\A[\x21-\x7e]+\z/, client_secret) and
+                 (provider == :google or
+                    (is_binary(tenant_id) and
+                       Regex.match?(
+                         ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/,
+                         tenant_id
+                       ))),
+               do:
+                 raise(
+                   "Enabled Calendar providers require dedicated keys and bounded HTTPS OAuth configuration"
+                 )
+      end
+
+      {provider,
+       %{
+         enabled: enabled,
+         client_id: client_id,
+         client_secret: client_secret,
+         tenant_id: tenant_id,
+         workspace_origin: calendar_origin,
+         redirect_uri:
+           calendar_origin <>
+             "/api/v1/calendar/oauth/" <>
+             Atom.to_string(provider) <> "/callback"
+       }}
+    end)
+
+  config :comms_integrations, calendar_providers: calendar_providers
+
+  config :comms_core,
+    calendar_workspace_origin: calendar_origin,
+    calendar_secret_keyring: %{current_key_id: calendar_current_key_id, keys: calendar_keys}
+
   governance_history_cursor_key =
     case System.get_env("GOV_HISTORY_CURSOR_KEY") do
       value when value in [nil, ""] -> nil
@@ -867,6 +945,59 @@ if config_env() == :prod do
       end
     )
 
+  calendar_materials =
+    encryption_materials.(nil, "CALENDAR_SECRET_ENCRYPTION_KEYS", calendar_keys)
+
+  other_calendar_materials =
+    Enum.reduce(
+      [identity_materials, webhook_materials, push_materials],
+      shared_secret_materials,
+      &MapSet.union/2
+    )
+
+  other_calendar_materials =
+    Enum.reduce(Map.values(calendar_providers), other_calendar_materials, fn provider, set ->
+      if is_binary(provider.client_secret) do
+        set = MapSet.put(set, provider.client_secret)
+
+        case Base.decode64(provider.client_secret) do
+          {:ok, decoded} -> MapSet.put(set, decoded)
+          _ -> set
+        end
+      else
+        set
+      end
+    end)
+
+  other_calendar_materials =
+    if governance_history_cursor_key do
+      set = MapSet.put(other_calendar_materials, governance_history_cursor_key)
+
+      case Base.decode64(governance_history_cursor_key) do
+        {:ok, decoded} -> MapSet.put(set, decoded)
+        _ -> set
+      end
+    else
+      other_calendar_materials
+    end
+
+  unless MapSet.disjoint?(calendar_materials, other_calendar_materials),
+    do: raise("Calendar encryption must use dedicated secret material")
+
+  shared_secret_materials =
+    Enum.reduce(Map.values(calendar_providers), shared_secret_materials, fn provider, set ->
+      if is_binary(provider.client_secret) do
+        set = MapSet.put(set, provider.client_secret)
+
+        case Base.decode64(provider.client_secret) do
+          {:ok, decoded} -> MapSet.put(set, decoded)
+          _ -> set
+        end
+      else
+        set
+      end
+    end)
+
   # File-backed credentials are resolved after the environment-only check.
   # Compare actual decoded keyrings and provider secrets too; file paths cannot
   # establish that their loaded material is independent from history signing.
@@ -879,7 +1010,7 @@ if config_env() == :prod do
 
     other_materials =
       Enum.reduce(
-        [identity_materials, webhook_materials, push_materials],
+        [identity_materials, webhook_materials, push_materials, calendar_materials],
         shared_secret_materials,
         &MapSet.union/2
       )

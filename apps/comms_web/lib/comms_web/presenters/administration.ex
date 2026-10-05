@@ -19,6 +19,8 @@ defmodule CommsWeb.Presenters.Administration do
       allow_public_channels: settings.allow_public_channels,
       allow_audio_calls: settings.allow_audio_calls,
       allow_video_calls: settings.allow_video_calls,
+      allow_calendar_export: settings.allow_calendar_export,
+      calendar_export_policy_version: settings.calendar_export_policy_version,
       message_edit_window_seconds: settings.message_edit_window_seconds,
       max_attachment_bytes: settings.max_attachment_bytes,
       default_retention_days: settings.default_retention_days,

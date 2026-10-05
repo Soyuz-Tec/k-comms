@@ -32,7 +32,13 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :telephony_ivr_runs,
     :telephony_ivr_event_receipts,
     :telephony_agent_states,
-    :workspace_domain_claims
+    :workspace_domain_claims,
+    :calendar_connections,
+    :calendar_oauth_challenges,
+    :calendar_exports,
+    :calendar_event_mappings,
+    :calendar_sync_commands,
+    :calendar_erasure_receipts
   ]
 
   defmodule ReadOnlyRepo do
@@ -66,7 +72,13 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "telephony_ivr_runs" => "ivr-run-internal-id",
             "telephony_ivr_event_receipts" => "ivr-receipt-internal-id",
             "telephony_agent_states" => "agent-state-internal-id",
-            "workspace_domain_claims" => "domain-claim-internal-id"
+            "workspace_domain_claims" => "domain-claim-internal-id",
+            "calendar_connections" => "calendar-connection-internal-id",
+            "calendar_oauth_challenges" => "calendar-challenge-internal-id",
+            "calendar_exports" => "calendar-export-internal-id",
+            "calendar_event_mappings" => "calendar-mapping-internal-id",
+            "calendar_sync_commands" => "calendar-command-internal-id",
+            "calendar_erasure_receipts" => "calendar-erasure-internal-id"
           },
           table
         )

@@ -146,6 +146,12 @@ defmodule CommsCore.Administration do
   @spec list_invitations(public_map(), atom() | binary()) ::
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
   @spec member_capabilities(public_map()) :: public_response()
+  @spec lock_calendar_policy(CommsCore.Administration.CalendarPolicyLockQuery.t()) ::
+          {:ok, CommsCore.Administration.CalendarPolicy.t()} | {:error, atom()}
+  defdelegate lock_calendar_policy(query),
+    to: CommsCore.Administration.CalendarPolicyQueries,
+    as: :lock
+
   @spec revoke_invitation(binary(), public_map(), public_map()) :: public_response()
   @spec update_tenant_settings_view(public_map(), public_map()) :: public_response()
 
@@ -224,4 +230,9 @@ defmodule CommsCore.Administration do
   defdelegate list_audit_events(params, subject), to: AuditQueries, as: :list
 
   defp revoke_tenant_media(command), do: CallLifecyclePort.revoke_tenant_media(command)
+  @doc false
+  @spec rollback_calendar_policy_hazard_count() :: non_neg_integer()
+  defdelegate rollback_calendar_policy_hazard_count(),
+    to: CommsCore.Administration.CalendarPolicyQueries,
+    as: :rollback_hazard_count
 end

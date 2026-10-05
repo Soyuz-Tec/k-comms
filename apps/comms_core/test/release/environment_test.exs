@@ -3,6 +3,35 @@ defmodule CommsCore.Release.EnvironmentTest do
 
   alias CommsCore.Release
 
+  test "actual selected image capability label satisfies the composed release parser" do
+    dockerfile = File.read!(Path.expand("../../../../Dockerfile", __DIR__))
+    [_, csv] = Regex.run(~r/io\.k-comms\.rollback-capabilities="([a-z0-9_,]+)"/, dockerfile)
+    capabilities = String.split(csv, ",")
+    assert Enum.uniq(capabilities) == capabilities
+
+    environment = %{
+      "K_COMMS_RUNTIME_PURPOSE" => "one_shot",
+      "K_COMMS_ROLLBACK_TARGET_REVISION" => "synthetic-selected-image",
+      "K_COMMS_ROLLBACK_TARGET_CAPABILITIES" => csv
+    }
+
+    assert {:ok, target} =
+             Release.validate_communication_rollback_environment(&Map.get(environment, &1))
+
+    assert target.capabilities == MapSet.new(capabilities)
+
+    for capability <- capabilities do
+      missing = Enum.reject(capabilities, &(&1 == capability)) |> Enum.join(",")
+
+      assert {:error, :rollback_writes_quiescence_confirmation_required} =
+               Release.validate_communication_rollback_environment(
+                 &(environment
+                   |> Map.put("K_COMMS_ROLLBACK_TARGET_CAPABILITIES", missing)
+                   |> Map.get(&1))
+               )
+    end
+  end
+
   @guest_capabilities "guest_identity_v1,guest_admission_expiry_worker_v1"
   @communication_capabilities Enum.join(
                                 [
@@ -19,7 +48,11 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
                                   "governance_history_v1",
-                                  "shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1"
+                                  "shared_documents_v1",
+                                  "ivr_routing_v1",
+                                  "workspace_domain_discovery_v1",
+                                  "calendar_sync_v1",
+                                  "calendar_erasure_v1"
                                 ],
                                 ","
                               )
@@ -255,7 +288,7 @@ defmodule CommsCore.Release.EnvironmentTest do
 
     # Omitting any new capability must disable the database-free fast path.
     for capability <-
-          ~w(enterprise_identity_v1 uc_artifact_lifecycle_v1
+          ~w(enterprise_identity_v1 calendar_sync_v1 calendar_erasure_v1 uc_artifact_lifecycle_v1
                          uc_voicemail_lifecycle_v1 uc_advanced_telephony_v1
                          scheduled_meeting_lifecycle_v1 rich_content_erasure_v1
                          member_workspace_v1 governance_history_v1 ivr_routing_v1 workspace_domain_discovery_v1) do

@@ -205,6 +205,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
             derived_erasure_version: 1,
             media_erasure_version: 1,
             meeting_erasure_version: 1,
+            calendar_erasure_version: 1,
             ivr_agent_state_erasure_version: 1,
             writer_fence_erasure_version: 1,
             shared_document_erasure_version: 1,
@@ -256,6 +257,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                    ) or
                    fragment(
                      "coalesce(?->>'ivr_agent_state_erasure_version', '') <> '1'",
+                     request.evidence
+                   ) or
+                   fragment(
+                     "coalesce(?->>'calendar_erasure_version', '') <> '1'",
                      request.evidence
                    ) or
                    fragment(
@@ -316,6 +321,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
               value(request.evidence || %{}, :writer_fence_erasure_version) == 1 and
               value(request.evidence || %{}, :shared_document_erasure_version) == 1 and
               value(request.evidence || %{}, :ivr_agent_state_erasure_version) == 1 and
+              value(request.evidence || %{}, :calendar_erasure_version) == 1 and
               domain_erasure_current?(request)) do
         false
       else
@@ -344,6 +350,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                 "media_erasure_version" => 1,
                 "meeting_erasure_version" => 1,
                 "ivr_agent_state_erasure_version" => 1,
+                "calendar_erasure_version" => 1,
                 "writer_fence_erasure_version" => 1,
                 "shared_document_erasure_version" => 1,
                 "shared_documents_erased" => results.shared_documents_erased,
@@ -368,6 +375,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
                   derived_erasure_version: 1,
                   media_erasure_version: 1,
                   meeting_erasure_version: 1,
+                  calendar_erasure_version: 1,
                   writer_fence_erasure_version: 1,
                   shared_document_erasure_version: 1,
                   ivr_agent_state_erasure_version: 1
@@ -437,6 +445,12 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     target = media_target(request)
 
     with {:ok, _} <-
+           AudioCalls.prepare_calendar_governance_erasure(
+             request.tenant_id,
+             request.target_type,
+             target
+           ),
+         {:ok, _} <-
            AudioCalls.prepare_governance_erasure(request.tenant_id, request.target_type, target),
          {:ok, _} <-
            Telephony.prepare_governance_erasure(request.tenant_id, request.target_type, target),
@@ -453,6 +467,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
              :artifact_legal_hold,
              :voicemail_legal_hold,
              :meeting_legal_hold,
+             :calendar_legal_hold,
              :legal_hold_active
            ] ->
         Repo.rollback(:legal_hold_active)
@@ -475,7 +490,17 @@ defmodule CommsCore.Governance.DeletionWorkflow do
              request.target_type,
              target
            ) do
-      calls_pending or voicemail_pending or meetings_pending
+      calendar_pending =
+        case AudioCalls.calendar_governance_erasure_pending?(
+               request.tenant_id,
+               request.target_type,
+               target
+             ) do
+          {:ok, pending} -> pending
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+      calls_pending or voicemail_pending or meetings_pending or calendar_pending
     else
       {:error, reason} -> Repo.rollback(reason)
     end

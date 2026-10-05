@@ -37,6 +37,42 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:forbidden), do: {403, "forbidden", "This operation is not permitted"}
 
+  defp error(reason)
+       when reason in [:calendar_legal_hold, :calendar_export_blocked, :calendar_export_disabled],
+       do:
+         {403, Atom.to_string(reason), "Calendar export is unavailable under the current policy"}
+
+  defp error(reason)
+       when reason in [
+              :calendar_cleanup_pending,
+              :calendar_export_terminal,
+              :calendar_occurrence_terminal,
+              :calendar_cleanup_principal_mismatch
+            ],
+       do:
+         {409, Atom.to_string(reason),
+          "Calendar cleanup is pending or the source changed. Reload its status"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_calendar_provider,
+              :invalid_calendar_purpose,
+              :invalid_calendar_decision,
+              :invalid_meeting_id
+            ],
+       do: {422, Atom.to_string(reason), "Choose a valid calendar provider and explicit action"}
+
+  defp error(reason)
+       when reason in [
+              :calendar_provider_not_configured,
+              :calendar_worker_unavailable,
+              :calendar_protection_unavailable,
+              :calendar_secret_keyring_not_configured
+            ],
+       do:
+         {503, Atom.to_string(reason),
+          "Calendar synchronization is not configured for this deployment"}
+
   defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],
     do: {401, Atom.to_string(reason), "The authenticator or recovery code is invalid or expired"}
 

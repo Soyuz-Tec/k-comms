@@ -85,6 +85,9 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "CommsWorkers.TelephonyIvrWorker",
     ),
     "workspace_domain_discovery_v1": ("workspace_domain_claims",),
+    "calendar_sync_v1": ("calendar_connections", "calendar_oauth_challenges", "calendar_exports", "calendar_event_mappings",
+        "calendar_sync_commands", "CommsWorkers.CalendarSyncWorker", "CommsWorkers.CalendarSyncReconcilerWorker"),
+    "calendar_erasure_v1": ("calendar_erasure_receipts", "calendar_exports.tombstoned_at"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

@@ -38,7 +38,9 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
     {"shared_documents_v1", [:shared_documents]},
     {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]},
-    {"workspace_domain_discovery_v1", [:workspace_domain_claims]}
+    {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
+    {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
+    {"calendar_erasure_v1", [:calendar_erasure_state]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -220,6 +222,10 @@ defmodule CommsCore.Release.RollbackCompatibility do
       workspace_domain_claims: Administration.retained_workspace_domain_claim_count(repo),
       member_workspaces: Accounts.rollback_member_workspace_hazard_count(),
       shared_documents: SharedDocuments.rollback_hazard_count(),
+      calendar_owner_state: AudioCalls.rollback_calendar_hazard_count(),
+      calendar_erasure_state: AudioCalls.rollback_calendar_erasure_hazard_count(),
+      active_calendar_jobs:
+        active_job_count(repo, :calendar_sync) + active_job_count(repo, :calendar_sync_reconciler),
       governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(

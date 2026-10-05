@@ -19,7 +19,11 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "rich_content_erasure_v1",
                                   "member_workspace_v1",
                                   "governance_history_v1",
-                                  "shared_documents_v1,ivr_routing_v1,workspace_domain_discovery_v1"
+                                  "shared_documents_v1",
+                                  "ivr_routing_v1",
+                                  "workspace_domain_discovery_v1",
+                                  "calendar_sync_v1",
+                                  "calendar_erasure_v1"
                                 ],
                                 ","
                               )
@@ -90,6 +94,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       rich_messages: 1,
       rich_whiteboards: 1,
       member_workspaces: 1,
+      calendar_owner_state: 1,
+      calendar_erasure_state: 1,
+      active_calendar_jobs: 1,
       governance_history_snapshots: 1,
       active_history_purge_jobs: 1,
       shared_documents: 1,
@@ -206,7 +213,9 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
           {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
           {"shared_documents_v1", [:shared_documents]},
           {"ivr_routing_v1", [:ivr_state, :agent_queue_states, :active_ivr_jobs]},
-          {"workspace_domain_discovery_v1", [:workspace_domain_claims]}
+          {"workspace_domain_discovery_v1", [:workspace_domain_claims]},
+          {"calendar_sync_v1", [:calendar_owner_state, :active_calendar_jobs]},
+          {"calendar_erasure_v1", [:calendar_erasure_state]}
         ],
         key <- keys do
       state = Map.put(clean_hazards, key, 1)

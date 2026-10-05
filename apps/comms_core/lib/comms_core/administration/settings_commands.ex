@@ -73,6 +73,7 @@ defmodule CommsCore.Administration.SettingsCommands do
             :allow_public_channels,
             :allow_audio_calls,
             :allow_video_calls,
+            :allow_calendar_export,
             :message_edit_window_seconds,
             :max_attachment_bytes,
             :default_retention_days,
@@ -82,6 +83,7 @@ defmodule CommsCore.Administration.SettingsCommands do
             "allow_public_channels",
             "allow_audio_calls",
             "allow_video_calls",
+            "allow_calendar_export",
             "message_edit_window_seconds",
             "max_attachment_bytes",
             "default_retention_days",
@@ -100,6 +102,17 @@ defmodule CommsCore.Administration.SettingsCommands do
             %TenantSettings{tenant_id: tenant_id, lock_version: expected_version + 1}
             |> TenantSettings.changeset(settings_attrs)
             |> insert_or_rollback()
+          end
+
+        updated_settings =
+          if updated_settings.allow_calendar_export != current.allow_calendar_export do
+            updated_settings
+            |> Ecto.Changeset.change(
+              calendar_export_policy_version: current.calendar_export_policy_version + 1
+            )
+            |> update_or_rollback()
+          else
+            updated_settings
           end
 
         updated_tenant =
@@ -124,6 +137,13 @@ defmodule CommsCore.Administration.SettingsCommands do
   end
 
   defp revoke_disabled_media!(tenant, current, updated, revoke_tenant_media) do
+    if current.allow_calendar_export and not updated.allow_calendar_export do
+      tenant.id
+      |> CallLifecycleCommand.calendar_export_disabled("tenant_calendar_export_disabled")
+      |> revoke_tenant_media.()
+      |> call_lifecycle_ok!()
+    end
+
     if current.allow_audio_calls and not updated.allow_audio_calls do
       tenant.id
       |> CallLifecycleCommand.tenant_media_disabled(:audio, "tenant_audio_disabled")
@@ -157,7 +177,7 @@ defmodule CommsCore.Administration.SettingsCommands do
 
   defp changed_fields(attrs) do
     allowed =
-      ~w(name allow_public_channels allow_audio_calls allow_video_calls message_edit_window_seconds max_attachment_bytes default_retention_days max_active_users max_active_conversations max_conversation_members)
+      ~w(name allow_public_channels allow_audio_calls allow_video_calls allow_calendar_export message_edit_window_seconds max_attachment_bytes default_retention_days max_active_users max_active_conversations max_conversation_members)
 
     attrs
     |> Map.keys()

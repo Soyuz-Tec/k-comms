@@ -30,6 +30,18 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
   end
 
+  pipeline :calendar_callback do
+    plug(:accepts, ["html", "json"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
+    plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :ip)
+  end
+
+  pipeline :authenticated_document_export_api do
+    plug(:accepts, ["txt", "json"])
+    plug(CommsWeb.Plugs.Authenticate)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
   pipeline :authentication_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSecureTransport)
@@ -203,6 +215,11 @@ defmodule CommsWeb.Router do
   end
 
   scope "/api/v1", CommsWeb do
+    pipe_through(:calendar_callback)
+    get("/calendar/oauth/:provider/callback", CalendarController, :callback)
+  end
+
+  scope "/api/v1", CommsWeb do
     pipe_through(:instant_room_create_api)
     post("/instant-rooms", InstantRoomController, :create)
   end
@@ -257,6 +274,11 @@ defmodule CommsWeb.Router do
   end
 
   scope "/api/v1", CommsWeb do
+    pipe_through(:authenticated_document_export_api)
+    get("/documents/:document_id/export", SharedDocumentController, :export)
+  end
+
+  scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
 
     get("/whiteboards", WhiteboardLibraryController, :index)
@@ -287,7 +309,6 @@ defmodule CommsWeb.Router do
     post("/documents/:document_id/copies", SharedDocumentController, :copy)
     post("/documents/:document_id/operations", SharedDocumentController, :operation)
     get("/documents/:document_id/operations", SharedDocumentController, :replay)
-    get("/documents/:document_id/export", SharedDocumentController, :export)
 
     post(
       "/conversations/:conversation_id/whiteboard/assets",
@@ -320,6 +341,12 @@ defmodule CommsWeb.Router do
     post("/me/oidc/link/callback", EnterpriseIdentityController, :oidc_link_callback)
 
     get("/meetings", MeetingController, :index)
+    get("/calendar/connections", CalendarController, :connections)
+    post("/calendar/oauth/:provider/authorize", CalendarController, :authorize)
+    post("/calendar/connections/:connection_id/unlink", CalendarController, :unlink)
+    get("/calendar/exports", CalendarController, :exports)
+    post("/calendar/exports", CalendarController, :create_export)
+    post("/calendar/exports/:export_id/resolve", CalendarController, :resolve_export)
     post("/conversations/:conversation_id/meetings", MeetingController, :create)
     get("/meetings/:meeting_id", MeetingController, :show)
     patch("/meetings/:meeting_id", MeetingController, :update)

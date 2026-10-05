@@ -11,6 +11,7 @@ import type { Meeting, MeetingInput, MeetingOccurrence } from "../../types/meeti
 import { useCallSession } from "../calls/CallSessionProvider";
 import { dateInTimezone, meetingInput, monthDays, monthQuery, systemTimezone, validateMeeting } from "./meetingCalendar";
 import "./meetings.css";
+import { MeetingCalendarExport } from "../calendar-sync/MeetingCalendarExport";
 
 interface OccurrenceRow {
   meeting: Meeting;
@@ -208,6 +209,7 @@ export function MeetingsPage() {
               {!cancelled && !ended && joinWindowOpen && waitingForHost && <p className="meeting-policy">Waiting for the host. Refresh meetings after the host joins.</p>}
               {cancelled && <strong className="meeting-status">Cancelled</strong>}
               {ended && !cancelled && <span className="meeting-status">Ended</span>}
+              {meeting.host_user_id === session.user.id && <MeetingCalendarExport meeting={meeting} />}
             </div>
             <div className="meeting-row-actions">
               {conversation && <Link className="button ghost compact" to={`/app/?${new URLSearchParams({ conversation: conversation.id }).toString()}`}>Open conversation</Link>}

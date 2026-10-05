@@ -113,6 +113,26 @@ defmodule CommsCore.Accounts do
           | {:error, public_error()}
 
   @spec access_context(binary(), binary()) :: public_response()
+  @spec lock_calendar_actor(CommsCore.Accounts.CalendarActorLockQuery.t()) ::
+          {:ok, AccessGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_actor(query), to: CommsCore.Accounts.CalendarAuthority, as: :actor
+
+  @spec revalidate_calendar_actor(CommsCore.Accounts.CalendarActorLockQuery.t()) ::
+          {:ok, AccessGrant.t()} | {:error, atom()}
+  defdelegate revalidate_calendar_actor(query),
+    to: CommsCore.Accounts.CalendarAuthority,
+    as: :revalidate_actor
+
+  @spec lock_calendar_worker(CommsCore.Accounts.CalendarWorkerLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.CalendarWorkerGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_worker(query), to: CommsCore.Accounts.CalendarAuthority, as: :worker
+
+  @spec lock_calendar_source_users(CommsCore.Accounts.CalendarSourceLockQuery.t()) ::
+          {:ok, CommsCore.Accounts.CalendarSourceGrant.t()} | {:error, atom()}
+  defdelegate lock_calendar_source_users(query),
+    to: CommsCore.Accounts.CalendarAuthority,
+    as: :source
+
   @spec admin_revoke_session_command(binary(), binary(), public_map(), public_map()) ::
           public_response()
   @spec authenticate_view(binary(), binary(), binary(), public_input()) :: public_response()

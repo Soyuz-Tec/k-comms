@@ -15,6 +15,7 @@ from validate_contracts import (
     CONTRACTS,
     load_yaml,
     validate_call_contract,
+    validate_calendar_contract,
     validate_call_realtime_contract,
     validate_guest_contract,
     validate_instant_room_contract,
@@ -1317,6 +1318,55 @@ class BoundedIvrContractTests(unittest.TestCase):
         self.openapi["paths"]["/api/v1/telephony/ivr/webhook"]["post"]["security"] = [{"bearerAuth": []}]
         with self.assertRaisesRegex(ValueError, "IVR caller/human authority differs"):
             validate_ivr_contract(self.openapi, self.schemas)
+
+
+class CalendarContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.openapi = load_yaml(CONTRACTS / "openapi/openapi.yaml")
+        cls.payload = json.loads((CONTRACTS / "json-schema/calendar-sync.v1.json").read_text())
+
+    def test_callback_cannot_accept_arbitrary_redirects(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/oauth/{provider}/callback"]["get"]["responses"]["303"]["headers"]["Location"]["schema"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "fixed private profile redirect"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_owner_authentication_cannot_be_removed(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/exports"]["post"]["security"] = []
+        with self.assertRaisesRegex(ValueError, "current human authentication"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_browser_binding_and_provider_tokens_cannot_enter_public_projection(self) -> None:
+        for name, key in [("CalendarAuthorization", "browser_binding"), ("CalendarConnection", "refresh_token")]:
+            document = copy.deepcopy(self.openapi)
+            document["components"]["schemas"][name]["properties"][key] = {"type": "string"}
+            with self.assertRaisesRegex(ValueError, "exclude credentials/browser binding"):
+                validate_calendar_contract(document, self.payload)
+
+    def test_reexport_requires_current_source_version_but_stop_does_not(self) -> None:
+        schema = self.openapi["components"]["schemas"]["CalendarExportResolveRequest"]
+        validator = Draft202012Validator(schema)
+        self.assertFalse(validator.is_valid({"version": 2, "decision": "reexport_current"}))
+        self.assertTrue(validator.is_valid({"version": 2, "decision": "reexport_current", "meeting_version": 7}))
+        self.assertTrue(validator.is_valid({"version": 2, "decision": "stop_syncing"}))
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["CalendarExportResolveRequest"].pop("allOf")
+        with self.assertRaisesRegex(ValueError, "current meeting version"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_private_cache_receipt_cannot_be_removed(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/calendar/connections"]["get"]["responses"]["200"].pop("headers")
+        with self.assertRaisesRegex(ValueError, "private no-store"):
+            validate_calendar_contract(document, self.payload)
+
+    def test_standalone_mirror_cannot_expose_an_external_principal(self) -> None:
+        payload = copy.deepcopy(self.payload)
+        payload["$defs"]["CalendarConnection"]["properties"]["external_subject"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "canonical safe wire"):
+            validate_calendar_contract(self.openapi, payload)
 
 
 if __name__ == "__main__":

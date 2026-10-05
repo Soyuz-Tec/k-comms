@@ -41,7 +41,13 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :telephony_ivr_runs,
     :telephony_ivr_event_receipts,
     :telephony_agent_states,
-    :workspace_domain_claims
+    :workspace_domain_claims,
+    :calendar_connections,
+    :calendar_oauth_challenges,
+    :calendar_exports,
+    :calendar_event_mappings,
+    :calendar_sync_commands,
+    :calendar_erasure_receipts
   ]
 
   def run do
