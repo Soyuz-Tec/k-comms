@@ -1,6 +1,6 @@
 defmodule CommsIntegrations.Telephony.ProvisioningLiveKit do
   @moduledoc "Bounded LiveKit SIP management pinned to protocol 1.52.1; credentials stay server-side."
-  import Kernel, except: [inspect: 1, inspect: 2]
+  import Kernel, except: [inspect: 1, inspect: 2, binding: 1]
   @behaviour CommsCore.Telephony.ProvisioningPort.Contract
   alias CommsCore.Telephony.ProvisioningAuthorityPort
   alias CommsCore.Telephony.ProvisioningRequest
@@ -261,9 +261,11 @@ defmodule CommsIntegrations.Telephony.ProvisioningLiveKit do
 
   def valid_bindings?(_), do: false
 
-  defp list(map, key), do: case(Map.get(map, key) || Map.get(map, Atom.to_string(key))) do
-    values when is_list(values) -> values
-    _ -> []
+  defp list(map, key) do
+    case Map.get(map, key) || Map.get(map, Atom.to_string(key)) do
+      values when is_list(values) -> values
+      _ -> []
+    end
   end
 
   defp valid_id?(value), do: is_binary(value) and Regex.match?(~r/^[A-Za-z0-9_-]{2,200}$/, value)

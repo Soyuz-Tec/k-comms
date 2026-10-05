@@ -1,13 +1,44 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "../../app/session";
 import { useStepUp, stepUpWasCancelled } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { errorText } from "../../lib/format";
+import { canAdministerTenant } from "../../lib/roles";
 import { phoneNumberInputError } from "./types";
 import type { PhoneProvisioningCommand, PhoneProvisioningInput, PhoneProvisioningState } from "./provisioning-types";
 
-export function PhoneProvisioningPanel({ onApplied, onManagementMode }: { onApplied: () => Promise<void>; onManagementMode: (enabled: boolean) => void }) {
+type PanelProps = { onApplied: () => Promise<void>; onManagementMode: (enabled: boolean) => void };
+
+export function usePhoneProvisioningAuthority() {
+  const { api, session } = useSession();
+  // api is stable across session refreshes. Bind cached views and delayed work to
+  // the exact authority primitives; keys contain only an opaque random generation.
+  const generation = useMemo(() => crypto.randomUUID(), [api, session?.tenant.id,
+    session?.tenant.status, session?.user.id, session?.user.tenant_id,
+    session?.user.role, session?.user.status, session?.user.version,
+    session?.user.account_type, session?.user.access_scope, session?.device.id,
+    session?.device.user_id, session?.device.revoked_at, session?.access_token,
+    session?.refresh_token]);
+  const allowed = Boolean(session && session.tenant.status === "active" &&
+    session.user.status === "active" && canAdministerTenant(session.user.role) &&
+    (session.user.account_type ?? "human") === "human" &&
+    (session.user.access_scope ?? "workspace") === "workspace" &&
+    session.user.tenant_id === session.tenant.id &&
+    session.device.user_id === session.user.id && !session.device.revoked_at);
+  const owner = useRef(generation);
+  owner.current = generation;
+  const isCurrent = useCallback(() => allowed && owner.current === generation, [allowed, generation]);
+  return { generation, allowed, isCurrent };
+}
+
+export function PhoneProvisioningPanel(props: PanelProps) {
+  const authority = usePhoneProvisioningAuthority();
+  if (!authority.allowed) return <p role="alert">Phone setup requires a current owner or administrator with full workspace access.</p>;
+  return <PhoneProvisioningContent key={authority.generation} {...props} isCurrent={authority.isCurrent} />;
+}
+
+function PhoneProvisioningContent({ onApplied, onManagementMode, isCurrent }: PanelProps & { isCurrent: () => boolean }) {
   const { api } = useSession();
   const { users } = useWorkspaceData();
   const { runWithStepUp } = useStepUp();
@@ -21,26 +52,27 @@ export function PhoneProvisioningPanel({ onApplied, onManagementMode }: { onAppl
   const uncertainInspection = useRef<PhoneProvisioningInput | null>(null);
   const eligible = users.filter((user) => user.status === "active" && user.account_type === "human" && user.access_scope === "workspace");
   const load = useCallback(async () => {
+    if (!isCurrent()) return;
     const serial = ++generation.current;
     try {
       const next = await api.phoneProvisioningState();
-      if (mounted.current && serial === generation.current) {
+      if (isCurrent() && mounted.current && serial === generation.current) {
         setState(next); onManagementMode(next.provider.enabled);
         if (next.commands.some((command) => command.request_id === uncertainInspection.current?.idempotency_key)) uncertainInspection.current = null;
       }
-    } catch (reason: unknown) { if (mounted.current && serial === generation.current) setError(errorText(reason)); }
-  }, [api, onManagementMode]);
+    } catch (reason: unknown) { if (isCurrent() && mounted.current && serial === generation.current) setError(errorText(reason)); }
+  }, [api, onManagementMode, isCurrent]);
   useEffect(() => {
     mounted.current = true;
     ownerEpoch.current += 1; setBusy(false);
     setState(null); uncertainInspection.current = null;
     void load();
-    return () => { mounted.current = false; generation.current += 1; ownerEpoch.current += 1; };
+    return () => { mounted.current = false; generation.current += 1; ownerEpoch.current += 1; uncertainInspection.current = null; };
   }, [load]);
 
   async function inspect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!state || busy) return;
+    if (!isCurrent() || !state || busy) return;
     const form = new FormData(event.currentTarget);
     const values = Object.fromEntries(["phone_number", "extension", "user_id", "inbound_trunk_id", "outbound_trunk_id", "reason"].map((name) => [name, String(form.get(name) ?? "").trim()]));
     const input = { ...values, assignment_version: state.assignment_version, idempotency_key: crypto.randomUUID() } as unknown as PhoneProvisioningInput;
@@ -58,42 +90,48 @@ export function PhoneProvisioningPanel({ onApplied, onManagementMode }: { onAppl
     setBusy(true); setError(null); setNotice(null);
     try {
       uncertainInspection.current = input;
-      const receipt = await runWithStepUp(() => api.inspectPhoneProvisioning(input));
-      if (!mounted.current || serial !== generation.current) return;
+      const receipt = await runWithStepUp(() => {
+        if (!isCurrent()) throw new Error("Phone setup authority changed. Refresh your current access.");
+        return api.inspectPhoneProvisioning(input);
+      });
+      if (!isCurrent() || !mounted.current || serial !== generation.current) return;
       uncertainInspection.current = null;
       setNotice(receipt.status === "verified" ? "Provider resources inspected. Review and apply the setup separately." : "Inspection could not verify this setup. Review the receipt before retrying.");
       await load();
     } catch (reason: unknown) {
-      if (mounted.current && serial === generation.current) {
+      if (isCurrent() && mounted.current && serial === generation.current) {
         if (stepUpWasCancelled(reason)) uncertainInspection.current = null;
         else setError(errorText(reason));
       }
     }
-    finally { if (mounted.current && epoch === ownerEpoch.current) setBusy(false); }
+    finally { if (isCurrent() && mounted.current && epoch === ownerEpoch.current) setBusy(false); }
   }
 
   async function action(command: PhoneProvisioningCommand, mode: "apply" | "reconcile", form: HTMLFormElement) {
-    if (busy) return;
+    if (!isCurrent() || busy) return;
     const reason = String(new FormData(form).get("reason") ?? "").trim();
     if (reason.length < 3 || reason.length > 500) { setError("Enter a reason of 3–500 characters."); return; }
     const serial = generation.current;
     const epoch = ownerEpoch.current;
     setBusy(true); setError(null); setNotice(null);
     try {
-      const receipt = await runWithStepUp(() => mode === "apply"
-        ? api.applyPhoneProvisioning(command.id, { version: command.version, reason })
-        : api.reconcilePhoneProvisioning(command.id, { version: command.version, reason }));
-      if (!mounted.current || serial !== generation.current) return;
+      const receipt = await runWithStepUp(() => {
+        if (!isCurrent()) throw new Error("Phone setup authority changed. Refresh your current access.");
+        return mode === "apply"
+          ? api.applyPhoneProvisioning(command.id, { version: command.version, reason })
+          : api.reconcilePhoneProvisioning(command.id, { version: command.version, reason });
+      });
+      if (!isCurrent() || !mounted.current || serial !== generation.current) return;
       setNotice(receipt.status === "applied" ? "Provider binding and assignment saved. Carrier and two-way audio qualification remain separate." : "Outcome remains uncertain. Reconcile the original receipt; creating another rule is blocked.");
       await load();
-      if (receipt.status === "applied" && mounted.current && serial + 1 === generation.current) await onApplied();
+      if (isCurrent() && receipt.status === "applied" && mounted.current && serial + 1 === generation.current) await onApplied();
     } catch (reason: unknown) {
-      if (mounted.current && serial === generation.current && !stepUpWasCancelled(reason)) {
+      if (isCurrent() && mounted.current && serial === generation.current && !stepUpWasCancelled(reason)) {
         setError(errorText(reason));
         setNotice("The server may retain an effect receipt. Refresh and reconcile it before retrying Apply.");
         await load();
       }
-    } finally { if (mounted.current && epoch === ownerEpoch.current) setBusy(false); }
+    } finally { if (isCurrent() && mounted.current && epoch === ownerEpoch.current) setBusy(false); }
   }
 
   return <section aria-labelledby="phone-provider-management-heading">

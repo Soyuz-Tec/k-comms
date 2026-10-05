@@ -301,7 +301,7 @@ defmodule CommsCore.Telephony.Provisioning do
 
   def guard_legacy_binding!(_), do: :ok
 
-  defp lock_owner!(subject, user_id \\ nil) do
+  defp lock_owner!(subject, user_id) do
     with {:ok, initial} <- access(subject, true),
          {:ok, %{allow_audio_calls: true}} <- Administration.lock_call_policy(initial.tenant_id),
          {:ok, _users} <-
@@ -590,9 +590,11 @@ defmodule CommsCore.Telephony.Provisioning do
         else: {:error, :reason_required}
       )
 
-  defp uuid(value), do: case(Ecto.UUID.cast(value)) do
-    {:ok, id} -> {:ok, id}
-    _ -> {:error, :invalid_provisioning_request}
+  defp uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> {:ok, id}
+      _ -> {:error, :invalid_provisioning_request}
+    end
   end
 
   defp version(value, zero?) when is_integer(value),
