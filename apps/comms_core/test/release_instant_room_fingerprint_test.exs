@@ -24,7 +24,11 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
     :calls,
     :call_participants,
     :member_workspaces,
-    :audit_history_snapshots
+    :audit_history_snapshots,
+    :matrix_identities,
+    :matrix_client_sessions,
+    :private_matrix_rooms,
+    :opaque_private_events
   ]
 
   defmodule ReadOnlyRepo do
@@ -50,7 +54,11 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
             "audio_calls" => "call-internal-id",
             "audio_call_participants" => "participant-internal-id",
             "member_workspaces" => "private-workspace-internal-id",
-            "audit_resource_history_snapshots" => "history-snapshot-internal-id"
+            "audit_resource_history_snapshots" => "history-snapshot-internal-id",
+            "matrix_identities" => "matrix-identity-internal-id",
+            "matrix_client_sessions" => "matrix-session-internal-id",
+            "private_matrix_rooms" => "private-room-internal-id",
+            "opaque_private_events" => "private-event-internal-id"
           },
           table
         )
@@ -114,7 +122,11 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
           "tenant-internal-id",
           "user-internal-id",
           "message-internal-id",
-          "call-internal-id"
+          "call-internal-id",
+          "matrix-identity-internal-id",
+          "matrix-session-internal-id",
+          "private-room-internal-id",
+          "private-event-internal-id"
         ] do
       refute output =~ forbidden
     end
