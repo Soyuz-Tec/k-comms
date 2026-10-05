@@ -12,7 +12,8 @@ import type { WorkspaceDomainClaim, WorkspaceDomainInventory } from "../../types
 import "./WorkspaceDomainsPanel.css";
 
 type DomainsApi = Pick<ApiClient, "workspaceDomains" | "createWorkspaceDomain" | "renewWorkspaceDomain" | "verifyWorkspaceDomain" | "updateWorkspaceDomainDiscovery" | "removeWorkspaceDomain">;
-type DomainAction = { id: string; kind: "renew" | "verify" | "remove" } | { id: string; kind: "discovery"; enabled: boolean };
+type DomainAction = { id: string; kind: "renew" } | { id: string; kind: "verify" } |
+  { id: string; kind: "remove" } | { id: string; kind: "discovery"; enabled: boolean };
 
 export function WorkspaceDomainsPanel({ api }: { api: DomainsApi }) {
   const { session } = useSession();
