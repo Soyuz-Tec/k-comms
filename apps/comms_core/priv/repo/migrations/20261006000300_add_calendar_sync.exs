@@ -1,27 +1,7 @@
 defmodule CommsCore.Repo.Migrations.AddCalendarSync do
   use Ecto.Migration
 
-  @owner_tables [
-    :calendar_connections,
-    :calendar_oauth_challenges,
-    :calendar_exports,
-    :calendar_event_mappings,
-    :calendar_sync_commands,
-    :calendar_erasure_receipts
-  ]
-
   def up do
-    alter table(:tenant_settings) do
-      add(:allow_calendar_export, :boolean, null: false, default: false)
-      add(:calendar_export_policy_version, :integer, null: false, default: 1)
-    end
-
-    create(
-      constraint(:tenant_settings, :calendar_export_policy_version_positive,
-        check: "calendar_export_policy_version > 0"
-      )
-    )
-
     create table(:calendar_connections, primary_key: false) do
       add(:id, :binary_id, primary_key: true)
       add(:tenant_id, :binary_id, null: false)
@@ -371,7 +351,7 @@ defmodule CommsCore.Repo.Migrations.AddCalendarSync do
     create(
       constraint(:calendar_erasure_receipts, :calendar_erasure_receipt_state,
         check:
-          "target_type IN ('user','conversation','message') AND octet_length(target_fingerprint) = 32 AND version = 1 AND status IN ('pending','held','verified') AND removed_event_count >= 0 AND destroyed_credential_count >= 0 AND (status <> 'verified' OR verified_at IS NOT NULL)"
+          "target_type IN ('user','conversation','message') AND octet_length(target_fingerprint) = 32 AND version > 0 AND status IN ('pending','held','verified') AND removed_event_count >= 0 AND destroyed_credential_count >= 0 AND (status <> 'verified' OR verified_at IS NOT NULL)"
       )
     )
 
@@ -401,20 +381,25 @@ defmodule CommsCore.Repo.Migrations.AddCalendarSync do
   def down do
     # An old application cannot clean managed provider objects or decrypt their
     # dedicated retained material. Refuse before any DDL when state remains.
-    for table <- @owner_tables do
-      execute("""
-      DO $$ BEGIN
-        IF EXISTS (SELECT 1 FROM #{table} LIMIT 1) THEN
-          RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
-        END IF;
-      END $$;
-      """)
-    end
-
     execute("""
     DO $$ BEGIN
-      IF EXISTS (SELECT 1 FROM tenant_settings WHERE allow_calendar_export OR calendar_export_policy_version <> 1) THEN
-        RAISE EXCEPTION 'calendar rollback blocked: retained export policy';
+      IF EXISTS (SELECT 1 FROM calendar_connections LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
+      END IF;
+      IF EXISTS (SELECT 1 FROM calendar_oauth_challenges LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
+      END IF;
+      IF EXISTS (SELECT 1 FROM calendar_exports LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
+      END IF;
+      IF EXISTS (SELECT 1 FROM calendar_event_mappings LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
+      END IF;
+      IF EXISTS (SELECT 1 FROM calendar_sync_commands LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
+      END IF;
+      IF EXISTS (SELECT 1 FROM calendar_erasure_receipts LIMIT 1) THEN
+        RAISE EXCEPTION 'calendar rollback blocked: retained owner state';
       END IF;
     END $$;
     """)
@@ -426,11 +411,5 @@ defmodule CommsCore.Repo.Migrations.AddCalendarSync do
     drop(table(:calendar_oauth_challenges))
     drop(table(:calendar_connections))
     execute("DROP FUNCTION calendar_preserve_fence()")
-    drop(constraint(:tenant_settings, :calendar_export_policy_version_positive))
-
-    alter table(:tenant_settings) do
-      remove(:allow_calendar_export)
-      remove(:calendar_export_policy_version)
-    end
   end
 end

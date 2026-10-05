@@ -1,0 +1,6 @@
+.calendar-sync-panel,.calendar-sync-meeting{max-width:100%;min-width:0;overflow-wrap:anywhere;padding:1rem;border:1px solid var(--border-default);border-radius:.75rem;background:var(--surface-canvas)}
+.calendar-sync-panel p,.calendar-sync-meeting p{max-width:70ch;line-height:1.5}
+.calendar-sync-provider{border-top:1px solid var(--border-default);padding-block:.75rem}
+.calendar-sync-panel button,.calendar-sync-meeting button{max-width:100%;white-space:normal;margin:.25rem .25rem .25rem 0}
+.calendar-sync-meeting{margin-top:.5rem}.calendar-sync-meeting summary{cursor:pointer;font-weight:600}
+@media(max-width:480px){.calendar-sync-panel,.calendar-sync-meeting{padding:.75rem}.calendar-sync-provider button{width:100%}}

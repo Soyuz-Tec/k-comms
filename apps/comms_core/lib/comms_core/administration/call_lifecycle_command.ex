@@ -7,9 +7,9 @@ defmodule CommsCore.Administration.CallLifecycleCommand do
   defstruct [:operation, :tenant_id, :media_kind, :reason]
 
   @type t :: %__MODULE__{
-          operation: :tenant_media_disabled,
+          operation: :tenant_media_disabled | :calendar_export_disabled,
           tenant_id: binary(),
-          media_kind: :audio | :video,
+          media_kind: :audio | :video | nil,
           reason: binary()
         }
 
@@ -22,4 +22,13 @@ defmodule CommsCore.Administration.CallLifecycleCommand do
       reason: reason
     }
   end
+
+  @spec calendar_export_disabled(binary(), binary()) :: t()
+  def calendar_export_disabled(tenant_id, reason),
+    do: %__MODULE__{
+      operation: :calendar_export_disabled,
+      tenant_id: tenant_id,
+      media_kind: nil,
+      reason: reason
+    }
 end

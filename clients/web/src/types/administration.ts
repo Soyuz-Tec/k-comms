@@ -15,6 +15,8 @@ export interface TenantSettings {
   tenant_id: string;
   allow_audio_calls: boolean;
   allow_video_calls: boolean;
+  allow_calendar_export?: boolean;
+  calendar_export_policy_version?: number;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;

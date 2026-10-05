@@ -8,7 +8,8 @@ defmodule CommsCore.AudioCalls.CalendarSync.ProviderPort do
     TokenReceipt
   }
 
-  @callback status(:google | :microsoft) :: ProviderCapability.t()
+  @callback status(:google | :microsoft) ::
+              ProviderCapability.t() | {:error, :transaction_required}
 
   @callback authorization_url(:google | :microsoft, binary(), binary(), binary()) ::
               {:ok, binary()} | {:error, atom()}

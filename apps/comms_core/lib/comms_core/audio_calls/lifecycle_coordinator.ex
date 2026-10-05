@@ -20,6 +20,22 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
   @impl CommsCore.Accounts.CallLifecyclePort
   def revoke_identity_access(%IdentityCommand{} = command) do
     if Repo.in_transaction?() do
+      # Only loss of User authority withdraws offline consent. Logout and
+      # device/session revocation preserve the independently consented grant.
+      if command.operation == :user_access_revoked do
+        case AudioCalls.fence_calendar_identity(
+               %CommsCore.AudioCalls.CalendarSync.IdentityFenceCommand{
+                 tenant_id: command.tenant_id,
+                 user_id: command.user_id,
+                 reason: :user_suspended,
+                 deadline_ms: System.monotonic_time(:millisecond) + 15_000
+               }
+             ) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+
       with {:ok, %IdentityReceipt{revoked_participant_count: audio_count}} <-
              AudioCalls.revoke_identity_access(command),
            {:ok, %IdentityReceipt{revoked_participant_count: phone_count}} <-
@@ -37,6 +53,11 @@ defmodule CommsCore.AudioCalls.LifecycleCoordinator do
   @spec revoke_tenant_media(TenantCommand.t()) ::
           {:ok, TenantReceipt.t()} | {:error, term()}
   @impl CommsCore.Administration.CallLifecyclePort
+  def revoke_tenant_media(%TenantCommand{operation: :calendar_export_disabled, tenant_id: tenant}) do
+    with {:ok, _} <- AudioCalls.fence_calendar_tenant(tenant),
+         do: {:ok, %TenantReceipt{revoked_participant_count: 0}}
+  end
+
   def revoke_tenant_media(%TenantCommand{} = command) do
     if Repo.in_transaction?() do
       with {:ok, %TenantReceipt{revoked_participant_count: audio_count}} <-

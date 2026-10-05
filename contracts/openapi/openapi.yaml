@@ -6927,6 +6927,300 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/calendar/connections:
+    get:
+      operationId: listCalendarConnections
+      summary: "Read only this authenticated human\u2019s Calendar connections"
+      tags:
+      - Calendar
+      parameters: []
+      responses:
+        '200':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarConnectionsResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      security:
+      - bearerAuth: []
+  /api/v1/calendar/oauth/{provider}/authorize:
+    post:
+      operationId: beginCalendarAuthorization
+      summary: Begin exact browser/device/session-bound delegated authorization
+      tags:
+      - Calendar
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - google
+          - microsoft
+      responses:
+        '200':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarAuthorizationResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarAuthorizationRequest'
+      security:
+      - bearerAuth: []
+  /api/v1/calendar/oauth/{provider}/callback:
+    get:
+      operationId: completeCalendarAuthorization
+      summary: Consume one five-minute state and HttpOnly browser binding; redirect to a fixed profile route
+      tags:
+      - Calendar
+      security: []
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - google
+          - microsoft
+      - name: state
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 32
+          maxLength: 256
+          pattern: ^[!-~]+(?![\s\S])
+      - name: code
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          pattern: ^[!-~]+(?![\s\S])
+      responses:
+        '303':
+          description: Fixed /app/you?section=calendar&calendar_result=connected|rejected; cookie consumed
+          headers:
+            Location:
+              schema:
+                type: string
+                pattern: ^/app/you\?section=calendar&calendar_result=(connected|rejected)(?![\s\S])
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+        '429':
+          description: Bounded callback rate exceeded
+  /api/v1/calendar/connections/{connection_id}/unlink:
+    post:
+      operationId: unlinkCalendarConnection
+      summary: Fence consent and retain cleanup until managed-object absence is verified
+      tags:
+      - Calendar
+      parameters:
+      - name: connection_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarConnectionResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarUnlinkRequest'
+      security:
+      - bearerAuth: []
+  /api/v1/calendar/exports:
+    get:
+      operationId: listCalendarExports
+      summary: List own exports within current conversation eligibility
+      tags:
+      - Calendar
+      parameters:
+      - name: meeting_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarExportsResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      security:
+      - bearerAuth: []
+    post:
+      operationId: createCalendarExport
+      summary: Explicitly opt in the exact current hosted meeting version
+      tags:
+      - Calendar
+      parameters: []
+      responses:
+        '201':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarExportResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarExportRequest'
+      security:
+      - bearerAuth: []
+  /api/v1/calendar/exports/{export_id}/resolve:
+    post:
+      operationId: resolveCalendarExport
+      summary: Explicitly reconcile current source or stop syncing; never force a stale etag
+      tags:
+      - Calendar
+      parameters:
+      - name: export_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Safe Calendar owner projection
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarExportResponse'
+        '401':
+          description: Current authentication required
+        '403':
+          description: Current authority, policy or legal-hold denial
+        '409':
+          description: Version conflict, terminal source or retained cleanup
+        '422':
+          description: Invalid input
+        '428':
+          description: Current exact-device/session step-up required
+        '503':
+          description: Provider, crypto or worker unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarExportResolveRequest'
+      security:
+      - bearerAuth: []
+
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -8235,12 +8529,14 @@ components:
     TenantSettings:
       type: object
       additionalProperties: false
-      required: [tenant_id, allow_public_channels, allow_audio_calls, allow_video_calls, message_edit_window_seconds, max_attachment_bytes, default_retention_days, max_active_users, max_active_conversations, max_conversation_members, version]
+      required: [tenant_id, allow_public_channels, allow_audio_calls, allow_video_calls, allow_calendar_export, calendar_export_policy_version, message_edit_window_seconds, max_attachment_bytes, default_retention_days, max_active_users, max_active_conversations, max_conversation_members, version]
       properties:
         tenant_id: {type: string, format: uuid}
         allow_public_channels: {type: boolean}
         allow_audio_calls: {type: boolean}
         allow_video_calls: {type: boolean}
+        allow_calendar_export: {type: boolean}
+        calendar_export_policy_version: {type: integer, minimum: 1}
         message_edit_window_seconds: {type: integer, minimum: 0}
         max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
         default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
@@ -8305,6 +8601,7 @@ components:
         allow_public_channels: {type: boolean}
         allow_audio_calls: {type: boolean}
         allow_video_calls: {type: boolean}
+        allow_calendar_export: {type: boolean}
         message_edit_window_seconds: {type: integer, minimum: 0, maximum: 2592000}
         max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
         default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
@@ -12726,3 +13023,318 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+    CalendarConnection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - provider
+      - version
+      - status
+      - consent_generation
+      - new_exports_allowed
+      - permission_status
+      - provider_grant_revocation
+      - managed_events_pending_removal
+      - last_success_at
+      - safe_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+          enum:
+          - google
+          - microsoft
+        version:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - awaiting_consent
+          - ready
+          - reauthorization_required
+          - removing
+          - held_cleanup_blocked
+          - removed
+        consent_generation:
+          type: integer
+          minimum: 1
+        new_exports_allowed:
+          type: boolean
+        permission_status:
+          type: string
+          enum:
+          - unverified
+          - scopes_verified
+          - verified
+        provider_grant_revocation:
+          type: string
+          enum:
+          - not_requested
+          - pending
+          - confirmed
+          - external_unconfirmed
+          - failed
+        managed_events_pending_removal:
+          type: integer
+          minimum: 0
+        last_success_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        safe_reason:
+          type:
+          - string
+          - 'null'
+    CalendarExport:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - connection_id
+      - meeting_id
+      - version
+      - status
+      - desired_meeting_version
+      - applied_meeting_version
+      - occurrence_count
+      - safe_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        meeting_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum:
+          - pending
+          - synced
+          - conflict
+          - stopping
+          - removed
+          - blocked
+          - failed
+          - uncertain
+        desired_meeting_version:
+          type: integer
+          minimum: 1
+        applied_meeting_version:
+          type:
+          - integer
+          - 'null'
+          minimum: 1
+        occurrence_count:
+          type: integer
+          minimum: 0
+        safe_reason:
+          type:
+          - string
+          - 'null'
+    CalendarProviderCapability:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - configured
+      - qualified
+      - safe_reason
+      properties:
+        provider:
+          type: string
+          enum:
+          - google
+          - microsoft
+        configured:
+          type: boolean
+        qualified:
+          type: boolean
+        safe_reason:
+          type:
+          - string
+          - 'null'
+    CalendarConnectionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - meta
+      properties:
+        data:
+          type: array
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/CalendarConnection'
+        meta:
+          type: object
+          additionalProperties: false
+          required:
+          - mode
+          - policy
+          - providers
+          properties:
+            mode:
+              type: string
+              enum:
+              - one_way_hosted_occurrences
+            policy:
+              type: object
+              additionalProperties: false
+              required:
+              - export_allowed
+              - version
+              properties:
+                export_allowed:
+                  type: boolean
+                version:
+                  type: integer
+                  minimum: 1
+            providers:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                $ref: '#/components/schemas/CalendarProviderCapability'
+    CalendarAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - export_policy_version
+      properties:
+        export_policy_version:
+          type: integer
+          minimum: 1
+        purpose:
+          type: string
+          enum:
+          - export
+          - cleanup
+    CalendarAuthorization:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - authorization_url
+      - expires_at
+      properties:
+        provider:
+          type: string
+          enum:
+          - google
+          - microsoft
+        authorization_url:
+          type: string
+          format: uri
+          pattern: ^https://(?:accounts\.google\.com|login\.microsoftonline\.com)/
+        expires_at:
+          type: string
+          format: date-time
+    CalendarAuthorizationResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/CalendarAuthorization'
+    CalendarConnectionResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/CalendarConnection'
+    CalendarExportResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/CalendarExport'
+    CalendarUnlinkRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    CalendarExportRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - connection_id
+      - meeting_id
+      - meeting_version
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        meeting_id:
+          type: string
+          format: uuid
+        meeting_version:
+          type: integer
+          minimum: 1
+    CalendarExportResolveRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - decision
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        decision:
+          type: string
+          enum:
+          - reexport_current
+          - stop_syncing
+        meeting_version:
+          type: integer
+          minimum: 1
+      allOf:
+      - if:
+          properties:
+            decision:
+              const: reexport_current
+          required:
+          - decision
+        then:
+          required:
+          - meeting_version
+    CalendarExportsResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      - meta
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/CalendarExport'
+        meta:
+          type: object
+          additionalProperties: false
+          required:
+          - truncated
+          properties:
+            truncated:
+              type: boolean

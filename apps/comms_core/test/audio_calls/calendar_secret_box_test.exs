@@ -54,6 +54,18 @@ defmodule CommsCore.AudioCalls.CalendarSecretBoxTest do
     end
   end
 
+  test "key identifiers reject trailing newline and control characters", %{context: context} do
+    for id <- ["key\n", "key\r", "key\t", "key ", "key" <> <<127>>] do
+      Application.put_env(:comms_core, :calendar_secret_keyring, %{
+        current_key_id: id,
+        keys: %{id => :crypto.strong_rand_bytes(32)}
+      })
+
+      assert {:error, :calendar_secret_keyring_not_configured} =
+               SecretBox.encrypt("token", context)
+    end
+  end
+
   test "rotation preserves old material until its exact key is explicitly retired", %{
     context: context,
     keys: keys

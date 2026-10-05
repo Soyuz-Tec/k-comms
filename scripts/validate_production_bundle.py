@@ -75,6 +75,9 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "calendar_sync_v1": ("calendar_connections", "calendar_oauth_challenges", "calendar_exports", "calendar_event_mappings",
+        "calendar_sync_commands", "CommsWorkers.CalendarSyncWorker", "CommsWorkers.CalendarSyncReconcilerWorker"),
+    "calendar_erasure_v1": ("calendar_erasure_receipts", "calendar_exports.tombstoned_at"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

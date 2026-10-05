@@ -2,7 +2,7 @@ defmodule CommsCore.AudioCalls.CalendarSync.SecretBox do
   @moduledoc false
   alias CommsCore.AudioCalls.CalendarSync.SecretContext
 
-  @key_id ~r/^[A-Za-z0-9_.-]{1,64}$/
+  @key_id ~r/^[A-Za-z0-9_.-]{1,64}\z/
   @maximum_plaintext 65_536
 
   def status do

@@ -44,6 +44,7 @@ export interface UpdateTenantInput {
   name: string;
   allow_audio_calls: boolean;
   allow_video_calls: boolean;
+  allow_calendar_export?: boolean;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;
