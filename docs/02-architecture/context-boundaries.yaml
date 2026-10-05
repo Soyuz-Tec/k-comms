@@ -12,7 +12,7 @@ enforcement:
   reject_new_violations: true
   reviewed_manifest_transitions:
   - id: compose-bounded-ivr-and-current-agent-queue-owner-contracts
-    previous_manifest_sha256: e6e11ba662b942d6575866dc079ea207b22aa7edae50c6ce3a04ca5bf6ce6f1b
+    previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
     - context:telephony:public_contracts:add:CommsCore.Telephony.AgentQueueStateView
     - context:telephony:public_contracts:add:CommsCore.Telephony.IvrConfigView
@@ -40,9 +40,7 @@ enforcement:
     - technical_interfaces:telephony-voicemail-storage:callers:add:"CommsCore.Telephony.Ivr"
     - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Ivr"
     adr: docs/02-architecture/adr/0099-add-bounded-caller-ivr-and-current-queue-supervision.md
-    removal_condition: Remove this exact ADR-0099 transition after the IVR composition from immutable Member/History
-      source parent 610b6acd6bd2cd20a8607481cedc1e35fc1cd956 reaches the protected branch; it authorizes no later
-      contract, operation, owner access or provider capability growth.
+    removal_condition: Remove this exact ADR-0099 transition reviewed against Member parent ba228342d830365c8ccf380d8d893bf3c1cd3605 after the IVR composition reaches the protected branch; Member protection remains pending. It authorizes no later contract, operation, owner access or provider capability growth.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
