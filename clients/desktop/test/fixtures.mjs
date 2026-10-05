@@ -1,0 +1,7 @@
+import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+export const config = { version: 1, serviceOrigin: 'https://comms.example.org', mediaOrigins: ['wss://media.example.org'], resourceOrigins: ['https://files.example.org'], qualificationOnly: false, updates: 'disabled', unsigned: true };
+export const session = { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', token_type: 'Bearer', expires_in: 900, tenant: { id: '10000000-0000-4000-8000-000000000001', slug: 'fixture', status: 'active' }, user: { id: '20000000-0000-4000-8000-000000000001', tenant_id: '10000000-0000-4000-8000-000000000001', account_type: 'human', role: 'member', status: 'active' }, device: { id: '30000000-0000-4000-8000-000000000001', user_id: '20000000-0000-4000-8000-000000000001' } };
+export function encryptedTestStorage() {
+  const key = randomBytes(32);
+  return { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret', encryptString: plaintext => { const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', key, nonce); const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]); return Buffer.concat([nonce, cipher.getAuthTag(), ciphertext]); }, decryptString: bytes => { const cipher = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12)); cipher.setAuthTag(bytes.subarray(12, 28)); return Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString('utf8'); } };
+}

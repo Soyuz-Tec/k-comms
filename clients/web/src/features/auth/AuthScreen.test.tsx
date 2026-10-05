@@ -70,6 +70,7 @@ const session = {
 
 describe("AuthScreen", () => {
   beforeEach(() => {
+    Reflect.deleteProperty(window, "kCommsDesktop");
     window.localStorage.clear();
     window.sessionStorage.clear();
     mocks.status.mockReset().mockResolvedValue({ capabilities: { bootstrap: false } });
@@ -83,6 +84,14 @@ describe("AuthScreen", () => {
     mocks.accountActionsAllowed = true;
     mocks.insecureNetworkOrigin = false;
     window.history.replaceState({}, "", "/app/");
+  });
+
+  it("desktop refuses corporate initiation before requesting any authorization URL", async () => {
+    Object.defineProperty(window, "kCommsDesktop", { configurable: true, value: { version: 1 } });
+    const user = userEvent.setup(); render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+    await user.click(screen.getByRole("button", { name: "Corporate sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("authorized web client"); expect(mocks.api.startOidc).not.toHaveBeenCalled(); expect(mocks.setSession).not.toHaveBeenCalled();
+    Reflect.deleteProperty(window, "kCommsDesktop");
   });
 
   it("shows one returning-user task and signs in with one submission", async () => {

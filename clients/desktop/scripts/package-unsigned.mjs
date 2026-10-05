@@ -1,0 +1,11 @@
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const signing = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'CSC_NAME', 'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
+if (signing.some(name => process.env[name])) throw new Error('Unsigned evaluation packaging refuses signing credentials');
+const platform = { win32: '--win', darwin: '--mac', linux: '--linux' }[process.platform];
+if (!platform) throw new Error('Unsupported packaging platform');
+const binary = path.join(root, 'node_modules/electron-builder/out/cli/cli.js');
+const result = spawnSync(process.execPath, [binary, platform, '--publish', 'never', '--config', 'electron-builder.json'], { cwd: root, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } });
+process.exit(result.status ?? 1);

@@ -1,3 +1,4 @@
+import { isDesktopClient, desktopCorporateMessage } from "../desktop/session";
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -146,6 +147,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   }
 
   async function corporateVerification() {
+    if (isDesktopClient()) { setError(desktopCorporateMessage); return; }
     const gate = verification.current;
     if (!session || !gate || gate.verifying || !isCurrent(gate)) return;
     gate.verifying = true; setBusy(true); setError(null);
