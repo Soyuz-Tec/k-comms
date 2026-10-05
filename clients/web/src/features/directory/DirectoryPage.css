@@ -9,3 +9,73 @@
 .directory-action-error .button {
   justify-self: start;
 }
+
+.directory-page .directory-action {
+  border-color: var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.directory-page .directory-action.primary {
+  border-color: var(--border-default);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  font-weight: 600;
+}
+
+.directory-page .directory-action.icon {
+  width: 44px;
+  height: 44px;
+}
+
+.directory-page .directory-action:not(:disabled):hover {
+  transform: none;
+  filter: none;
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+}
+
+.directory-page .directory-row-copy strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.directory-page .directory-row-copy small {
+  text-transform: none;
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .directory-page .member-segmented-control {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-radius: var(--radius-md);
+  }
+
+  .directory-page .member-segmented-control button {
+    min-width: 0;
+    min-height: 44px;
+    padding-inline: .25rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    font-weight: 600;
+  }
+}
+
+@media (min-width: 1100px) and (min-height: 561px) {
+  .directory-page .directory-toolbar {
+    grid-template-columns: minmax(20rem, .55fr) minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .directory-page .member-segmented-control {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .directory-page .member-search {
+    min-height: 44px;
+    border-radius: var(--radius-md);
+  }
+}

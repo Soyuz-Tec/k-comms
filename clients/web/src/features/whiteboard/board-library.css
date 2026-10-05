@@ -1,13 +1,14 @@
-.board-library { min-width: 0; padding: 1rem; border: 1px solid var(--border-default); border-radius: .75rem; background: var(--surface-raised); color: var(--text-primary); }
-.board-library h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
+.board-library { min-width: 0; padding: 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-primary); }
+.board-library h2 { font-family: var(--font-body); font-size: var(--text-base); font-weight: 600; margin: 0 0 .65rem; }
 .board-library label { display: grid; gap: .35rem; margin: .5rem 0; }
 .board-library input { width: 100%; min-width: 0; max-width: 100%; min-height: 44px; padding: .5rem .65rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text-primary); background: var(--surface-raised); }
 .board-library button { min-height: 44px; max-width: 100%; padding: .5rem .65rem; border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--text-primary); background: var(--surface-raised); white-space: normal; }
 .board-library ul { padding: 0; list-style: none; display: grid; gap: .5rem; }
 .board-library li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
 .board-gallery-grid { grid-template-columns: repeat(auto-fit,minmax(min(14rem,100%),1fr)); }
-.board-gallery-grid button { display: grid; gap: .5rem; width: 100%; padding: 1rem; text-align: left; }
-.board-library-controls { position: relative; min-width: 0; flex: 0 0 auto; padding: .5rem .75rem; border-bottom: 1px solid var(--border-default); background: var(--surface-raised); }
+.board-gallery-grid button { display: grid; gap: .4rem; width: 100%; padding: .85rem; text-align: left; }
+.board-gallery-grid strong { font-size: var(--text-sm); font-weight: 600; }
+.board-library-controls { position: relative; min-width: 0; flex: 0 0 auto; padding: .5rem .75rem; border-bottom: 1px solid var(--border-subtle); background: var(--surface-raised); }
 .board-library-controls > .button { min-height: 44px; }
 .board-library-controls .board-library { max-height: min(45vh,25rem); overflow: auto; margin-top: .5rem; }
 
@@ -15,4 +16,4 @@
 .board-gallery-help, .board-gallery-grid time, .board-gallery-grid small { color: var(--text-muted); font-size: var(--text-sm); }
 .board-gallery-help { margin: 0 0 .75rem; line-height: 1.5; max-width: 70rem; }
 .board-gallery-grid button { overflow-wrap: anywhere; border-radius: var(--radius-md); }
-.board-gallery-grid button:hover { border-color: var(--accent-border); background: var(--surface-canvas); }
+.board-gallery-grid button:hover { border-color: var(--border-strong); background: var(--surface-canvas); }

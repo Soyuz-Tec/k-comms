@@ -1,8 +1,8 @@
 .evidence-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
 .admin-evidence-detail { min-width: 0; max-width: 100%; }
-.admin-evidence-detail summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; }
+.admin-evidence-detail summary { cursor: pointer; min-height: 44px; display: list-item; align-content: center; color: var(--text-secondary); font-size: var(--text-sm); }
 .admin-evidence-detail dd, .admin-evidence-detail p, .admin-evidence-detail code { overflow-wrap: anywhere; }
-.admin-evidence-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: var(--text-xs); }
+.admin-evidence-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-canvas); font-size: var(--text-xs); }
 .evidence-panel-content { width: 100%; min-width: 0; }
 
 .governance-inventory > li { flex-wrap: wrap; }
@@ -14,9 +14,10 @@
 .admin-create-disclosure > summary::-webkit-details-marker { display: none; }
 .admin-create-disclosure[open] > summary .app-icon { transform: rotate(180deg); }
 .admin-create-disclosure[open] > summary { margin-bottom: var(--space-3); }
-.admin-create-content { padding: var(--space-3); background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.admin-create-content { padding-block: var(--space-3); border-block: 1px solid var(--border-subtle); }
+.admin-create-content > .inline-admin-form { margin-bottom: 0; }
 
 .audit-advanced-filters { grid-column: 1 / -1; }
-.audit-advanced-filters > summary { min-height: 44px; cursor: pointer; align-content: center; color: var(--accent-text); }
+.audit-advanced-filters > summary { min-height: 44px; cursor: pointer; align-content: center; color: var(--text-secondary); font-size: var(--text-sm); }
 .audit-applied-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
 .audit-applied-filters .status-pill { white-space: normal; overflow-wrap: anywhere; }

@@ -29,6 +29,11 @@
   margin-top: var(--space-2);
 }
 
+.people-table .person-cell .avatar { border-radius: var(--radius-md); }
+.people-table .person-cell strong { font-weight: 600; }
+.people-table .people-details-row > td { background: var(--surface-canvas); }
+.people-table .people-details-toggle { color: var(--text-secondary); }
+
 .people-details-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -45,6 +50,7 @@
 .people-session-identifiers dd {
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
+  font-size: var(--text-sm);
 }
 
 .people-details-row section > p {

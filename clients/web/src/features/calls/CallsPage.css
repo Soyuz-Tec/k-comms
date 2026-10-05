@@ -3,7 +3,7 @@
   max-width: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.25rem;
+  gap: 1rem;
   padding-bottom: calc(2rem + var(--safe-bottom));
   container: calls-page / inline-size;
 }
@@ -41,10 +41,12 @@
 }
 
 .calls-page-mark {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  box-shadow: 0 8px 22px rgb(var(--shadow-color) / 18%);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
+  box-shadow: none;
 }
 
 .calls-page-mark .app-icon {
@@ -93,7 +95,7 @@
   align-items: center;
   gap: .45rem;
   padding: .6rem 1rem;
-  border-bottom: 3px solid transparent;
+  border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   font-weight: 600;
   text-decoration: none;
@@ -115,7 +117,7 @@
   grid-template-rows: minmax(24rem, auto) auto;
   overflow: hidden;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
   box-shadow: none;
 }
@@ -149,7 +151,7 @@
 .calls-launcher {
   grid-column: 1;
   grid-row: 1;
-  border-right: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-subtle);
   background: var(--surface-canvas);
 }
 
@@ -166,11 +168,9 @@
   align-content: start;
   gap: 0;
   padding: 0;
-  border-top: 1px solid var(--border-default);
-  border-right: 1px solid var(--border-default);
-  background:
-    linear-gradient(150deg, color-mix(in srgb, var(--accent-quiet) 76%, transparent), transparent 72%),
-    var(--surface-raised);
+  border-top: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-canvas);
 }
 
 .call-readiness-launcher > summary {
@@ -179,7 +179,7 @@
   align-items: center;
   gap: .55rem;
   padding: .75rem 1rem;
-  color: var(--accent-text);
+  color: var(--text-secondary);
   cursor: pointer;
   font-weight: 600;
 }
@@ -227,9 +227,9 @@
 .calls-panel-icon {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
-  color: var(--accent-text);
-  background: var(--accent-quiet);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
 }
 
 .calls-panel-icon .app-icon {
@@ -352,7 +352,7 @@
 
 .calls-quick-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(5.5rem, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(4.75rem, 100%), 1fr));
   flex: 0 0 auto;
   align-items: center;
   gap: var(--space-1);
@@ -391,10 +391,10 @@
   min-height: var(--target-min);
   gap: var(--space-1);
   padding: var(--space-1);
-  border-color: var(--border-default);
+  border-color: var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  background: var(--surface-raised);
+  background: transparent;
   font-size: var(--text-xs);
   font-weight: 600;
 }
@@ -593,8 +593,8 @@
 }
 
 .call-media-mark.audio {
-  color: var(--accent-text);
-  background: var(--accent-quiet);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
 }
 
 .call-media-mark.video {
@@ -640,8 +640,8 @@
 }
 
 .calls-status.active {
-  color: var(--accent-text);
-  background: var(--accent-quiet);
+  color: var(--success-text);
+  background: var(--success-quiet);
 }
 
 .calls-status.ended {
@@ -674,9 +674,9 @@
 
 .call-session-actions a.primary,
 .call-session-actions button.primary {
-  border-color: var(--accent-solid);
-  color: var(--text-on-accent);
-  background: var(--accent-solid);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
 }
 
 .call-ending-note {
@@ -703,7 +703,7 @@
   margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid var(--border-default);
-  color: var(--accent-text);
+  color: var(--text-secondary);
   font-size: var(--text-sm);
   font-weight: 600;
   text-decoration: none;
@@ -796,10 +796,11 @@
 
   .calls-destination-tabs a {
     min-width: 0;
-    flex-direction: column;
+    flex-direction: row;
     justify-content: center;
     gap: .25rem;
     padding: .5rem .35rem;
+    font-size: var(--text-xs);
   }
 
   .calls-page-heading {
@@ -1162,8 +1163,8 @@
     padding: 0;
     border-color: transparent;
     border-radius: 50%;
-    color: var(--accent-text);
-    background: var(--accent-quiet);
+    color: var(--text-secondary);
+    background: var(--surface-canvas);
     font-size: 0;
   }
 
@@ -1213,7 +1214,7 @@
   .calls-segments {
     gap: 2px;
     padding: 3px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-md);
     background: var(--surface-sunken);
   }
 

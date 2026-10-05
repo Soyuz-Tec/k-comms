@@ -1,6 +1,8 @@
 .admin-page .phone-admin-panel { max-width: none; min-width: 0; padding: var(--space-4); border-radius: var(--radius-md); }
 .phone-admin-panel h2, .phone-admin-panel h3, .phone-admin-panel h4 { margin-block-start: 0; }
-.phone-admin-panel p { color: var(--text-secondary); overflow-wrap: anywhere; }
+.phone-admin-panel h2 { font-family: var(--font-body); font-size: var(--text-lg); font-weight: 600; letter-spacing: -.015em; }
+.phone-admin-panel h3, .phone-admin-panel h4 { font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; }
+.phone-admin-panel p { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; overflow-wrap: anywhere; }
 .phone-admin-panel .form-error { color: var(--danger-text); }
 .phone-admin-panel .card-heading p { margin-block: var(--space-2) 0; }
 .phone-admin-tabs { display: flex; gap: var(--space-1); overflow-x: auto; border-bottom: 1px solid var(--border-default); margin-bottom: var(--space-4); }
@@ -9,13 +11,14 @@
 .phone-admin-tabs [role="tab"]:hover { background: var(--surface-hover); }
 .phone-admin-tab-panel { display: grid; gap: var(--space-3); min-width: 0; }
 .phone-admin-tab-panel[hidden] { display: none; }
-.phone-readiness-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-canvas); }
+.phone-readiness-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: 0; padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface-canvas); }
 .phone-readiness-overview > div { min-width: 0; }
 .phone-readiness-overview dt { margin-bottom: var(--space-2); color: var(--text-muted); font-size: var(--text-xs); }
 .phone-readiness-overview dd { margin: 0; font-size: var(--text-sm); font-weight: 600; overflow-wrap: anywhere; }
 .phone-readiness-overview .status-pill { white-space: normal; }
 .phone-admin-next-step { padding-block: var(--space-2); }
 .phone-admin-next-step p { max-width: 68ch; }
+.phone-admin-tab-panel > .button.ghost { justify-self: start; }
 .phone-admin-panel fieldset { display: grid; gap: var(--space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
 .phone-admin-panel fieldset legend { padding: 0; margin-bottom: var(--space-3); font-weight: 600; font-size: var(--text-sm); }
 .phone-admin-panel .phone-admin-fields { padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
@@ -25,12 +28,12 @@
 .phone-admin-panel .field textarea { min-height: 88px; resize: vertical; }
 .phone-admin-panel .checkbox-field { min-height: 44px; font-size: var(--text-sm); }
 .phone-admin-panel .phone-help { font-size: var(--text-sm); font-weight: 400; line-height: 1.5; }
-.phone-admin-details { padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-size: var(--text-sm); }
-.phone-admin-details > summary { min-height: 24px; color: var(--text-secondary); cursor: pointer; }
+.phone-admin-details { padding-block: var(--space-2); border-top: 1px solid var(--border-subtle); font-size: var(--text-sm); }
+.phone-admin-details > summary { min-height: 44px; align-content: center; color: var(--text-secondary); cursor: pointer; }
 .phone-admin-details p:last-child { margin-bottom: 0; }
 .phone-routing-members { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2); }
 .phone-provisioning-panel { padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
-.phone-provisioning-panel > form { margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
+.phone-provisioning-panel > form { margin-top: var(--space-3); padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-canvas); }
 @media (max-width: 760px) {
   .phone-readiness-overview, .phone-admin-field-grid { grid-template-columns: minmax(0, 1fr); }
   .phone-admin-panel { padding: var(--space-3); }

@@ -195,13 +195,13 @@
 
   /* Accent. -text is for accent-coloured type; -solid is a fill that carries
      --text-on-accent. They are different values and are not interchangeable. */
-  --accent-text: var(--kc-violet-400);
-  --accent-solid: var(--kc-violet-600);
-  --accent-solid-hover: var(--kc-violet-700);
-  --accent-solid-active: var(--kc-violet-800);
-  --accent-quiet: #1d1638;
-  --accent-quiet-hover: #261d47;
-  --accent-border: #4a3585;
+  --accent-text: #b7a6ec;
+  --accent-solid: #6554b7;
+  --accent-solid-hover: #55469d;
+  --accent-solid-active: #443783;
+  --accent-quiet: #242033;
+  --accent-quiet-hover: #302a43;
+  --accent-border: #615577;
 
   --success-text: var(--kc-jade-light);
   --success-solid: var(--kc-jade-fill);
@@ -261,7 +261,7 @@
     color-scheme: light;
 
     --surface-canvas: var(--kc-mist-100);
-    --surface-rail: var(--kc-mist-50);
+    --surface-rail: var(--kc-mist-100);
     --surface-raised: var(--kc-mist-50);
     --surface-overlay: var(--kc-mist-50);
     --surface-sunken: var(--kc-mist-200);
@@ -279,13 +279,13 @@
     --border-strong: var(--kc-ink-300);
     --focus-ring: var(--kc-violet-700);
 
-    --accent-text: #6425c8;
-    --accent-solid: var(--kc-violet-700);
-    --accent-solid-hover: var(--kc-violet-800);
-    --accent-solid-active: var(--kc-violet-900);
-    --accent-quiet: var(--kc-violet-100);
-    --accent-quiet-hover: var(--kc-violet-200);
-    --accent-border: #c3b2ec;
+    --accent-text: #5944a3;
+    --accent-solid: #6554b7;
+    --accent-solid-hover: #55469d;
+    --accent-solid-active: #443783;
+    --accent-quiet: #f0edf8;
+    --accent-quiet-hover: #e6e0f3;
+    --accent-border: #b7abd5;
 
     --success-text: var(--kc-jade-deep);
     --success-solid: var(--kc-jade-deep);
@@ -320,7 +320,7 @@
   color-scheme: light;
 
   --surface-canvas: var(--kc-mist-100);
-  --surface-rail: var(--kc-mist-50);
+  --surface-rail: var(--kc-mist-100);
   --surface-raised: var(--kc-mist-50);
   --surface-overlay: var(--kc-mist-50);
   --surface-sunken: var(--kc-mist-200);
@@ -338,13 +338,13 @@
   --border-strong: var(--kc-ink-300);
   --focus-ring: var(--kc-violet-700);
 
-  --accent-text: #6425c8;
-  --accent-solid: var(--kc-violet-700);
-  --accent-solid-hover: var(--kc-violet-800);
-  --accent-solid-active: var(--kc-violet-900);
-  --accent-quiet: var(--kc-violet-100);
-  --accent-quiet-hover: var(--kc-violet-200);
-  --accent-border: #c3b2ec;
+  --accent-text: #5944a3;
+  --accent-solid: #6554b7;
+  --accent-solid-hover: #55469d;
+  --accent-solid-active: #443783;
+  --accent-quiet: #f0edf8;
+  --accent-quiet-hover: #e6e0f3;
+  --accent-border: #b7abd5;
 
   --success-text: var(--kc-jade-deep);
   --success-solid: var(--kc-jade-deep);
@@ -417,8 +417,8 @@
   /* Radius. Four steps, replacing 21 — every integer from 5px to 16px was in
      use, plus 18, 20, 22, 26 and 28. */
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
   --radius-full: 999px;
 
   /*

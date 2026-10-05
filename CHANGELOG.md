@@ -14,6 +14,10 @@
 
 ### Changed
 
+- Refined public, workspace, and administration screens with quieter neutral
+  navigation, restrained purple accents, consistent typography and smaller
+  panel radii. Flattened repeated cards and policy groups, aligned secondary
+  actions and profile fields, and preserved accessible narrow-screen controls.
 - Standardized workspace page headings, controls, status meanings, and navigation.
   Phone, recordings, and shared documents now have direct desktop destinations;
   You exposes every destination outside the five-item mobile navigation.

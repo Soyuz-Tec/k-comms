@@ -33,14 +33,14 @@
 .member-page {
   width: min(100%, 1320px);
   margin-inline: auto;
-  padding: var(--space-5) clamp(1rem, 3vw, 3rem);
+  padding: var(--space-5) clamp(1rem, 2.5vw, 2.5rem);
 }
 
 .page-heading,
 .member-page-heading {
   align-items: center;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -59,7 +59,7 @@
 .member-page-heading p {
   max-width: 46rem;
   color: var(--text-secondary);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   line-height: 1.55;
 }
 
@@ -124,7 +124,7 @@
   gap: .35rem;
   padding: .25rem;
   border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: var(--surface-canvas);
 }
 
@@ -137,7 +137,7 @@
   gap: var(--space-2);
   padding: .55rem .7rem;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: transparent;
   font: inherit;
@@ -146,9 +146,9 @@
 }
 
 .settings-section-tabs button[aria-selected="true"] {
-  color: var(--accent-text);
-  background: var(--accent-quiet);
-  box-shadow: inset 0 -2px var(--accent-solid);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  box-shadow: none;
 }
 
 .settings-section-tabs .app-icon {
@@ -205,10 +205,7 @@
 /* Forms and entry controls use the same quiet surface treatment on phones. */
 .button.primary { box-shadow: none; }
 .button:not(:disabled):hover { transform: none; }
-.instant-draft-room-details { background: var(--surface-canvas); }
-.instant-draft-workflow li { border-color: transparent; background: transparent; }
-.instant-draft-workflow li.current { border-color: var(--accent-border); }
-.auth-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-raised); }
+.auth-card { border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgb(var(--shadow-color) / 8%); }
 
 .settings-page [role="tabpanel"],
 .settings-security-inventories {
@@ -305,13 +302,13 @@
     padding-left: var(--desktop-sidebar-expanded-width);
   }
 
-  .workspace-navigation-pinned .workspace-sidebar {
+  .app-shell.workspace-navigation-pinned .workspace-sidebar {
     inset: max(0px, env(titlebar-area-height, 0px)) auto 0 0;
     max-height: none;
     margin-block: 0;
-    border-right: 1px solid var(--border-default);
+    border-right: 1px solid var(--border-subtle);
     border-radius: 0;
-    background: var(--surface-canvas);
+    background: var(--surface-rail);
     box-shadow: none;
   }
 
@@ -326,7 +323,7 @@
     overflow: hidden auto;
     flex-direction: column;
     gap: .3rem;
-    padding: .72rem .78rem;
+    padding: var(--space-3);
     border: 0;
     border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
     color: var(--text-primary);
@@ -336,7 +333,7 @@
 
   .workspace-sidebar.is-expanded {
     width: var(--desktop-sidebar-expanded-width);
-    background: var(--surface-overlay);
+    background: var(--surface-rail);
     box-shadow: 8px 0 32px rgb(var(--shadow-color) / 12%);
   }
 
@@ -570,10 +567,11 @@
   }
 
   .workspace-sidebar-nav a.active {
-    border-color: var(--accent-border);
+    border-color: transparent;
     color: var(--accent-text);
-    background: var(--accent-quiet);
-    box-shadow: inset 3px 0 var(--accent-solid);
+    background: var(--surface-sunken);
+    box-shadow: none;
+    font-weight: 600;
   }
 
   .workspace-sidebar-nav .member-nav-icon {
@@ -634,8 +632,8 @@
     width: 36px;
     height: 36px;
     border-radius: var(--radius-full);
-    color: var(--text-on-accent);
-    background: var(--accent-solid);
+    color: var(--text-secondary);
+    background: var(--surface-selected);
   }
 
   .workspace-account-chevron {
@@ -1397,7 +1395,7 @@
    */
   .settings-section-tabs button[aria-selected="true"] {
     color: var(--accent-text);
-    background: var(--accent-quiet);
+    background: var(--surface-sunken);
     box-shadow: none;
     font-weight: 600;
   }
@@ -1595,8 +1593,8 @@
 }
 
 @media (min-width: 761px) and (min-height: 561px) {
-  .workspace-sidebar .workspace-instant-room { color: var(--accent-text); background: var(--accent-quiet); border-color: var(--accent-border); }
-  .workspace-sidebar .workspace-instant-room:hover { background: var(--accent-quiet-hover); }
+  .workspace-sidebar .workspace-instant-room { color: var(--text-primary); background: var(--surface-raised); border-color: var(--border-default); }
+  .workspace-sidebar .workspace-instant-room:hover { background: var(--surface-hover); }
   .workspace-sidebar-nav { flex: 1; min-height: 0; overflow-y: auto; align-content: start; }
   .workspace-sidebar-spacer { flex: 0; }
   .workspace-sidebar.is-expanded .member-nav-group-label { position: static; width: auto; height: auto; margin: var(--space-3) 0 var(--space-1); padding: 0 var(--space-3); overflow: visible; clip: auto; clip-path: none; white-space: normal; font-size: var(--text-xs); letter-spacing: .04em; }
