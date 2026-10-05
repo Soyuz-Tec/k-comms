@@ -38,7 +38,10 @@ describe("Federation initiating authority", () => {
     { ...session, user: { ...session.user, status: "suspended" } },
     { ...session, user: { ...session.user, access_scope: "conversation_only" as const } },
     { ...session, user: { ...session.user, account_type: "guest" as const } },
-    { ...session, device: { ...session.device, id: "other-device" } }
+    { ...session, device: { ...session.device, id: "other-device" } },
+    { ...session, tenant: { ...session.tenant, status: "suspended" } },
+    { ...session, device: { ...session.device, user_id: "other-user" } },
+    { ...session, device: { ...session.device, revoked_at: "2026-10-05T12:00:00Z" } }
   ])("clears delayed remote plaintext after concrete initiating authority changes %#", async changed => {
     const pending = deferred<{ events: { id: string; sender: string; body: string; timestamp: number; disclosure: "plaintext_bridge" }[]; cursor: null; remote_deletion_confirmed: false }>();
     const api = { federationRoom: vi.fn().mockResolvedValue(room), federationTimeline: vi.fn().mockReturnValue(pending.promise) } as unknown as ApiClient;
