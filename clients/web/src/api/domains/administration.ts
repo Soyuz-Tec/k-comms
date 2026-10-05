@@ -5,6 +5,7 @@ import type { DeletionHistoryExportFile, DeletionHistoryPage, DeletionHistoryQue
 import type { FixedRolePermission, UserRoleChangePreview } from "../../types/rolePermissions";
 import type { UsageExportFile, UsageQuery, UsageReport } from "../../types/usage";
 import { ApiError } from "../errors";
+import type { WorkspaceDomainClaim, WorkspaceDomainCreateInput, WorkspaceDomainInventory } from "../../types/workspaceDiscovery";
 
 interface AdministrationApiSupport {
   operationId: () => string;
@@ -12,6 +13,29 @@ interface AdministrationApiSupport {
 
 export function createAdministrationApi(request: ApiRequest, download: ApiDownload, { operationId }: AdministrationApiSupport) {
   const api = {
+    workspaceDomains(): Promise<WorkspaceDomainInventory> {
+      return request<WorkspaceDomainInventory>("/api/v1/admin/workspace-domains");
+    },
+
+    createWorkspaceDomain(input: WorkspaceDomainCreateInput): Promise<WorkspaceDomainClaim> {
+      return request<DataResponse<WorkspaceDomainClaim>>("/api/v1/admin/workspace-domains", { method: "POST", body: JSON.stringify(input) }).then((response) => response.data);
+    },
+
+    renewWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+      return request<DataResponse<WorkspaceDomainClaim>>(`/api/v1/admin/workspace-domains/${encodeURIComponent(id)}/challenge`, { method: "POST", body: JSON.stringify({ version }) }).then((response) => response.data);
+    },
+
+    verifyWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+      return request<DataResponse<WorkspaceDomainClaim>>(`/api/v1/admin/workspace-domains/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ version }) }).then((response) => response.data);
+    },
+
+    updateWorkspaceDomainDiscovery(id: string, version: number, discoveryEnabled: boolean): Promise<WorkspaceDomainClaim> {
+      return request<DataResponse<WorkspaceDomainClaim>>(`/api/v1/admin/workspace-domains/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ version, discovery_enabled: discoveryEnabled }) }).then((response) => response.data);
+    },
+
+    removeWorkspaceDomain(id: string, version: number): Promise<WorkspaceDomainClaim> {
+      return request<DataResponse<WorkspaceDomainClaim>>(`/api/v1/admin/workspace-domains/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ version }) }).then((response) => response.data);
+    },
     adminUsers(): Promise<User[]> {
         return request<ListResponse<User>>("/api/v1/admin/users").then((response) => response.data);
       },

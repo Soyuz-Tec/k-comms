@@ -6927,6 +6927,278 @@ paths:
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
+  /api/v1/admin/workspace-domains:
+    get:
+      operationId: listWorkspaceDomains
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: false
+                properties:
+                  data:
+                    items:
+                      $ref: '#/components/schemas/WorkspaceDomainClaim'
+                    maxItems: 8
+                    type: array
+                  limits:
+                    additionalProperties: false
+                    properties:
+                      domains:
+                        const: 8
+                        type: integer
+                    required:
+                    - domains
+                    type: object
+                required:
+                - data
+                - limits
+                type: object
+          description: Tenant-owned domain inventory
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: List at most eight tenant-owned claims with current recent identity proof
+      tags:
+      - Administration
+    post:
+      operationId: createWorkspaceDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              properties:
+                discovery_enabled:
+                  default: false
+                  type: boolean
+                domain:
+                  maxLength: 254
+                  minLength: 4
+                  type: string
+                version:
+                  const: 0
+                  type: integer
+              required:
+              - domain
+              - version
+              type: object
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainClaimResponse'
+          description: Created challenge; DNS ownership is not yet verified
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: Create a tenant-owned exact domain TXT challenge
+      tags:
+      - Administration
+  /api/v1/admin/workspace-domains/{id}:
+    delete:
+      operationId: revokeWorkspaceDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDomainVersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainClaimResponse'
+          description: Revoked claim receipt with no live challenge value
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: Remove the current-version claim and preserve the normal audit tombstone
+      tags:
+      - Administration
+    parameters:
+    - $ref: '#/components/parameters/WorkspaceDomainId'
+    patch:
+      operationId: updateWorkspaceDomainDiscovery
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              properties:
+                discovery_enabled:
+                  type: boolean
+                version:
+                  minimum: 1
+                  type: integer
+              required:
+              - version
+              - discovery_enabled
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainClaimResponse'
+          description: Updated disclosure setting
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: Explicitly enable or disable disclosure without extending the proof lease
+      tags:
+      - Administration
+  /api/v1/admin/workspace-domains/{id}/challenge:
+    parameters:
+    - $ref: '#/components/parameters/WorkspaceDomainId'
+    post:
+      operationId: renewWorkspaceDomainChallenge
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDomainVersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainClaimResponse'
+          description: Current rotated challenge
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: Rotate a single current-version challenge with a 30-minute expiry
+      tags:
+      - Administration
+  /api/v1/admin/workspace-domains/{id}/verify:
+    parameters:
+    - $ref: '#/components/parameters/WorkspaceDomainId'
+    post:
+      operationId: verifyWorkspaceDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDomainVersionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainClaimResponse'
+          description: Seven-day domain proof lease
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      security:
+      - bearerAuth: []
+      summary: Verify the exact current DNS TXT challenge and consume its token
+      tags:
+      - Administration
+  /api/v1/workspaces/discover:
+    post:
+      description: Unknown, malformed, expired, opted-out, and inactive domains share the same unavailable result. No email
+        or account lookup is performed.
+      operationId: discoverWorkspaceDomain
+      parameters:
+      - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDomainDiscoveryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDomainDiscoveryResponse'
+          description: An opt-in sign-in hint or a neutral unavailable response
+        '403':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+      security: []
+      summary: Resolve an exact explicitly opted-in verified domain to a same-origin sign-in hint
+      tags:
+      - Sessions
 components:
   securitySchemes:
     livekitWebhookAuth:
@@ -7005,6 +7277,13 @@ components:
       required: false
       description: Optional replay key; a successful replay returns the existing resource and never reissues a one-time secret.
       schema: {type: string, minLength: 1, maxLength: 200}
+    WorkspaceDomainId:
+      in: path
+      name: id
+      required: true
+      schema:
+        format: uuid
+        type: string
   responses:
     Error:
       description: Structured request failure
@@ -12726,3 +13005,119 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/DeletionRequestTimeline'
+    WorkspaceDomainClaim:
+      additionalProperties: false
+      properties:
+        challenge_expires_at:
+          format: date-time
+          type: string
+        challenge_name:
+          maxLength: 262
+          minLength: 13
+          type: string
+        challenge_value:
+          type:
+          - string
+          - 'null'
+        discovery_enabled:
+          type: boolean
+        domain:
+          maxLength: 253
+          minLength: 4
+          type: string
+        id:
+          format: uuid
+          type: string
+        proof_expires_at:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        status:
+          enum:
+          - pending
+          - verified
+          - expired
+          type: string
+        verified_at:
+          format: date-time
+          type:
+          - string
+          - 'null'
+        version:
+          minimum: 1
+          type: integer
+      required:
+      - id
+      - domain
+      - version
+      - status
+      - discovery_enabled
+      - challenge_name
+      - challenge_value
+      - challenge_expires_at
+      - verified_at
+      - proof_expires_at
+      type: object
+    WorkspaceDomainClaimResponse:
+      additionalProperties: false
+      properties:
+        data:
+          $ref: '#/components/schemas/WorkspaceDomainClaim'
+      required:
+      - data
+      type: object
+    WorkspaceDomainDiscoveryRequest:
+      additionalProperties: false
+      properties:
+        domain:
+          maxLength: 254
+          minLength: 4
+          type: string
+      required:
+      - domain
+      type: object
+    WorkspaceDomainDiscoveryResponse:
+      additionalProperties: false
+      properties:
+        data:
+          additionalProperties: false
+          allOf:
+          - else:
+              properties:
+                sign_in_path:
+                  const: null
+            if:
+              properties:
+                available:
+                  const: true
+              required:
+              - available
+            then:
+              properties:
+                sign_in_path:
+                  type: string
+          properties:
+            available:
+              type: boolean
+            sign_in_path:
+              pattern: ^/sign-in\?tenant_slug=[a-z0-9]+(?:-[a-z0-9]+)*$
+              type:
+              - string
+              - 'null'
+          required:
+          - available
+          - sign_in_path
+          type: object
+      required:
+      - data
+      type: object
+    WorkspaceDomainVersionRequest:
+      additionalProperties: false
+      properties:
+        version:
+          minimum: 1
+          type: integer
+      required:
+      - version
+      type: object

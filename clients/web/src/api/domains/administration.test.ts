@@ -10,6 +10,26 @@ function fixture() {
 }
 
 describe("administration evidence contracts", () => {
+  it("preserves bounded domain inventory and supplies current CAS versions to every domain mutation", async () => {
+    const { api, request } = fixture();
+    const claim = { id: "claim/1", domain: "team.example.org", version: 3, status: "pending", discovery_enabled: false, challenge_value: null };
+    request.mockResolvedValue({ data: [claim], limits: { domains: 8 } });
+    await expect(api.workspaceDomains()).resolves.toEqual({ data: [claim], limits: { domains: 8 } });
+    request.mockResolvedValue({ data: claim });
+    await expect(api.createWorkspaceDomain({ domain: "team.example.org", version: 0 })).resolves.toEqual(claim);
+    await api.renewWorkspaceDomain("claim/1", 3);
+    await api.verifyWorkspaceDomain("claim/1", 4);
+    await api.updateWorkspaceDomainDiscovery("claim/1", 5, false);
+    await api.removeWorkspaceDomain("claim/1", 6);
+    expect(request.mock.calls.slice(1)).toEqual([
+      ["/api/v1/admin/workspace-domains", { method: "POST", body: JSON.stringify({ domain: "team.example.org", version: 0 }) }],
+      ["/api/v1/admin/workspace-domains/claim%2F1/challenge", { method: "POST", body: JSON.stringify({ version: 3 }) }],
+      ["/api/v1/admin/workspace-domains/claim%2F1/verify", { method: "POST", body: JSON.stringify({ version: 4 }) }],
+      ["/api/v1/admin/workspace-domains/claim%2F1", { method: "PATCH", body: JSON.stringify({ version: 5, discovery_enabled: false }) }],
+      ["/api/v1/admin/workspace-domains/claim%2F1", { method: "DELETE", body: JSON.stringify({ version: 6 }) }]
+    ]);
+  });
+
   it("preserves page cursors and uses the same structured filters for the audit list and export", async () => {
     const { api, request, download } = fixture();
     const input = { q: "%_ literal", action: "message.updated", actor_user_id: "actor-1", before: "2026-07-12T10:00:00Z", limit: 100 };

@@ -12,6 +12,7 @@ import { useSession } from "../../app/session";
 import { authenticationReturnState } from "../../app/authNavigation";
 import type { MfaChallenge } from "../../types/enterpriseIdentity";
 import { MfaSignInForm } from "./MfaSignInForm";
+import { WorkspaceDiscovery } from "./WorkspaceDiscovery";
 
 type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
@@ -37,6 +38,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
   const [loginWorkspaceSlug, setLoginWorkspaceSlug] = useState(initialWorkspaceSlug);
   const [loginEmail, setLoginEmail] = useState("");
   const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
+  const [loginFormGeneration, setLoginFormGeneration] = useState(0);
   const [editingWorkspace, setEditingWorkspace] = useState(!initialWorkspaceSlug);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlug] = useState("");
@@ -326,7 +328,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
             <MfaSignInForm api={api} challenge={mfaChallenge} disabled={accountActionsUnavailable} onComplete={setSession} onRestart={() => { setMfaChallenge(null); setError(null); }} />
           ) : mode === "login" ? (
             <>
-              <form key="login" className="auth-form" onSubmit={(event) => void submitLogin(event)}>
+              <form key={`login-${loginFormGeneration}`} className="auth-form" onSubmit={(event) => void submitLogin(event)}>
                 {editingWorkspace || !loginWorkspaceSlug ? (
                   <Field
                     id="login-workspace"
@@ -388,6 +390,14 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
                   <button type="button" className="button secondary full" disabled={busy || accountActionsUnavailable} onClick={() => void corporateSignIn()}>Corporate sign in</button>
                 </div>
               </form>
+              <WorkspaceDiscovery api={api} disabled={busy || accountActionsUnavailable} onSelect={(path, slug) => {
+                setLoginWorkspaceSlug(slug);
+                setEditingWorkspace(false);
+                setLoginFormGeneration((value) => value + 1);
+                setError(null);
+                setNotice("Workspace address selected. Sign in with your own account; discovery does not grant access.");
+                navigate(path, { replace: true, state: authenticationState });
+              }} />
               <div
                 className="auth-entry-options"
                 role="group"
