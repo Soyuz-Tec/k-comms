@@ -55,7 +55,8 @@ defmodule CommsCore.Release.EnvironmentTest do
                                   "calendar_erasure_v1",
                                   "phone_provider_provisioning_v1",
                                   "uc_recognition_summaries_v1",
-                                  "native_call_wake_v1"
+                                  "native_call_wake_v1",
+                                  "private_rooms_v1"
                                 ],
                                 ","
                               )

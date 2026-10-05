@@ -422,7 +422,12 @@ defmodule CommsCore.Release.Phase2RollbackDatabaseTest do
         :active_summary_jobs,
         :native_push_registrations,
         :native_call_wake_intents,
-        :active_native_call_wake_jobs
+        :active_native_call_wake_jobs,
+        :matrix_identities,
+        :private_matrix_rooms,
+        :opaque_private_events,
+        :active_matrix_device_jobs,
+        :active_private_purge_jobs
       ],
       &{&1, 0}
     )

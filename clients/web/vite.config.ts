@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from "vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { supportedDrawingLocale } from "./build/supported-drawing-locale";
 
 function clientRouteFallback(): Plugin {
   const standaloneClientRoutes = new Set([
@@ -39,7 +40,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: "/app/",
-    plugins: [clientRouteFallback(), react()],
+    plugins: [clientRouteFallback(), supportedDrawingLocale(), react()],
     server: {
       host: "0.0.0.0",
       port: 5173,

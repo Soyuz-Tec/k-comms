@@ -9,6 +9,7 @@ export interface Conversation {
   id: string;
   tenant_id: string;
   kind: "direct" | "group" | "channel";
+  content_mode?: "server_readable" | "matrix_e2ee";
   title: string | null;
   counterpart_user_id: string | null;
   counterpart_display_name: string | null;

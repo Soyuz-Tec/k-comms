@@ -6,7 +6,7 @@ import {
   useState,
   type CSSProperties
 } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { useSession } from "../../app/session";
 import { useStepUp } from "../../app/step-up";
@@ -592,6 +592,7 @@ export function ChatPage() {
     void memberWorkspace.onboarding("dismiss");
   }
 
+  if (activeConversation?.content_mode === "matrix_e2ee") return <Navigate to={`/app/private?room=${encodeURIComponent(activeConversation.id)}`} replace />;
   return (
     <main
       className={`workspace-grid mobile-${mobilePane}`}

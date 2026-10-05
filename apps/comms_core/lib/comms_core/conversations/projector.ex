@@ -12,6 +12,7 @@ defmodule CommsCore.Conversations.Projector do
       id: conversation.id,
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
+      content_mode: conversation.content_mode,
       title: if(conversation.kind == :direct, do: nil, else: conversation.title),
       counterpart_user_id: counterpart_user_id,
       counterpart_display_name: counterpart_display_name,

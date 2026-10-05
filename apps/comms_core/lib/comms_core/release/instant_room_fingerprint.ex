@@ -55,7 +55,11 @@ defmodule CommsCore.Release.InstantRoomFingerprint do
     :calendar_erasure_receipts,
     :phone_provisioning_commands,
     :native_push_registrations,
-    :native_call_wakes
+    :native_call_wakes,
+    :matrix_identities,
+    :matrix_client_sessions,
+    :private_matrix_rooms,
+    :opaque_private_events
   ]
 
   def run do

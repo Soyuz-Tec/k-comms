@@ -133,6 +133,10 @@ defmodule CommsCore.Conversations do
   def release_tenant_fingerprint_fragment(repo, tenant_id),
     do: ReleaseFingerprint.fragment(repo, tenant_id)
 
+  @spec rollback_private_room_hazard_count() :: non_neg_integer()
+  def rollback_private_room_hazard_count,
+    do: CommsCore.Conversations.PrivateRoomInventory.hazard_count()
+
   @impl ConversationBootstrapPort
   def create_initial_channel(%InitialConversationCommand{} = command),
     do: Bootstrap.create_initial_channel(command)
@@ -364,6 +368,65 @@ defmodule CommsCore.Conversations do
   def project(conversation), do: Directory.project(conversation)
 
   def create_view(attrs, subject), do: Commands.create_view(attrs, subject)
+
+  @spec create_private_room(public_map(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate create_private_room(attrs, subject),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :create
+
+  @spec list_private_rooms(public_map()) ::
+          {:ok, [CommsCore.Conversations.PrivateRoomView.t()]} | {:error, atom()}
+  defdelegate list_private_rooms(subject), to: CommsCore.Conversations.PrivateRooms, as: :list
+
+  @spec private_room(binary(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate private_room(id, subject), to: CommsCore.Conversations.PrivateRooms, as: :get
+
+  @spec remove_private_room_member(binary(), binary(), public_map(), public_map()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomView.t()} | {:error, atom()}
+  defdelegate remove_private_room_member(id, user_id, attrs, subject),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :remove_member
+
+  @spec lock_private_room_grant(binary(), public_map(), pos_integer(), pos_integer(), integer()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomGrant.t()} | {:error, atom()}
+  defdelegate lock_private_room_grant(id, subject, epoch, generation, deadline),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :lock_grant
+
+  @spec lock_private_room_grant(binary(), public_map(), pos_integer(), pos_integer()) ::
+          {:ok, CommsCore.Conversations.PrivateRoomGrant.t()} | {:error, atom()}
+  defdelegate lock_private_room_grant(id, subject, epoch, generation),
+    to: CommsCore.Conversations.PrivateRooms,
+    as: :lock_grant
+
+  @spec prepare_private_room_erasure(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, %{private_rooms_fenced: non_neg_integer()}} | {:error, atom()}
+  defdelegate prepare_private_room_erasure(tenant, type, target),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :prepare
+
+  @spec private_room_erasure_pending?(binary(), :user | :conversation | :message, binary()) ::
+          {:ok, boolean()} | {:error, atom()}
+  defdelegate private_room_erasure_pending?(tenant, type, target),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :pending?
+
+  @spec reconcile_private_room_purges(module()) ::
+          {:ok, %{scanned: non_neg_integer(), provider_purged: non_neg_integer()}}
+          | {:error, atom()}
+  defdelegate reconcile_private_room_purges(caller),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :reconcile
+
+  @spec authorize_private_content_erasure(
+          CommsCore.Conversations.PrivateContentErasureCommand.t()
+        ) :: :ok | {:error, atom()}
+  defdelegate authorize_private_content_erasure(command),
+    to: CommsCore.Conversations.PrivateRoomErasure,
+    as: :authorize_content_erasure
+
   def list_for_user_views(subject), do: Directory.list_for_user_views(subject)
 
   def discover_public_channel_views(params, subject),

@@ -1,11 +1,11 @@
 const memberPaths = new Set([
   "/app/", "/app/calls", "/app/calls/phone", "/app/directory",
-  "/app/documents", "/app/files", "/app/whiteboard", "/app/you", "/app/settings", "/app/meetings", "/app/artifacts", "/app/saved", "/admin", "/ops"
+  "/app/documents", "/app/private", "/app/files", "/app/whiteboard", "/app/you", "/app/settings", "/app/meetings", "/app/artifacts", "/app/saved", "/admin", "/ops"
 ]);
 const returnParameters = new Set([
   "conversation", "message", "search_message", "search_sequence", "call", "file",
   "document", "focus_elements", "whiteboard_elements", "whiteboard_sequence", "whiteboard_label",
-  "section", "tab", "search", "query", "compose", "q", "meeting", "occurrence", "artifact"
+  "section", "tab", "search", "query", "compose", "q", "meeting", "occurrence", "artifact", "room"
 ]);
 
 export interface AuthenticationReturnState {

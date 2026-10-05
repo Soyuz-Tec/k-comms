@@ -98,6 +98,71 @@ defmodule CommsWeb.FallbackController do
             ],
        do: {409, Atom.to_string(reason), "Refresh the provider setup receipt before continuing"}
 
+  defp error(:private_operation_timeout),
+    do:
+      {504, "private_operation_timeout",
+       "The operation budget expired; check the retained intent before retrying"}
+
+  defp error(:private_room_requires_encrypted_client),
+    do:
+      {409, "private_room_requires_encrypted_client",
+       "Open this conversation in Private rooms; plaintext features are unavailable"}
+
+  defp error(reason)
+       when reason in [
+              :matrix_provisioning_unavailable,
+              :private_rooms_unavailable,
+              :private_room_provider_unavailable,
+              :private_event_provider_unavailable,
+              :private_room_owned_protocol_unconfirmed,
+              :private_control_crypto_keys_forbidden,
+              :private_room_provider_binding_invalid,
+              :private_provider_room_identity_unconfirmed,
+              :private_room_purge_unconfirmed,
+              :private_member_removal_unconfirmed
+            ],
+       do:
+         {503, Atom.to_string(reason),
+          "Private room providers are unavailable for this deployment"}
+
+  defp error(reason)
+       when reason in [
+              :private_room_generation_stale,
+              :private_room_rekey_pending,
+              :matrix_provisioning_busy,
+              :private_room_id_conflict,
+              :private_room_creation_outcome_unknown,
+              :matrix_public_signing_identity_reset_forbidden
+            ],
+       do:
+         {409, Atom.to_string(reason),
+          "Private room state changed; resolve the retained intent before retrying"}
+
+  defp error(:matrix_member_enrollment_required),
+    do:
+      {428, "matrix_member_enrollment_required",
+       "Each participant must enroll their Matrix device in Private rooms first"}
+
+  defp error(reason)
+       when reason in [
+              :private_room_withdrawn,
+              :matrix_device_withdrawn,
+              :matrix_identity_withdrawn
+            ],
+       do: {403, Atom.to_string(reason), "Private authority has been withdrawn"}
+
+  defp error(reason)
+       when reason in [
+              :invalid_opaque_private_event,
+              :invalid_private_generation,
+              :invalid_private_cursor,
+              :invalid_private_title,
+              :invalid_private_room_id,
+              :invalid_membership_epoch,
+              :invalid_public_signing_keys
+            ],
+       do: {422, Atom.to_string(reason), "Invalid bounded private room input"}
+
   defp error(reason) when reason in [:invalid_mfa_code, :invalid_mfa_challenge],
     do: {401, Atom.to_string(reason), "The authenticator or recovery code is invalid or expired"}
 

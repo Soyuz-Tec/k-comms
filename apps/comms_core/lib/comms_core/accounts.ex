@@ -133,6 +133,55 @@ defmodule CommsCore.Accounts do
     to: CommsCore.Accounts.CalendarAuthority,
     as: :source
 
+  @spec lock_matrix_participants(
+          CommsCore.Accounts.MatrixParticipantsLockQuery.t(),
+          public_map() | nil
+        ) ::
+          {:ok, %{eligible_user_ids: [binary()], grant: CommsCore.Accounts.AccessGrant.t() | nil}}
+          | {:error, atom()}
+  defdelegate lock_matrix_participants(query, subject),
+    to: CommsCore.Accounts.MatrixParticipants,
+    as: :lock
+
+  @spec prepare_matrix_identity_erasure(binary(), binary()) :: :ok | {:error, atom()}
+  defdelegate prepare_matrix_identity_erasure(tenant, user),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :prepare_erasure
+
+  @spec matrix_identity_erasure_pending?(binary(), binary()) :: boolean()
+  defdelegate matrix_identity_erasure_pending?(tenant, user),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :erasure_pending?
+
+  @spec matrix_client_session(public_map(), integer()) ::
+          {:ok, CommsCore.Accounts.MatrixClientSessionView.t()} | {:error, atom()}
+  defdelegate matrix_client_session(subject, deadline),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :client_session
+
+  @spec matrix_client_session(public_map()) ::
+          {:ok, CommsCore.Accounts.MatrixClientSessionView.t()} | {:error, atom()}
+  defdelegate matrix_client_session(subject),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :client_session
+
+  @spec matrix_identity_view(binary(), binary()) ::
+          {:ok, CommsCore.Accounts.MatrixIdentityView.t()} | {:error, atom()}
+  defdelegate matrix_identity_view(tenant_id, user_id),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :identity_view
+
+  @spec matrix_upload_public_signing_keys(public_map(), public_map()) :: :ok | {:error, atom()}
+  defdelegate matrix_upload_public_signing_keys(keys, subject),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :upload_public_signing_keys
+
+  @spec reconcile_matrix_devices(module()) ::
+          {:ok, %{scanned: non_neg_integer(), revoked: non_neg_integer()}} | {:error, atom()}
+  defdelegate reconcile_matrix_devices(caller),
+    to: CommsCore.Accounts.MatrixSessions,
+    as: :reconcile
+
   @spec admin_revoke_session_command(binary(), binary(), public_map(), public_map()) ::
           public_response()
   @spec authenticate_view(binary(), binary(), binary(), public_input()) :: public_response()
@@ -264,6 +313,10 @@ defmodule CommsCore.Accounts do
 
   @doc false
   @spec rollback_enterprise_identity_hazard_count() :: non_neg_integer()
+  @spec rollback_matrix_identity_hazard_count() :: non_neg_integer()
+  def rollback_matrix_identity_hazard_count,
+    do: ReleaseInventory.matrix_identity_hazard_count(Repo)
+
   def rollback_enterprise_identity_hazard_count,
     do: ReleaseInventory.enterprise_identity_hazard_count(Repo)
 
@@ -1196,6 +1249,8 @@ defmodule CommsCore.Accounts do
   defp validation_error?(_reason), do: false
 
   defp revoke_sessions_for_session_boundary(tenant_id, session_ids, reason) do
+    CommsCore.Accounts.MatrixSessions.revoke_sessions(tenant_id, session_ids)
+
     CallLifecycleCommand.sessions_revoked(tenant_id, session_ids, reason)
     |> CallLifecyclePort.revoke_identity_access()
     |> call_lifecycle_ok!()

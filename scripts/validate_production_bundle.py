@@ -96,6 +96,7 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "CommsWorkers.NativeCallWakeWorker",
         "CommsWorkers.NativePushReconcilerWorker",
     ),
+    "private_rooms_v1": ("matrix_identities", "matrix_client_sessions", "private_matrix_rooms", "opaque_private_events", "CommsWorkers.MatrixDeviceReconcilerWorker", "CommsWorkers.PrivateRoomPurgeReconcilerWorker"),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS

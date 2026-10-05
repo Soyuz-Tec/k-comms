@@ -3,7 +3,7 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: bb7a8e518eccffb19659b6f8d30cd5646c6db2be93b28724c609762795978562
+  sha256: b6e791db70f73d04382dcde28c0d1ba77ffa3425198fb4747aa19edcaf177cf1
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
@@ -49,11 +49,41 @@ enforcement:
     - context:collaboration:public_contracts:add:CommsCore.SharedDocuments.SummaryView
     - context:collaboration:public_facades:add:CommsCore.SharedDocuments
     - context:collaboration:publishes:add:collaboration.document_operation_applied.v1
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventCommand
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventIntentView
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventPort
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventPort.Contract
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventReceipt
+    - context:conversation_content:public_contracts:add:CommsCore.Messaging.PrivateEventView
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasureCommand
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasurePort
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateContentErasureReceipt
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomControlCommand
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomControlPort
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomControlPort.Contract
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomControlReceipt
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomGrant
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomProtection
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomProtectionPort
+    - context:conversations:public_contracts:add:CommsCore.Conversations.PrivateRoomView
+    - context:conversations:public_facades:add:CommsCore.Conversations.PrivateRoomEligibility
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarActorLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarSourceGrant
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarSourceLockQuery
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerGrant
     - context:identity_access:public_contracts:add:CommsCore.Accounts.CalendarWorkerLockQuery
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixAccessProtection
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixAccessProtectionPort
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixClientSessionView
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixEligibilityCommand
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixEligibilityPort
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixEligibilityReceipt
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixIdentityView
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixParticipantsLockQuery
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixProvisioningCommand
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixProvisioningPort
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixProvisioningPort.Contract
+    - context:identity_access:public_contracts:add:CommsCore.Accounts.MatrixProvisioningReceipt
     - context:identity_access:public_contracts:add:CommsCore.Accounts.NativePushAuthority
     - context:notification_delivery:consumes:add:call.started.v1
     - context:notification_delivery:consumes:add:telephony.call.updated
@@ -94,13 +124,31 @@ enforcement:
     - context:tenant_administration:public_facades:add:CommsCore.Administration.WorkspaceDomainErasure
     - context:trust_governance:public_facades:add:CommsCore.Governance.CalendarProtection
     - context:trust_governance:public_facades:add:CommsCore.Governance.DocumentProtection
-    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->bb7a8e518eccffb19659b6f8d30cd5646c6db2be93b28724c609762795978562
+    - context:trust_governance:public_facades:add:CommsCore.Governance.MatrixAccessProtection
+    - context:trust_governance:public_facades:add:CommsCore.Governance.PrivateRoomProtection
+    - public_facade_api:sha256:183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28->b6e791db70f73d04382dcde28c0d1ba77ffa3425198fb4747aa19edcaf177cf1
     - runtime_collaborations:calendar-governance-protection:add:{"binding":{"application":"comms_core","key":"calendar_protection_adapter","module":"CommsCore.Governance.CalendarProtection"},"callers":["CommsCore.AudioCalls.CalendarSync.Connections","CommsCore.AudioCalls.CalendarSync.Guards"],"condition":"ADR-0098
       acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections. Legal holds preserve
       managed objects; uncertain absence, expired credentials and unconfirmed grant revocation remain pending. No
       foreign persistence access is authorized.","consumer":"calls","graph_semantics":{"compile_dependency":"trust_governance_to_calls","control_flow":"calls_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"calendar-governance-protection","implementation":"CommsCore.Governance.CalendarProtection","operations":[{"arity":1,"name":"protection"}],"port":"CommsCore.AudioCalls.CalendarSync.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.AudioCalls.CalendarSync.ProtectionReceipt","transaction":"required"}
     - runtime_collaborations:call-artifact-governance-protection:callers:add:"CommsCore.AudioCalls.Artifacts.Summaries"
     - runtime_collaborations:identity-notification-lifecycle:callers:add:"CommsCore.Accounts.GovernanceErasure"
+    - runtime_collaborations:matrix-identity-governance-fence:add:{"binding":{"application":"comms_core","key":"matrix_access_protection_adapter","module":"CommsCore.Governance.MatrixAccessProtection"},"callers":["CommsCore.Accounts.MatrixSessions"],"condition":"ADR-0104
+      permits only this exact consumer-owned DTO/operation on the retained caller transaction, with current Governance/identity
+      and generation proof. No foreign schema access, additional operation, cleanup confirmation or provider activation
+      is authorized.","consumer":"identity_access","graph_semantics":{"compile_dependency":"trust_governance_to_identity_access","control_flow":"identity_access_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"matrix-identity-governance-fence","implementation":"CommsCore.Governance.MatrixAccessProtection","operations":[{"arity":2,"name":"protection"}],"port":"CommsCore.Accounts.MatrixAccessProtectionPort","provider":"trust_governance","result_contract":"CommsCore.Accounts.MatrixAccessProtection","transaction":"required"}
+    - runtime_collaborations:matrix-participant-eligibility-withdrawal:add:{"binding":{"application":"comms_core","key":"matrix_eligibility_adapter","module":"CommsCore.Conversations.PrivateRoomEligibility"},"callers":["CommsCore.Accounts.UserLifecycle","CommsCore.Accounts.GovernanceErasure"],"condition":"ADR-0104
+      permits only local eligibility withdrawal after retained canonical sorted User locks, no Governance reentry
+      or provider effects. Durable membership/epoch fencing and queued native bans preserve unknown client-key cleanup
+      obligations.","consumer":"identity_access","graph_semantics":{"compile_dependency":"conversations_to_identity_access","control_flow":"identity_access_to_conversations","static_cycle_policy":"dependency_inversion"},"id":"matrix-participant-eligibility-withdrawal","implementation":"CommsCore.Conversations.PrivateRoomEligibility","operations":[{"arity":1,"name":"withdraw_user"}],"port":"CommsCore.Accounts.MatrixEligibilityPort","provider":"conversations","result_contract":"CommsCore.Accounts.MatrixEligibilityReceipt","transaction":"required"}
+    - runtime_collaborations:private-room-governance-fence:add:{"binding":{"application":"comms_core","key":"private_room_protection_adapter","module":"CommsCore.Governance.PrivateRoomProtection"},"callers":["CommsCore.Conversations.PrivateRooms","CommsCore.Conversations.PrivateRoomErasure","CommsCore.Conversations.PrivateRoomEligibility"],"condition":"ADR-0104
+      permits only this exact consumer-owned DTO/operation on the retained caller transaction, with current Governance/identity
+      and generation proof. No foreign schema access, additional operation, cleanup confirmation or provider activation
+      is authorized.","consumer":"conversations","graph_semantics":{"compile_dependency":"trust_governance_to_conversations","control_flow":"conversations_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"private-room-governance-fence","implementation":"CommsCore.Governance.PrivateRoomProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.Conversations.PrivateRoomProtectionPort","provider":"trust_governance","result_contract":"CommsCore.Conversations.PrivateRoomProtection","transaction":"required"}
+    - runtime_collaborations:private-room-opaque-content-erasure:add:{"binding":{"application":"comms_core","key":"private_content_erasure_adapter","module":"CommsCore.Messaging"},"callers":["CommsCore.Conversations.PrivateRoomErasure"],"condition":"ADR-0104
+      permits only this exact consumer-owned DTO/operation on the retained caller transaction, with current Governance/identity
+      and generation proof. No foreign schema access, additional operation, cleanup confirmation or provider activation
+      is authorized.","consumer":"conversations","graph_semantics":{"compile_dependency":"conversation_content_to_conversations","control_flow":"conversations_to_conversation_content","static_cycle_policy":"dependency_inversion"},"id":"private-room-opaque-content-erasure","implementation":"CommsCore.Messaging","operations":[{"arity":1,"name":"erase_private_content"}],"port":"CommsCore.Conversations.PrivateContentErasurePort","provider":"conversation_content","result_contract":"CommsCore.Conversations.PrivateContentErasureReceipt","transaction":"required"}
     - runtime_collaborations:shared-document-governance-protection:add:{"binding":{"application":"comms_core","key":"shared_document_protection_adapter","module":"CommsCore.Governance.DocumentProtection"},"callers":["CommsCore.SharedDocuments.Authority"],"condition":"ADR-0101
       retains Governance tenant protection first; the exact Collaboration projection denies pending author/conversation
       erasure and blocks held erasure without foreign schema or Repo access. Authority is the sole port caller.","consumer":"collaboration","graph_semantics":{"compile_dependency":"trust_governance_to_collaboration","control_flow":"collaboration_to_trust_governance","static_cycle_policy":"dependency_inversion"},"id":"shared-document-governance-protection","implementation":"CommsCore.Governance.DocumentProtection","operations":[{"arity":3,"name":"protection"}],"port":"CommsCore.SharedDocuments.ProtectionPort","provider":"trust_governance","result_contract":"CommsCore.SharedDocuments.Protection","transaction":"required"}
@@ -117,8 +165,12 @@ enforcement:
     - table:calendar_oauth_challenges:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.OAuthChallenge","owner":"calls","role":"source"}
     - table:calendar_sync_commands:add:{"access":"owner_only","access_namespaces":["CommsCore.AudioCalls"],"canonical_schema":"CommsCore.AudioCalls.CalendarSync.SyncCommand","owner":"calls","role":"source"}
     - table:call_artifact_summaries:add:{"canonical_schema":"CommsCore.AudioCalls.Artifacts.Summary","owner":"calls","role":"source"}
+    - table:matrix_client_sessions:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MatrixClientSession","owner":"identity_access","role":"source"}
+    - table:matrix_identities:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MatrixIdentity","owner":"identity_access","role":"source"}
     - table:native_call_wakes:add:{"access":"owner_only","access_namespaces":["CommsCore.Notifications"],"canonical_schema":"CommsCore.Notifications.NativeCallWake","owner":"notification_delivery","role":"source"}
     - table:native_push_registrations:add:{"access":"owner_only","access_namespaces":["CommsCore.Notifications"],"canonical_schema":"CommsCore.Notifications.NativePushRegistration","owner":"notification_delivery","role":"source"}
+    - table:opaque_private_events:add:{"access":"owner_only","access_namespaces":["CommsCore.Messaging"],"canonical_schema":"CommsCore.Messaging.PrivateEvent","owner":"conversation_content","role":"source"}
+    - table:private_matrix_rooms:add:{"access":"owner_only","access_namespaces":["CommsCore.Conversations"],"canonical_schema":"CommsCore.Conversations.PrivateRoom","owner":"conversations","role":"source"}
     - table:shared_document_operations:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Operation","owner":"collaboration","role":"source"}
     - table:shared_documents:add:{"access":"owner_only","access_namespaces":["CommsCore.SharedDocuments"],"canonical_schema":"CommsCore.SharedDocuments.Document","owner":"collaboration","role":"source"}
     - table:telephony_agent_states:add:{"access":"owner_only","access_namespaces":["CommsCore.Telephony"],"canonical_schema":"CommsCore.Telephony.AgentState","owner":"telephony","role":"source"}
@@ -130,6 +182,18 @@ enforcement:
     - technical_interfaces:call-artifact-summarization:add:{"behaviour":"CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","binding":{"application":"comms_core","key":"artifact_summarization_adapter","module":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary"},"callers":["CommsCore.AudioCalls.Artifacts.Summaries"],"condition":"ADR-0102
       permits the exact bounded local selected-quote adapter, separately disclosed original-admission consent and
       immutable source digest. Source qualification does not establish runtime or production qualification.","contracts":["CommsCore.AudioCalls.ArtifactSummarizationPort","CommsCore.AudioCalls.ArtifactSummarizationPort.Contract","CommsCore.AudioCalls.ArtifactSummaryRequest","CommsCore.AudioCalls.ArtifactSummaryReceipt"],"dispatch":"configured","id":"call-artifact-summarization","implementation":"CommsIntegrations.MeetingArtifacts.ExtractiveSummary","interface":"CommsCore.AudioCalls.ArtifactSummarizationPort","operations":[{"arity":0,"name":"configured?"},{"arity":1,"name":"summarize"}],"owner":"calls","transaction":"independent"}
+    - technical_interfaces:matrix-device-client-authentication:add:{"behaviour":"CommsCore.Accounts.MatrixProvisioningPort.Contract","binding":{"application":"comms_core","key":"matrix_provisioning_adapter","module":"CommsIntegrations.SynapseIdentity"},"callers":["CommsCore.Accounts.MatrixSessions"],"condition":"ADR-0104
+      permits only exact configured native Matrix protocol operations through maintained provider HTTPS APIs. DTOs
+      bind retained owner identities, room/device/generation and actual native receipts; no plaintext, message private
+      key, arbitrary provider configuration, provider activation or completed key-erasure assertion is authorized.","contracts":["CommsCore.Accounts.MatrixProvisioningPort","CommsCore.Accounts.MatrixProvisioningCommand","CommsCore.Accounts.MatrixProvisioningReceipt","CommsCore.Accounts.MatrixProvisioningPort.Contract"],"dispatch":"configured","id":"matrix-device-client-authentication","implementation":"CommsIntegrations.SynapseIdentity","interface":"CommsCore.Accounts.MatrixProvisioningPort","operations":[{"arity":2,"name":"execute"}],"owner":"identity_access","transaction":"independent"}
+    - technical_interfaces:matrix-private-opaque-events:add:{"behaviour":"CommsCore.Messaging.PrivateEventPort.Contract","binding":{"application":"comms_core","key":"private_event_adapter","module":"CommsIntegrations.SynapsePrivateEvents"},"callers":["CommsCore.Messaging.PrivateEvents"],"condition":"ADR-0104
+      permits only exact configured native Matrix protocol operations through maintained provider HTTPS APIs. DTOs
+      bind retained owner identities, room/device/generation and actual native receipts; no plaintext, message private
+      key, arbitrary provider configuration, provider activation or completed key-erasure assertion is authorized.","contracts":["CommsCore.Messaging.PrivateEventPort","CommsCore.Messaging.PrivateEventCommand","CommsCore.Messaging.PrivateEventReceipt","CommsCore.Messaging.PrivateEventPort.Contract"],"dispatch":"configured","id":"matrix-private-opaque-events","implementation":"CommsIntegrations.SynapsePrivateEvents","interface":"CommsCore.Messaging.PrivateEventPort","operations":[{"arity":1,"name":"send_encrypted"}],"owner":"conversation_content","transaction":"independent"}
+    - technical_interfaces:matrix-private-room-control:add:{"behaviour":"CommsCore.Conversations.PrivateRoomControlPort.Contract","binding":{"application":"comms_core","key":"private_room_control_adapter","module":"CommsIntegrations.SynapsePrivateRooms"},"callers":["CommsCore.Conversations.PrivateRooms","CommsCore.Conversations.PrivateRoomErasure","CommsCore.Conversations.PrivateRoomEligibility"],"condition":"ADR-0104
+      permits only exact configured native Matrix protocol operations through maintained provider HTTPS APIs. DTOs
+      bind retained owner identities, room/device/generation and actual native receipts; no plaintext, message private
+      key, arbitrary provider configuration, provider activation or completed key-erasure assertion is authorized.","contracts":["CommsCore.Conversations.PrivateRoomControlPort","CommsCore.Conversations.PrivateRoomControlCommand","CommsCore.Conversations.PrivateRoomControlReceipt","CommsCore.Conversations.PrivateRoomControlPort.Contract"],"dispatch":"configured","id":"matrix-private-room-control","implementation":"CommsIntegrations.SynapsePrivateRooms","interface":"CommsCore.Conversations.PrivateRoomControlPort","operations":[{"arity":2,"name":"execute"}],"owner":"conversations","transaction":"independent"}
     - technical_interfaces:native-call-wake-owner:add:{"behaviour":"CommsCore.Notifications.NativeCallWakePort.Contract","binding":{"application":"comms_core","key":"native_call_wake_adapter","module":"CommsIntegrations.NativePush.CallOwner"},"callers":["CommsCore.Notifications.NativeWakePorts"],"condition":"ADR-0106
       permits only content-free recipient discovery and retained-current-owner eligibility/admission through the
       consumer-owned call composition adapter; discovery reads owner-projected identifiers, while authorize/admit
@@ -447,6 +511,18 @@ contexts:
     - CommsCore.Accounts.UserView
     - CommsCore.ServiceAccounts.ServiceAccountView
     - CommsCore.Accounts.NativePushAuthority
+    - CommsCore.Accounts.MatrixAccessProtection
+    - CommsCore.Accounts.MatrixAccessProtectionPort
+    - CommsCore.Accounts.MatrixIdentityView
+    - CommsCore.Accounts.MatrixClientSessionView
+    - CommsCore.Accounts.MatrixProvisioningCommand
+    - CommsCore.Accounts.MatrixProvisioningReceipt
+    - CommsCore.Accounts.MatrixProvisioningPort
+    - CommsCore.Accounts.MatrixProvisioningPort.Contract
+    - CommsCore.Accounts.MatrixParticipantsLockQuery
+    - CommsCore.Accounts.MatrixEligibilityCommand
+    - CommsCore.Accounts.MatrixEligibilityReceipt
+    - CommsCore.Accounts.MatrixEligibilityPort
     owned_modules:
     - CommsCore.Security.Password
     internal_namespaces:
@@ -524,7 +600,18 @@ contexts:
     fold_in: []
     public_facades:
     - CommsCore.Conversations
+    - CommsCore.Conversations.PrivateRoomEligibility
     public_contracts:
+    - CommsCore.Conversations.PrivateRoomView
+    - CommsCore.Conversations.PrivateRoomGrant
+    - CommsCore.Conversations.PrivateRoomControlCommand
+    - CommsCore.Conversations.PrivateRoomControlReceipt
+    - CommsCore.Conversations.PrivateRoomControlPort
+    - CommsCore.Conversations.PrivateRoomProtection
+    - CommsCore.Conversations.PrivateRoomProtectionPort
+    - CommsCore.Conversations.PrivateContentErasureCommand
+    - CommsCore.Conversations.PrivateContentErasureReceipt
+    - CommsCore.Conversations.PrivateContentErasurePort
     - CommsCore.Conversations.UsageProjection
     - CommsCore.Conversations.UsageQuery
     - CommsCore.Conversations.AdmissionUsage
@@ -542,6 +629,7 @@ contexts:
     - CommsCore.Conversations.MembershipView
     - CommsCore.Conversations.WhiteboardReclamationPort
     - CommsCore.Conversations.WhiteboardReclamationReceipt
+    - CommsCore.Conversations.PrivateRoomControlPort.Contract
     internal_namespaces:
     - CommsCore.Conversations
     allowed_dependencies:
@@ -572,6 +660,11 @@ contexts:
     - CommsCore.Attachments
     - CommsCore.Messaging.BoardAssets
     public_contracts:
+    - CommsCore.Messaging.PrivateEventView
+    - CommsCore.Messaging.PrivateEventIntentView
+    - CommsCore.Messaging.PrivateEventCommand
+    - CommsCore.Messaging.PrivateEventReceipt
+    - CommsCore.Messaging.PrivateEventPort
     - CommsCore.Attachments.UsageProjection
     - CommsCore.Attachments.UsageQuery
     - CommsCore.Messaging.UsageProjection
@@ -593,6 +686,7 @@ contexts:
     - CommsCore.Attachments.RestoreReport
     - CommsCore.Attachments.RestoredObjectIdentity
     - CommsCore.Attachments.ScanAttemptView
+    - CommsCore.Messaging.PrivateEventPort.Contract
     internal_namespaces:
     - CommsCore.Messaging
     - CommsCore.Attachments
@@ -872,6 +966,8 @@ contexts:
     - CommsCore.Governance.VoicemailProtection
     - CommsCore.Governance.DocumentProtection
     - CommsCore.Governance.CalendarProtection
+    - CommsCore.Governance.MatrixAccessProtection
+    - CommsCore.Governance.PrivateRoomProtection
     public_contracts:
     - CommsCore.Governance.DeletionExecution
     - CommsCore.Governance.DeletionRequestView
@@ -1491,6 +1587,101 @@ runtime_collaborations:
   condition: ADR-0098 acquires the exact Governance tenant seal before quota/Tenant/sorted Users and Connections.
     Legal holds preserve managed objects; uncertain absence, expired credentials and unconfirmed grant revocation
     remain pending. No foreign persistence access is authorized.
+- id: matrix-identity-governance-fence
+  consumer: identity_access
+  provider: trust_governance
+  port: CommsCore.Accounts.MatrixAccessProtectionPort
+  result_contract: CommsCore.Accounts.MatrixAccessProtection
+  implementation: CommsCore.Governance.MatrixAccessProtection
+  callers:
+  - CommsCore.Accounts.MatrixSessions
+  operations:
+  - name: protection
+    arity: 2
+  binding:
+    application: comms_core
+    key: matrix_access_protection_adapter
+    module: CommsCore.Governance.MatrixAccessProtection
+  transaction: required
+  graph_semantics:
+    control_flow: identity_access_to_trust_governance
+    compile_dependency: trust_governance_to_identity_access
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0104 permits only this exact consumer-owned DTO/operation on the retained caller transaction, with
+    current Governance/identity and generation proof. No foreign schema access, additional operation, cleanup confirmation
+    or provider activation is authorized.
+- id: private-room-governance-fence
+  consumer: conversations
+  provider: trust_governance
+  port: CommsCore.Conversations.PrivateRoomProtectionPort
+  result_contract: CommsCore.Conversations.PrivateRoomProtection
+  implementation: CommsCore.Governance.PrivateRoomProtection
+  callers:
+  - CommsCore.Conversations.PrivateRooms
+  - CommsCore.Conversations.PrivateRoomErasure
+  - CommsCore.Conversations.PrivateRoomEligibility
+  operations:
+  - name: protection
+    arity: 3
+  binding:
+    application: comms_core
+    key: private_room_protection_adapter
+    module: CommsCore.Governance.PrivateRoomProtection
+  transaction: required
+  graph_semantics:
+    control_flow: conversations_to_trust_governance
+    compile_dependency: trust_governance_to_conversations
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0104 permits only this exact consumer-owned DTO/operation on the retained caller transaction, with
+    current Governance/identity and generation proof. No foreign schema access, additional operation, cleanup confirmation
+    or provider activation is authorized.
+- id: private-room-opaque-content-erasure
+  consumer: conversations
+  provider: conversation_content
+  port: CommsCore.Conversations.PrivateContentErasurePort
+  result_contract: CommsCore.Conversations.PrivateContentErasureReceipt
+  implementation: CommsCore.Messaging
+  callers:
+  - CommsCore.Conversations.PrivateRoomErasure
+  operations:
+  - name: erase_private_content
+    arity: 1
+  binding:
+    application: comms_core
+    key: private_content_erasure_adapter
+    module: CommsCore.Messaging
+  transaction: required
+  graph_semantics:
+    control_flow: conversations_to_conversation_content
+    compile_dependency: conversation_content_to_conversations
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0104 permits only this exact consumer-owned DTO/operation on the retained caller transaction, with
+    current Governance/identity and generation proof. No foreign schema access, additional operation, cleanup confirmation
+    or provider activation is authorized.
+- id: matrix-participant-eligibility-withdrawal
+  consumer: identity_access
+  provider: conversations
+  port: CommsCore.Accounts.MatrixEligibilityPort
+  result_contract: CommsCore.Accounts.MatrixEligibilityReceipt
+  implementation: CommsCore.Conversations.PrivateRoomEligibility
+  callers:
+  - CommsCore.Accounts.UserLifecycle
+  - CommsCore.Accounts.GovernanceErasure
+  operations:
+  - name: withdraw_user
+    arity: 1
+  binding:
+    application: comms_core
+    key: matrix_eligibility_adapter
+    module: CommsCore.Conversations.PrivateRoomEligibility
+  transaction: required
+  graph_semantics:
+    control_flow: identity_access_to_conversations
+    compile_dependency: conversations_to_identity_access
+    static_cycle_policy: dependency_inversion
+  condition: ADR-0104 permits only local eligibility withdrawal after retained canonical sorted User locks, no Governance
+    reentry or provider effects. Durable membership/epoch fencing and queued native bans preserve unknown client-key
+    cleanup obligations.
 technical_interfaces:
 - id: telephony-provider-webhook-verification
   owner: telephony
@@ -2006,6 +2197,83 @@ technical_interfaces:
     material under current governance/identity/registration/call locks; status performs no provider I/O. Secrets
     stay in fixed official provider transport, and uncertain results never authorize automatic re-emission or physical-readiness
     claims.
+- id: matrix-device-client-authentication
+  owner: identity_access
+  interface: CommsCore.Accounts.MatrixProvisioningPort
+  callers:
+  - CommsCore.Accounts.MatrixSessions
+  operations:
+  - name: execute
+    arity: 2
+  dispatch: configured
+  contracts:
+  - CommsCore.Accounts.MatrixProvisioningPort
+  - CommsCore.Accounts.MatrixProvisioningCommand
+  - CommsCore.Accounts.MatrixProvisioningReceipt
+  - CommsCore.Accounts.MatrixProvisioningPort.Contract
+  behaviour: CommsCore.Accounts.MatrixProvisioningPort.Contract
+  implementation: CommsIntegrations.SynapseIdentity
+  binding:
+    application: comms_core
+    key: matrix_provisioning_adapter
+    module: CommsIntegrations.SynapseIdentity
+  transaction: independent
+  condition: ADR-0104 permits only exact configured native Matrix protocol operations through maintained provider
+    HTTPS APIs. DTOs bind retained owner identities, room/device/generation and actual native receipts; no plaintext,
+    message private key, arbitrary provider configuration, provider activation or completed key-erasure assertion
+    is authorized.
+- id: matrix-private-room-control
+  owner: conversations
+  interface: CommsCore.Conversations.PrivateRoomControlPort
+  callers:
+  - CommsCore.Conversations.PrivateRooms
+  - CommsCore.Conversations.PrivateRoomErasure
+  - CommsCore.Conversations.PrivateRoomEligibility
+  operations:
+  - name: execute
+    arity: 2
+  dispatch: configured
+  contracts:
+  - CommsCore.Conversations.PrivateRoomControlPort
+  - CommsCore.Conversations.PrivateRoomControlCommand
+  - CommsCore.Conversations.PrivateRoomControlReceipt
+  - CommsCore.Conversations.PrivateRoomControlPort.Contract
+  behaviour: CommsCore.Conversations.PrivateRoomControlPort.Contract
+  implementation: CommsIntegrations.SynapsePrivateRooms
+  binding:
+    application: comms_core
+    key: private_room_control_adapter
+    module: CommsIntegrations.SynapsePrivateRooms
+  transaction: independent
+  condition: ADR-0104 permits only exact configured native Matrix protocol operations through maintained provider
+    HTTPS APIs. DTOs bind retained owner identities, room/device/generation and actual native receipts; no plaintext,
+    message private key, arbitrary provider configuration, provider activation or completed key-erasure assertion
+    is authorized.
+- id: matrix-private-opaque-events
+  owner: conversation_content
+  interface: CommsCore.Messaging.PrivateEventPort
+  callers:
+  - CommsCore.Messaging.PrivateEvents
+  operations:
+  - name: send_encrypted
+    arity: 1
+  dispatch: configured
+  contracts:
+  - CommsCore.Messaging.PrivateEventPort
+  - CommsCore.Messaging.PrivateEventCommand
+  - CommsCore.Messaging.PrivateEventReceipt
+  - CommsCore.Messaging.PrivateEventPort.Contract
+  behaviour: CommsCore.Messaging.PrivateEventPort.Contract
+  implementation: CommsIntegrations.SynapsePrivateEvents
+  binding:
+    application: comms_core
+    key: private_event_adapter
+    module: CommsIntegrations.SynapsePrivateEvents
+  transaction: independent
+  condition: ADR-0104 permits only exact configured native Matrix protocol operations through maintained provider
+    HTTPS APIs. DTOs bind retained owner identities, room/device/generation and actual native receipts; no plaintext,
+    message private key, arbitrary provider configuration, provider activation or completed key-erasure assertion
+    is authorized.
 retired_modules:
 - CommsCore.Authorization
 - CommsCore.InAppNotifications
@@ -2458,6 +2726,34 @@ tables:
     access: owner_only
     access_namespaces:
     - CommsCore.Notifications
+  matrix_identities:
+    owner: identity_access
+    canonical_schema: CommsCore.Accounts.MatrixIdentity
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Accounts
+  matrix_client_sessions:
+    owner: identity_access
+    canonical_schema: CommsCore.Accounts.MatrixClientSession
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Accounts
+  private_matrix_rooms:
+    owner: conversations
+    canonical_schema: CommsCore.Conversations.PrivateRoom
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Conversations
+  opaque_private_events:
+    owner: conversation_content
+    canonical_schema: CommsCore.Messaging.PrivateEvent
+    role: source
+    access: owner_only
+    access_namespaces:
+    - CommsCore.Messaging
 read_model_exceptions:
 - id: operations-cross-context-read-model
   module: CommsCore.Operations

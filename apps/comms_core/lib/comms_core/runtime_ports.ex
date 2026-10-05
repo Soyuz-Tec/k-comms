@@ -27,6 +27,8 @@ defmodule CommsCore.RuntimePorts do
     :meeting_reminder,
     :native_call_wake,
     :native_push_reconciler,
+    :matrix_device_reconciler,
+    :private_room_purge_reconciler,
     :notification_delivery,
     :outbox_publication,
     :personal_content_cleanup,

@@ -337,3 +337,5 @@ the applied structured filters, returned count, cap, and truncation state; raw
 free-text query content is deliberately not copied into audit metadata. The
 interactive UI downloads the server-provided file and warns when the result was
 truncated so an administrator can narrow the filter.
+
+Private rooms use the authenticated `/api/v1/private-rooms` collection, room detail, explicit owner member removal and opaque `/events` send/replay. `/me/matrix/session` delegates a short-lived native authentication credential to the exact current K session; `/me/matrix/public-signing-keys` accepts closed public Ed25519 objects with step-up. Every private response is private, no-store. The canonical OpenAPI defines bounded ciphertext, generation/epoch/idempotency and current-session pending intents. Ordinary `Conversation.content_mode=matrix_e2ee` routes into the private client and refuses server-readable content/capture; existing rooms cannot be converted. Native origin and server_name are distinct. Governance remains pending until backup and device-store key cleanup proof exists; see ADR-0104 and the private-room runbook.

@@ -128,11 +128,14 @@ import { createMeetingArtifactsApi, type MeetingArtifactsApi } from "./api/domai
 
 import { createRichContentApi, type RichContentApi } from "./api/domains/rich-content";
 import { createVoicemailApi, type VoicemailApi } from "./api/domains/voicemail";
+import { createPrivateRoomApi } from "./api/domains/private-rooms";
+import type { PrivateRoomApi } from "./features/private-rooms/types";
 
 import { createCalendarApi, type CalendarApi } from "./api/domains/calendar";
 
 export class ApiClient {
   private readonly transport: MemberSessionTransport;
+  readonly privateRoomApi: PrivateRoomApi;
   private readonly accountsApi: AccountsApi;
   private readonly richContentApi: RichContentApi;
   private readonly voicemailApi: VoicemailApi;
@@ -164,6 +167,7 @@ export class ApiClient {
     );
 
     const request: ApiRequest = this.transport.request;
+    this.privateRoomApi = createPrivateRoomApi(request);
     this.richContentApi = createRichContentApi(request);
     this.voicemailApi = createVoicemailApi(request);
     const download = this.transport.download;

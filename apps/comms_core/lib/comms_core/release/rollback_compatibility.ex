@@ -45,7 +45,15 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]},
     {"uc_recognition_summaries_v1", [:recognition_summary_state, :active_summary_jobs]},
     {"native_call_wake_v1",
-     [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]}
+     [:native_push_registrations, :native_call_wake_intents, :active_native_call_wake_jobs]},
+    {"private_rooms_v1",
+     [
+       :matrix_identities,
+       :private_matrix_rooms,
+       :opaque_private_events,
+       :active_matrix_device_jobs,
+       :active_private_purge_jobs
+     ]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -233,6 +241,11 @@ defmodule CommsCore.Release.RollbackCompatibility do
       calendar_erasure_state: AudioCalls.rollback_calendar_erasure_hazard_count(),
       active_calendar_jobs:
         active_job_count(repo, :calendar_sync) + active_job_count(repo, :calendar_sync_reconciler),
+      matrix_identities: Accounts.rollback_matrix_identity_hazard_count(),
+      private_matrix_rooms: Conversations.rollback_private_room_hazard_count(),
+      opaque_private_events: Messaging.rollback_private_event_hazard_count(),
+      active_matrix_device_jobs: active_job_count(repo, :matrix_device_reconciler),
+      active_private_purge_jobs: active_job_count(repo, :private_room_purge_reconciler),
       governance_history_snapshots: Audit.rollback_history_snapshot_hazard_count(),
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(

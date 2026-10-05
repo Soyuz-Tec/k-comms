@@ -10,6 +10,7 @@ const routeLabels: Record<string, string> = {
   "/app/files": "Files",
   "/app/documents": "Shared documents",
   "/app/whiteboard": "Whiteboard",
+  "/app/private": "Private rooms",
   "/app/you": "You",
   "/app/settings": "Profile and settings",
   "/join": "Join conversation",

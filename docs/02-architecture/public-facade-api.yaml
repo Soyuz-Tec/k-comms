@@ -204,19 +204,23 @@ contexts:
       - put_draft/3
       - refresh_sender_labels/3
       - remove_reaction/3
+      - replay_private_events/3
       - save_message/2
       - saved_items/2
       - search_for_service/3
       - search_page/3
+      - send_private_event/3
       - unsave_message/2
       - usage_projection/2
       collaboration_operations:
       - delete_message/3
       - erase_personal_content/3
+      - erase_private_content/1
       - governance_impact/3
       - lock_for_erasure/3
       - release_tenant_fingerprint_fragment/2
       - retention_candidates/5
+      - rollback_private_event_hazard_count/0
       - rollback_rich_content_hazard_count/0
       - tombstone_for_erasure/3
       owner_internal_operations:
@@ -257,6 +261,7 @@ contexts:
       - convert_guest_account/2
       - create_ephemeral_room/2
       - create_guest_link_view/3
+      - create_private_room/2
       - create_view/2
       - discover_public_channel_views/2
       - ephemeral_room_for_conversation/2
@@ -273,15 +278,19 @@ contexts:
       - list_for_user_views/1
       - list_guest_link_views/2
       - list_member_views/2
+      - list_private_rooms/1
       - logout_guest_session/1
       - mark_read/3
       - open_ephemeral_presence/1
       - preview_ephemeral_room/1
       - preview_guest_link/1
+      - private_room/2
       - reconcile_ephemeral_room/3
       - reconcile_ephemeral_rooms/1
+      - reconcile_private_room_purges/1
       - redeem_guest_link/2
       - remove_member_view/4
+      - remove_private_room_member/4
       - resolve_guest_access/2
       - revoke_guest_link_view/3
       - update_view/3
@@ -294,6 +303,7 @@ contexts:
       - admission_usage/1
       - archive_for_erasure/3
       - authorize_manage/2
+      - authorize_private_content_erasure/1
       - authorize_react_message/2
       - authorize_service_access/3
       - call_membership/3
@@ -301,13 +311,17 @@ contexts:
       - fetch_initial_channel/2
       - lock_call_conversation/3
       - lock_call_membership/3
+      - lock_private_room_grant/5
       - persisted_ephemeral_join_receipt_count/0
       - persisted_ephemeral_presence_lease_count/0
       - persisted_ephemeral_room_count/0
+      - prepare_private_room_erasure/3
+      - private_room_erasure_pending?/3
       - release_tenant_fingerprint_fragment/2
       - remove_user_memberships_for_erasure/3
       - reserve_message_slot/2
       - retention_scope_ids/1
+      - rollback_private_room_hazard_count/0
       - validate_active_members/3
       - validate_reference/2
       owner_internal_operations:
@@ -327,10 +341,17 @@ contexts:
       - leave_public_channel/3
       - list_for_user/1
       - list_members/2
+      - lock_private_room_grant/4
       - project/1
       - remove_member/4
       - revoke_guest_membership_call_access/4
       - update/3
+    CommsCore.Conversations.PrivateRoomEligibility:
+      public_operations: []
+      collaboration_operations:
+      - withdraw_user/1
+      owner_internal_operations:
+      - reconcile/0
   identity_access:
     CommsCore.Accounts:
       public_operations:
@@ -357,11 +378,14 @@ contexts:
       - list_session_views/1
       - list_tenant_user_views/1
       - list_user_session_views/2
+      - matrix_client_session/1
+      - matrix_upload_public_signing_keys/2
       - member_workspace_view/1
       - oidc_callback/3
       - oidc_start/2
       - password_sign_in/4
       - preview_user_role_change/3
+      - reconcile_matrix_devices/1
       - refresh_guest_session_view/1
       - refresh_session_view/1
       - replace_member_workspace/2
@@ -409,12 +433,17 @@ contexts:
       - lock_calendar_worker/1
       - lock_content_write_grant/2
       - lock_guest_identity_parents/1
+      - lock_matrix_participants/2
       - lock_native_push_authority/2
       - lock_push_registration_identity/3
+      - matrix_client_session/2
+      - matrix_identity_erasure_pending?/2
+      - matrix_identity_view/2
       - notification_eligible_device_ids/3
       - persisted_conversation_only_human_count/0
       - persisted_guest_identity_count/0
       - preflight_user_lifecycle_change/3
+      - prepare_matrix_identity_erasure/2
       - provision_guest_identity/1
       - release_tenant_fingerprint_fragment/2
       - resolve_access/1
@@ -428,6 +457,7 @@ contexts:
       - revalidate_calendar_actor/1
       - revoke_guest_session/2
       - rollback_enterprise_identity_hazard_count/0
+      - rollback_matrix_identity_hazard_count/0
       - rollback_member_workspace_hazard_count/0
       - set_platform_role_from_console/3
       - validate_governance_user/2
@@ -800,6 +830,16 @@ contexts:
       - protection/1
       owner_internal_operations: []
     CommsCore.Governance.DocumentProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/3
+      owner_internal_operations: []
+    CommsCore.Governance.MatrixAccessProtection:
+      public_operations: []
+      collaboration_operations:
+      - protection/2
+      owner_internal_operations: []
+    CommsCore.Governance.PrivateRoomProtection:
       public_operations: []
       collaboration_operations:
       - protection/3

@@ -444,8 +444,21 @@ defmodule CommsCore.Governance.DeletionWorkflow do
   defp prepare_media_erasure!(request) do
     target = media_target(request)
 
+    if request.target_type == :user do
+      case Accounts.prepare_matrix_identity_erasure(request.tenant_id, target) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+
     with {:ok, _} <-
            AudioCalls.prepare_calendar_governance_erasure(
+             request.tenant_id,
+             request.target_type,
+             target
+           ),
+         {:ok, _} <-
+           Conversations.prepare_private_room_erasure(
              request.tenant_id,
              request.target_type,
              target
@@ -489,6 +502,12 @@ defmodule CommsCore.Governance.DeletionWorkflow do
              request.tenant_id,
              request.target_type,
              target
+           ),
+         {:ok, private_pending} <-
+           Conversations.private_room_erasure_pending?(
+             request.tenant_id,
+             request.target_type,
+             target
            ) do
       calendar_pending =
         case AudioCalls.calendar_governance_erasure_pending?(
@@ -500,7 +519,10 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      calls_pending or voicemail_pending or meetings_pending or calendar_pending
+      calls_pending or voicemail_pending or meetings_pending or calendar_pending or
+        private_pending or
+        (request.target_type == :user and
+           Accounts.matrix_identity_erasure_pending?(request.tenant_id, target))
     else
       {:error, reason} -> Repo.rollback(reason)
     end

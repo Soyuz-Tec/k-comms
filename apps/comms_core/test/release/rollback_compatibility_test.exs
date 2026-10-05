@@ -26,7 +26,8 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
                                   "calendar_erasure_v1",
                                   "phone_provider_provisioning_v1",
                                   "uc_recognition_summaries_v1",
-                                  "native_call_wake_v1"
+                                  "native_call_wake_v1",
+                                  "private_rooms_v1"
                                 ],
                                 ","
                               )
@@ -104,7 +105,23 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       :active_history_purge_jobs,
       :native_push_registrations,
       :native_call_wake_intents,
-      :active_native_call_wake_jobs
+      :active_native_call_wake_jobs,
+      :shared_documents,
+      :ivr_state,
+      :agent_queue_states,
+      :active_ivr_jobs,
+      :workspace_domain_claims,
+      :calendar_owner_state,
+      :calendar_erasure_state,
+      :active_calendar_jobs,
+      :retained_phone_provisioning_commands,
+      :recognition_summary_state,
+      :active_summary_jobs,
+      :matrix_identities,
+      :private_matrix_rooms,
+      :opaque_private_events,
+      :active_matrix_device_jobs,
+      :active_private_purge_jobs
     ]
 
     clean = Map.new(keys, &{&1, 0})
@@ -174,7 +191,12 @@ defmodule CommsCore.Release.RollbackCompatibilityTest do
       active_summary_jobs: 1,
       native_push_registrations: 1,
       native_call_wake_intents: 1,
-      active_native_call_wake_jobs: 1
+      active_native_call_wake_jobs: 1,
+      matrix_identities: 1,
+      private_matrix_rooms: 1,
+      opaque_private_events: 1,
+      active_matrix_device_jobs: 1,
+      active_private_purge_jobs: 1
     }
 
     compatible = %{

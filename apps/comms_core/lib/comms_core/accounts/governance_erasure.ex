@@ -105,6 +105,18 @@ defmodule CommsCore.Accounts.GovernanceErasure do
       # Retain identity-write exclusion while admitted readers finish User FK
       # checks before their Sessions drain. No unique key changes happen here.
       revoked_session_ids = revoke_user_access(user, command.timestamp)
+      CommsCore.Accounts.MatrixSessions.prepare_erasure(user.tenant_id, user.id)
+
+      case CommsCore.Accounts.MatrixEligibilityPort.withdraw_user(
+             %CommsCore.Accounts.MatrixEligibilityCommand{
+               tenant_id: user.tenant_id,
+               user_id: user.id,
+               timestamp: command.timestamp
+             }
+           ) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
 
       # Both media domains join this same transaction before any strong key
       # anonymization lock. The original Session receipt remains unchanged.
@@ -190,9 +202,10 @@ defmodule CommsCore.Accounts.GovernanceErasure do
           row.tenant_id == ^user.tenant_id and row.user_id == ^user.id and is_nil(row.revoked_at)
       )
 
-    if Repo.exists?(sessions) or Repo.exists?(devices),
-      do: {:error, :user_erasure_not_drained},
-      else: :ok
+    if Repo.exists?(sessions) or Repo.exists?(devices) or
+         CommsCore.Accounts.MatrixSessions.erasure_pending?(user.tenant_id, user.id),
+       do: {:error, :user_erasure_not_drained},
+       else: :ok
   end
 
   defp erase_enterprise_identity(user) do
@@ -246,6 +259,15 @@ defmodule CommsCore.Accounts.GovernanceErasure do
   end
 
   defp governance_erasure_target(tenant_id, user_id, excluded_user_ids) do
+    # Governance owns its tenant fence already. Match identity writer order
+    # before sorted User exclusion; a late quota lock would invert lifecycle.
+    CommsCore.AdmissionQuotas.lock_tenant(tenant_id)
+
+    case CommsCore.Administration.lock_call_policy(tenant_id) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+
     lock_tenant_users!(tenant_id)
 
     with %User{} = user <-
