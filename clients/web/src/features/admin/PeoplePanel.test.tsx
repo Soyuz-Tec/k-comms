@@ -3,14 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import { StepUpProvider } from "../../app/step-up";
-import type { AccountSession, Invitation, User } from "../../types";
+import type { AccountSession, Invitation, Session, User } from "../../types";
 import { PeoplePanel } from "./PeoplePanel";
 
 const sessionApi = vi.hoisted(() => ({ stepUp: vi.fn() }));
 vi.mock("../../app/session", () => ({
   useSession: () => ({
     api: sessionApi,
-    session: { tenant: { id: "tenant-1", name: "Acme", slug: "acme", status: "active" } }
+    session: {
+      access_token: "owner-access", refresh_token: "owner-refresh", token_type: "Bearer", expires_in: 900,
+      tenant: { id: "tenant-1", name: "Acme", slug: "acme", status: "active" },
+      user: { id: "owner-1", tenant_id: "tenant-1", display_name: "Workspace Owner", email: "owner@example.test", role: "owner", status: "active", version: 1, account_type: "human", access_scope: "workspace" },
+      device: { id: "owner-device", user_id: "owner-1", name: "Browser", platform: "web", last_seen_at: "2026-07-14T12:00:00Z" }
+    } satisfies Session
   })
 }));
 
