@@ -95,10 +95,10 @@ defmodule CommsCore.Release.PhoneProvisioningReleaseTest do
         __DIR__
       )
 
-    Code.require_file(path)
+    [{migration, _bytecode}] = Code.require_file(path)
 
     assert_raise RuntimeError, ~r/receipts must be retained/, fn ->
-      CommsCore.Repo.Migrations.AddPhoneProviderProvisioning.down()
+      apply(migration, :down, [])
     end
   end
 

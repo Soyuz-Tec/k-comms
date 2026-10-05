@@ -1769,6 +1769,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "call-artifact-transcription",
                 "notification-availability-adapter",
                 "telephony-provider-controls",
+                "telephony-provider-provisioning",
+                "telephony-provider-provisioning-authority",
                 "telephony-voicemail-provider",
                 "telephony-voicemail-storage",
                 "telephony-provider-webhook-verification",
@@ -1778,6 +1780,42 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "worker-outbox-publication",
             },
         )
+        provisioning = interfaces["telephony-provider-provisioning"]
+        self.assertEqual(
+            {key: provisioning[key] for key in (
+                "owner", "interface", "callers", "operations", "dispatch", "contracts",
+                "behaviour", "implementation", "binding", "transaction",
+            )},
+            {
+                "owner": "telephony",
+                "interface": "CommsCore.Telephony.ProvisioningPort",
+                "callers": ["CommsCore.Telephony.Provisioning", "CommsWeb.PhoneProvisioningController"],
+                "operations": [{"name": "status", "arity": 1}, {"name": "inspect", "arity": 1}, {"name": "apply", "arity": 1}],
+                "dispatch": "configured",
+                "contracts": ["CommsCore.Telephony.ProvisioningPort", "CommsCore.Telephony.ProvisioningPort.Contract", "CommsCore.Telephony.ProvisioningRequest"],
+                "behaviour": "CommsCore.Telephony.ProvisioningPort.Contract",
+                "implementation": "CommsIntegrations.Telephony.ProvisioningLiveKit",
+                "binding": {"application": "comms_core", "key": "telephony_provisioning_adapter", "module": "CommsIntegrations.Telephony.ProvisioningLiveKit"},
+                "transaction": "independent",
+            },
+        )
+        authority = interfaces["telephony-provider-provisioning-authority"]
+        self.assertEqual(
+            {key: authority[key] for key in (
+                "owner", "interface", "callers", "operations", "dispatch", "contracts", "transaction",
+            )},
+            {
+                "owner": "telephony",
+                "interface": "CommsCore.Telephony.ProvisioningAuthorityPort",
+                "callers": ["CommsCore.Telephony.Provisioning", "CommsIntegrations.Telephony.ProvisioningLiveKit"],
+                "operations": [{"name": "authorized_adapter?", "arity": 1}, {"name": "authorize_io", "arity": 3}],
+                "dispatch": "direct",
+                "contracts": ["CommsCore.Telephony.ProvisioningAuthorityPort", "CommsCore.Telephony.ProvisioningRequest"],
+                "transaction": "independent",
+            },
+        )
+        self.assertNotIn("binding", authority)
+        self.assertNotIn("implementation", authority)
         self.assertEqual(
             interfaces["web-validation-error-rendering"]["operations"],
             [{"name": "from", "arity": 1}],

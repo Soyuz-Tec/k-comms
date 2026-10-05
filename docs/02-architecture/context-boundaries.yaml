@@ -11,39 +11,6 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-  - id: compose-member-administrative-evidence-owner-contracts
-    previous_manifest_sha256: 2ae4724b084c1f36b583fd1f864f551eb19dfa03b5da89bc386520ca9afc913c
-    approved_changes:
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryPage
-    - context:audit:public_contracts:add:CommsCore.Audit.ResourceHistoryQuery
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageProjection
-    - context:calls:public_contracts:add:CommsCore.AudioCalls.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Attachments.UsageQuery
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageProjection
-    - context:conversation_content:public_contracts:add:CommsCore.Messaging.UsageQuery
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageProjection
-    - context:conversations:public_contracts:add:CommsCore.Conversations.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.FixedRolePermissionView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberContactView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.MemberWorkspaceView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.RoleCapabilityView
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageProjection
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UsageQuery
-    - context:identity_access:public_contracts:add:CommsCore.Accounts.UserRoleChangePreviewView
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageProjection
-    - context:telephony:public_contracts:add:CommsCore.Telephony.UsageQuery
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestHistoryExport
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.DeletionRequestTimeline
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryActor
-    - context:trust_governance:public_contracts:add:CommsCore.Governance.HistoryEvent
-    - public_facade_api:sha256:e909b4bc20949ef55baf083694e13e7f50fd5e8f1af1542532e55b1bac3c998e->183ec76ba3b0a65e0780f4c1002c56620322175c230bfca1bcda38f116f3cd28
-    - table:audit_resource_history_snapshots:add:{"access":"owner_only","access_namespaces":["CommsCore.Audit"],"canonical_schema":"CommsCore.Audit.ResourceHistorySnapshot","owner":"audit","role":"source"}
-    - table:member_workspaces:add:{"access":"owner_only","access_namespaces":["CommsCore.Accounts"],"canonical_schema":"CommsCore.Accounts.MemberWorkspace","owner":"identity_access","role":"source"}
-    adr: docs/02-architecture/adr/0093-private-member-organization-and-synchronized-setup.md
-    removal_condition: Remove this exact ADR-0093 through ADR-0096 transition after the member organization and administrative
-      evidence composition reviewed against protected parent 734c9e1daf48f2280789a13f977d220f250b9890 reaches the protected
-      branch; it may not authorize later manifest, operation inventory, table ownership, or persistence access changes.
   - id: own-phone-provider-provisioning-default-off
     previous_manifest_sha256: 8ba99cbc4e2801cf719ebb2bbff2d92ffb9dc2556d2e230ca06604e1963d745c
     approved_changes:
