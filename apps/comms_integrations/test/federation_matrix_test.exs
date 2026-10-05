@@ -452,6 +452,64 @@ defmodule CommsIntegrations.FederationMatrixTest do
     refute_received {:matrix_request, :post, _, _, _}
   end
 
+  test "a safe noncanonical state decoy cannot override unsafe canonical room control" do
+    for type <- ["m.room.create", "org.kcomms.bridge", "m.room.power_levels"] do
+      original = Enum.find(state(), &(&1["type"] == type))
+
+      unsafe =
+        case type do
+          "m.room.power_levels" ->
+            put_in(original, ["content", "users"], %{"@foreign:example.org" => 100})
+
+          _ ->
+            Map.put(original, "sender", "@foreign:example.org")
+        end
+
+      decoy = Map.put(original, "state_key", "decoy")
+      changed = Enum.reject(state(), &(&1["type"] == type)) ++ [unsafe, decoy]
+
+      handler(fn :get, path, _ ->
+        if String.ends_with?(path, "/account/whoami"),
+          do: ok(%{"user_id" => "@bridge:example.org"}),
+          else: ok(changed)
+      end)
+
+      assert {:error, :unowned_matrix_cleanup_room} =
+               Matrix.perform(%{request(:redact) | effect_mode: :first_attempt})
+    end
+
+    refute_received {:matrix_request, :put, _, _, _}
+  end
+
+  test "active-room security requires one canonical state event and refuses safe decoys" do
+    for type <- [
+          "m.room.create",
+          "org.kcomms.bridge",
+          "m.room.join_rules",
+          "m.room.guest_access",
+          "m.room.server_acl",
+          "m.room.power_levels"
+        ] do
+      original = Enum.find(state(), &(&1["type"] == type))
+
+      for events <- [
+            Enum.reject(state(), &(&1["type"] == type)) ++
+              [Map.put(original, "state_key", "decoy")],
+            state() ++ [original]
+          ] do
+        handler(fn :get, path, _ ->
+          if String.ends_with?(path, "/account/whoami"),
+            do: ok(%{"user_id" => "@bridge:example.org"}),
+            else: ok(events)
+        end)
+
+        assert {:error, :encrypted_or_unsafe_matrix_room} = Matrix.perform(request(:send))
+      end
+    end
+
+    refute_received {:matrix_request, :put, _, _, _}
+  end
+
   defp request(op),
     do: %ProviderRequest{
       operation: op,
@@ -471,9 +529,10 @@ defmodule CommsIntegrations.FederationMatrixTest do
 
   defp state,
     do: [
-      %{"type" => "m.room.create", "sender" => "@bridge:example.org"},
+      %{"type" => "m.room.create", "state_key" => "", "sender" => "@bridge:example.org"},
       %{
         "type" => "m.room.server_acl",
+        "state_key" => "",
         "content" => %{
           "allow" => ["example.org", "remote.example.org"],
           "deny" => [],
@@ -482,6 +541,7 @@ defmodule CommsIntegrations.FederationMatrixTest do
       },
       %{
         "type" => "m.room.power_levels",
+        "state_key" => "",
         "content" => %{
           "users" => %{"@bridge:example.org" => 100},
           "users_default" => 0,
@@ -493,10 +553,19 @@ defmodule CommsIntegrations.FederationMatrixTest do
           "events" => %{"m.room.encryption" => 100}
         }
       },
-      %{"type" => "m.room.join_rules", "content" => %{"join_rule" => "invite"}},
-      %{"type" => "m.room.guest_access", "content" => %{"guest_access" => "forbidden"}},
+      %{
+        "type" => "m.room.join_rules",
+        "state_key" => "",
+        "content" => %{"join_rule" => "invite"}
+      },
+      %{
+        "type" => "m.room.guest_access",
+        "state_key" => "",
+        "content" => %{"guest_access" => "forbidden"}
+      },
       %{
         "type" => "org.kcomms.bridge",
+        "state_key" => "",
         "sender" => "@bridge:example.org",
         "content" => %{"lineage" => "kc_fed_synthetic"}
       }

@@ -44,6 +44,19 @@ function apiFor(members: ConversationMembership[]) {
 }
 
 describe("ConversationDetails confirmations", () => {
+  it("never renders or calls plaintext Federation for an actual encrypted conversation mode", async () => {
+    const members = [membership("member-current", currentUser, "owner", 3)];
+    const api = { ...apiFor(members), federationRoom: vi.fn(), federationTimeline: vi.fn(), createFederationRoom: vi.fn(), sendFederationMessage: vi.fn() };
+    const { container } = render(<ConversationDetails api={api as unknown as ApiClient} conversation={{ ...conversation, content_mode: "matrix_e2ee" }} currentUserId={currentUser.id} users={[currentUser]} onClose={vi.fn()} onLeft={vi.fn()} onUpdated={vi.fn()} />);
+    await screen.findByRole("button", { name: "Archive" });
+    expect(container.querySelector(".federation-panel")).toBeNull();
+    expect(screen.queryByText(/Plaintext federation/)).not.toBeInTheDocument();
+    expect(api.federationRoom).not.toHaveBeenCalled();
+    expect(api.federationTimeline).not.toHaveBeenCalled();
+    expect(api.createFederationRoom).not.toHaveBeenCalled();
+    expect(api.sendFederationMessage).not.toHaveBeenCalled();
+  });
+
   it("confirms member removal with the exact concurrency version and restores the action on cancel", async () => {
     const user = userEvent.setup();
     const members = [membership("member-current", currentUser, "owner", 3), membership("member-grace", teammate, "member", 7)];

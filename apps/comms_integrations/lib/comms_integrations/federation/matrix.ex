@@ -268,19 +268,31 @@ defmodule CommsIntegrations.Federation.Matrix do
     end
   end
 
+  # Native security state is authoritative only at its canonical empty state key.
+  # Missing/duplicate canonical events cannot be repaired by a safe decoy.
+  defp canonical_state(state, type) do
+    case Enum.filter(state, &(&1["type"] == type and &1["state_key"] == "")) do
+      [event] -> event
+      _ -> nil
+    end
+  end
+
+  defp owned_state?(state, r) do
+    creator = canonical_state(state, "m.room.create")
+    lineage = canonical_state(state, "org.kcomms.bridge")
+
+    is_map(creator) and creator["sender"] == r.bridge_user and is_map(lineage) and
+      lineage["sender"] == r.bridge_user and
+      get_in(lineage, ["content", "lineage"]) == r.alias_localpart
+  end
+
   # Cleanup must remain possible if encryption appears, while retaining the exact
   # original room lineage and control principal. This never reads a timeline.
   defp cleanup_room(room, r, c) when is_binary(room) and byte_size(room) <= 255 do
     with true <- String.starts_with?(room, "!"),
          {:ok, state} when is_list(state) and length(state) <= 1000 <-
            call(:get, room_path(room) <> "/state", nil, r, c),
-         true <-
-           Enum.any?(state, &(&1["type"] == "m.room.create" and &1["sender"] == r.bridge_user)),
-         true <-
-           Enum.any?(state, fn event ->
-             event["type"] == "org.kcomms.bridge" and event["sender"] == r.bridge_user and
-               get_in(event, ["content", "lineage"]) == r.alias_localpart
-           end),
+         true <- owned_state?(state, r),
          true <- safe_power?(state, c) do
       :ok
     else
@@ -296,25 +308,12 @@ defmodule CommsIntegrations.Federation.Matrix do
            call(:get, room_path(room) <> "/state", nil, r, c),
          false <- Enum.any?(state, &(&1["type"] == "m.room.encryption")),
          true <-
-           Enum.any?(
-             state,
-             &(&1["type"] == "m.room.join_rules" and
-                 get_in(&1, ["content", "join_rule"]) == "invite")
-           ),
+           get_in(canonical_state(state, "m.room.join_rules"), ["content", "join_rule"]) ==
+             "invite",
+         true <- owned_state?(state, r),
          true <-
-           Enum.any?(
-             state,
-             &(&1["type"] == "org.kcomms.bridge" and
-                 get_in(&1, ["content", "lineage"]) == r.alias_localpart)
-           ),
-         true <-
-           Enum.any?(state, &(&1["type"] == "m.room.create" and &1["sender"] == c.bridge_user)),
-         true <-
-           Enum.any?(
-             state,
-             &(&1["type"] == "m.room.guest_access" and
-                 get_in(&1, ["content", "guest_access"]) == "forbidden")
-           ),
+           get_in(canonical_state(state, "m.room.guest_access"), ["content", "guest_access"]) ==
+             "forbidden",
          true <- safe_acl?(state, r, c),
          true <- safe_power?(state, c) do
       :ok
@@ -327,27 +326,21 @@ defmodule CommsIntegrations.Federation.Matrix do
 
   defp safe_acl?(state, r, c) do
     expected = Enum.sort([c.server_name | r.allowed_servers])
+    content = get_in(canonical_state(state, "m.room.server_acl"), ["content"]) || %{}
 
-    Enum.any?(state, fn e ->
-      content = e["content"] || %{}
-
-      e["type"] == "m.room.server_acl" and content["allow_ip_literals"] == false and
-        content["deny"] == [] and is_list(content["allow"]) and
-        Enum.sort(content["allow"]) == expected
-    end)
+    content["allow_ip_literals"] == false and content["deny"] == [] and
+      is_list(content["allow"]) and Enum.sort(content["allow"]) == expected
   end
 
   defp safe_power?(state, c) do
-    Enum.any?(state, fn e ->
-      p = e["content"] || %{}
-      users = p["users"] || %{}
+    p = get_in(canonical_state(state, "m.room.power_levels"), ["content"]) || %{}
+    users = p["users"] || %{}
 
-      e["type"] == "m.room.power_levels" and users[c.bridge_user] == 100 and
-        Enum.all?(Map.delete(users, c.bridge_user), fn {_, power} -> power == 0 end) and
-        p["users_default"] == 0 and p["state_default"] == 100 and p["invite"] == 100 and
-        p["kick"] == 100 and p["ban"] == 100 and p["redact"] == 100 and
-        p["events"] == %{"m.room.encryption" => 100}
-    end)
+    is_map(users) and users[c.bridge_user] == 100 and
+      Enum.all?(Map.delete(users, c.bridge_user), fn {_, power} -> power == 0 end) and
+      p["users_default"] == 0 and p["state_default"] == 100 and p["invite"] == 100 and
+      p["kick"] == 100 and p["ban"] == 100 and p["redact"] == 100 and
+      p["events"] == %{"m.room.encryption" => 100}
   end
 
   defp joined(room, r, c) do
