@@ -1,3 +1,4 @@
+import { isDesktopClient, desktopCorporateMessage } from "../../desktop/session";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useSession } from "../../app/session";
@@ -16,6 +17,7 @@ export function OidcCallback() {
     const code = params.get("code"); const state = params.get("state");
     // Remove one-use credentials before rendering, telemetry, or navigation.
     window.history.replaceState(window.history.state, "", window.location.pathname);
+    if (isDesktopClient()) { setError(desktopCorporateMessage); return; }
     let linking: boolean;
     try {
       linking = sessionStorage.getItem("kcomms:oidc-link") === "1";

@@ -1,0 +1,11 @@
+import { cp, rm, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { validateConfig } from '../src/policy.mjs';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const policy = validateConfig({ version: 1, serviceOrigin: process.env.K_COMMS_DESKTOP_SERVICE_ORIGIN || null, mediaOrigins: JSON.parse(process.env.K_COMMS_DESKTOP_MEDIA_ORIGINS || '[]'), resourceOrigins: JSON.parse(process.env.K_COMMS_DESKTOP_RESOURCE_ORIGINS || '[]'), qualificationOnly: process.env.K_COMMS_DESKTOP_QUALIFICATION_ONLY !== 'false', updates: 'disabled', unsigned: true });
+const index = await readFile(path.resolve(root, '../web/dist/index.html'), 'utf8');
+if (!index.includes('/app/assets/')) throw new Error('Build the existing web client before Desktop packaging');
+await rm(path.join(root, 'web-dist'), { recursive: true, force: true });
+await cp(path.resolve(root, '../web/dist'), path.join(root, 'web-dist'), { recursive: true });
+await writeFile(path.join(root, 'desktop.config.json'), JSON.stringify(policy, null, 2) + '\n');

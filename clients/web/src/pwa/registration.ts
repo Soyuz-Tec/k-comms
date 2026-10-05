@@ -1,3 +1,4 @@
+import { isDesktopClient } from "../desktop/session";
 const PWA_SCOPE = "/app/";
 const PWA_WORKER_PATH = "/app/k-comms-sw.js";
 
@@ -10,7 +11,7 @@ export function pwaWorkerUrl(): string {
 }
 
 export function supportsPwaRegistration(): boolean {
-  return (
+  return !isDesktopClient() && (
     typeof navigator !== "undefined" &&
     typeof navigator.serviceWorker?.register === "function"
   );

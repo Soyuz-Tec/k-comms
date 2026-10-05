@@ -103,5 +103,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | [0095](0095-guided-fixed-role-delegation.md) | Guided fixed-role delegation | Accepted for source integration |
 | [0096](0096-bounded-owner-projected-usage-reports.md) | Bounded owner-projected usage reports | Accepted for source integration |
 | [0097](0097-verify-opt-in-workspace-domain-discovery.md) | Verify opt-in workspace domain discovery | Accepted; runtime and DNS qualification pending |
+| 0105 | Package the existing UC interface in a constrained Electron client | Accepted for implementation; unsigned evaluation and native qualification pending |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

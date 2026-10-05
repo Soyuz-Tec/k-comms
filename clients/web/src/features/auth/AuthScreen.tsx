@@ -1,3 +1,4 @@
+import { isDesktopClient, desktopCorporateMessage } from "../../desktop/session";
 import { useEffect, useLayoutEffect, useState } from "react";
 import type { FormEvent, InputHTMLAttributes } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -129,6 +130,7 @@ export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function corporateSignIn() {
+    if (isDesktopClient()) { setError(desktopCorporateMessage); return; }
     if (blockInsecureCredentialSubmission()) return;
     if (!validWorkspaceSlug(loginWorkspaceSlug)) {
       setEditingWorkspace(true);

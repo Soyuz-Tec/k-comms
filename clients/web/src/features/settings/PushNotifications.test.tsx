@@ -22,6 +22,7 @@ afterEach(() => {
 
 describe("browser push settings", () => {
   it("reuses the eagerly registered PWA worker without prompting automatically", async () => {
+    const configuredRevision = import.meta.env.VITE_K_COMMS_RELEASE_REVISION || "development";
     const requestPermission = vi.fn().mockResolvedValue("granted");
     const browserSubscription = fakeBrowserSubscription();
     const subscribe = vi.fn().mockResolvedValue(browserSubscription);
@@ -37,7 +38,7 @@ describe("browser push settings", () => {
     expect(requestPermission).not.toHaveBeenCalled();
     expect(register).toHaveBeenCalledTimes(1);
     expect(register).toHaveBeenCalledWith(
-      "/app/k-comms-sw.js?revision=development",
+      `/app/k-comms-sw.js?revision=${encodeURIComponent(configuredRevision)}`,
       {
         scope: "/app/",
         type: "module",
