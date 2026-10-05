@@ -14,7 +14,6 @@ defmodule CommsCore.AudioCalls.CalendarSync.Effects do
     EventMapping,
     EventReceipt,
     Export,
-    Exports,
     ExternalIdentityReceipt,
     Guards,
     OAuthRequest,
