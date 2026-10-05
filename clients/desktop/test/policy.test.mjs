@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { config, session } from './fixtures.mjs';
 import { validateConfig, httpsOrigin, ownedUiUrl, allowedNetworkUrl, localAssetPath, validateReplacement, secureStorageAvailable, trustedSender, csp, secureWebPreferences } from '../src/policy.mjs';
@@ -20,7 +21,7 @@ test('app origin spoofing, foreign documents and traversal cannot become privile
   assert.throws(() => localAssetPath(config.serviceOrigin + '/app/assets/%2e%2e%2fsecret', config, '/bundle'));
   assert.throws(() => localAssetPath(config.serviceOrigin + '/app/assets/main.map', config, '/bundle'));
   assert.equal(localAssetPath(config.serviceOrigin + '/api/v1/users', config, '/bundle'), null);
-  assert.equal(localAssetPath(config.serviceOrigin + '/app/chat', config, '/bundle'), '/bundle/index.html');
+  assert.equal(localAssetPath(config.serviceOrigin + '/app/chat', config, '/bundle'), join('/bundle', 'index.html'));
 });
 test('only the current owning main frame can call the credential boundary', () => {
   const frame = { url: config.serviceOrigin + '/app/' }; const contents = { mainFrame: frame };

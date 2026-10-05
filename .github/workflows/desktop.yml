@@ -29,24 +29,36 @@ jobs:
           cache-dependency-path: |
             clients/web/package-lock.json
             clients/desktop/package-lock.json
-      - name: Qualify actual existing web source
+      - name: Install pinned web packages
         working-directory: clients/web
-        run: |
-          npm ci
-          npm run lint
-          npm run typecheck
-          npm exec -- vitest run --maxWorkers=1
-          npm run test:assets
-          npm run build
+        run: npm ci
+      - name: Lint actual existing web source
+        working-directory: clients/web
+        run: npm run lint
+      - name: Typecheck actual existing web source
+        working-directory: clients/web
+        run: npm run typecheck
+      - name: Test actual existing web source
+        working-directory: clients/web
+        run: npm exec -- vitest run --maxWorkers=1
+      - name: Test existing web asset controls
+        working-directory: clients/web
+        run: npm run test:assets
+      - name: Build qualified web UI
+        working-directory: clients/web
+        run: npm run build
       - name: Install pinned Desktop packages
         working-directory: clients/desktop
         run: npm ci --ignore-scripts
-      - name: Desktop protocol and lifecycle gates
+      - name: Desktop source policy gate
         working-directory: clients/desktop
-        run: |
-          npm run check:source
-          npm test
-          npm run prepare:ui
+        run: npm run check:source
+      - name: Desktop protocol and lifecycle tests
+        working-directory: clients/desktop
+        run: npm test
+      - name: Prepare qualified Desktop UI
+        working-directory: clients/desktop
+        run: npm run prepare:ui
       - name: Package unsigned evaluation on the native platform
         working-directory: clients/desktop
         run: npm run package:unsigned
