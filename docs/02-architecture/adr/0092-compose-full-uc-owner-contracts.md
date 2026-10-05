@@ -253,3 +253,14 @@ provider fixture, or mocked browser journey substitutes for those gates.
 - Architecture validation retains zero findings with the unchanged empty
   baseline; provider, privacy, revocation, tenancy, and recovery tests qualify
   behaviour independently of this manifest transition.
+
+## Landed transition
+
+PR #236 merged this owner composition normally at protected main
+`4dd01c79f3fe53a71bcb7219ef4bd3644a2fe82e` on 2026-10-05. The exact
+`compose-full-uc-owner-contracts` transition has therefore fulfilled its explicit
+removal condition and is retired from the active manifest. Its 93 approved
+semantic additions remain recorded in that merged Git revision and this ADR.
+All owner declarations, public operations, strict enforcement and the empty
+violation baseline remain unchanged. Future permission growth still requires its
+own exact immutable-base transition and architecture review.
