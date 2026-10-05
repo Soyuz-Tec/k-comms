@@ -185,7 +185,7 @@ actor ApiClient {
         try await request("/api/v1/conversations/\(try id(call.conversationId))/calls/\(try id(call.id))/join", method: "POST")
     }
     func participants(_ call: Call) async throws -> [CallParticipant] {
-        let value: Envelope<[CallParticipant]> = try await request("/api/v1/conversations/\(try id(call.conversationId))/calls/\(try id(call.id))/participants"); return value.data
+        let value: Envelope<[CallParticipant]> = try await request("/api/v1/conversations/\(try id(call.conversationId))/calls/\(try id(call.id))/participants?current_admission=true"); return value.data
     }
     func endCall(_ call: Call) async throws {
         try await requestVoid("/api/v1/conversations/\(try id(call.conversationId))/calls/\(try id(call.id))/end", method: "POST")

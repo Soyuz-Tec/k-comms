@@ -21,6 +21,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class KCommsApiTest {
+    @Test fun participantsRequireExactCurrentAdmissionAndPropagateWithdrawal() = runBlocking {
+        ProtocolFixture().use { f ->
+            f.server.enqueue(MockResponse().setResponseCode(403).setHeader("Content-Type", "application/json")
+                .setBody("{\"error\":{\"code\":\"forbidden\"}}"))
+            val failure = runCatching { f.api.participants(f.conversationId, f.callId, f.lease) }.exceptionOrNull()
+            assertTrue(failure is ApiFailure)
+            val request = f.request()
+            assertEquals("/api/v1/conversations/${f.conversationId}/calls/${f.callId}/participants?current_admission=true", request.path)
+            assertEquals("Bearer ${f.authentication.accessToken}", request.getHeader("Authorization"))
+            assertEquals(f.lease, f.sessions.capture())
+        }
+    }
     @Test fun nativeRegistrationUsesActualSingularOwnerRouteAndKeepsTokenOutOfUrl() = runBlocking {
         ProtocolFixture().use { f ->
             val config = NativePushConfiguration(1, false, emptyList(), 30, true)

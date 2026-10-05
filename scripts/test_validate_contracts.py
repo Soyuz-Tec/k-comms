@@ -1207,6 +1207,16 @@ class NativeWakeContractTests(unittest.TestCase):
     def test_actual_current_owner_paths_and_safe_schema_mirrors(self):
         validate_native_call_wake_contract(self.open, self.standalone)
 
+    def test_native_media_cannot_drop_or_widen_current_session_admission_query(self):
+        for change in ["missing", "string", "mandatory"]:
+            altered = copy.deepcopy(self.open)
+            operation = altered["paths"]["/api/v1/conversations/{conversationId}/calls/{callId}/participants"]["get"]
+            if change == "missing": operation.pop("parameters")
+            elif change == "string": operation["parameters"][0]["schema"] = {"type": "string"}
+            else: operation["parameters"][0]["required"] = True
+            with self.assertRaisesRegex(ValueError, "current-session admission query"):
+                validate_native_call_wake_contract(altered, self.standalone)
+
     def test_native_route_cannot_become_anonymous_or_generic_auth_response(self):
         for field, value in [("security", [{}]), ("operationId", "createSession")]:
             altered = copy.deepcopy(self.open)

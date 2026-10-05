@@ -144,7 +144,8 @@ class KCommsApi(val sessions: SessionStore) {
         WireJson.decodeFromString<CallResult>(sessions.authorized("GET", "/conversations/${uuid(conversationId)}/call", lease = lease)).data
     suspend fun participants(conversationId: String, callId: String, lease: IdentityLease): List<CallParticipant> =
         WireJson.decodeFromString<CallParticipants>(sessions.authorized("GET",
-            "/conversations/${uuid(conversationId)}/calls/${uuid(callId)}/participants", lease = lease)).data
+            "/conversations/${uuid(conversationId)}/calls/${uuid(callId)}/participants",
+            query = mapOf("current_admission" to "true"), lease = lease)).data
     suspend fun calls(cursor: String? = null, lease: IdentityLease = sessions.capture()): CallList =
         WireJson.decodeFromString(sessions.authorized("GET", "/calls",
             query = buildMap { put("scope", "recent"); put("limit", "30"); if (cursor != null) put("cursor", cursor) }, lease = lease))

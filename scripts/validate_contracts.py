@@ -2389,6 +2389,10 @@ def validate_member_workflow_contract(
 
 
 def validate_native_call_wake_contract(openapi: dict[str, Any], standalone: dict[str, Any]) -> None:
+    participant_operation = openapi.get("paths", {}).get("/api/v1/conversations/{conversationId}/calls/{callId}/participants", {}).get("get", {})
+    admission = [parameter for parameter in participant_operation.get("parameters", []) if parameter.get("name") == "current_admission"]
+    if len(admission) != 1 or admission[0].get("in") != "query" or admission[0].get("required") is not False or admission[0].get("schema") != {"type": "boolean", "default": False}:
+        raise ValueError("Native media requires an exact optional current-session admission query")
     expected = {
         ("/api/v1/me/native-push/config", "get"): ("nativePushConfiguration", "NativePushConfigurationResponse", None),
         ("/api/v1/me/native-push/registration", "get"): ("nativePushRegistrations", "NativePushRegistrationList", None),

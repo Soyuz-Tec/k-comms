@@ -1289,12 +1289,19 @@ paths:
       tags: [Calls]
       operationId: listCallParticipants
       security: [{bearerAuth: []}]
+      parameters:
+        - name: current_admission
+          in: query
+          required: false
+          description: Require the requesting current session to retain its own admitted participant; other devices of the same user do not satisfy this check.
+          schema: {type: boolean, default: false}
       responses:
         '200':
           description: Active admitted participant collaboration state; provider identities are excluded
           content:
             application/json:
               schema: {$ref: '#/components/schemas/CallParticipantPage'}
+        '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/calls/{callId}/participants/mute:

@@ -43,6 +43,21 @@ final class ApiClientTests: XCTestCase {
     }
     private func transport() -> URLSession { let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [ProtocolStub.self]; return URLSession(configuration: configuration) }
     override func tearDown() { ProtocolStub.handler = nil; super.tearDown() }
+    func testCallParticipantsRequireExactCurrentAdmissionAndPropagateWithdrawal() async throws {
+        let original = try Wire.decoder().decode(MemberSession.self, from: fixture())
+        let vault = MemoryVault(.init(serverOrigin: "https://synthetic.example", session: original, accessExpiresAt: .distantFuture))
+        ProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/conversations/00000000-0000-0000-0000-000000000001/calls/00000000-0000-0000-0000-000000000002/participants")
+            XCTAssertEqual(request.url?.query, "current_admission=true")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-access")
+            return .init(status: 403, data: Data("{\"error\":{\"code\":\"forbidden\"}}".utf8))
+        }
+        let client = try ApiClient(origin: "https://synthetic.example", vault: vault, transport: transport())
+        let call = Call(id: user, conversationId: tenant, mediaKind: "audio", status: "active", expiresAt: "2026-10-06T00:00:00Z", canEnd: false)
+        do { _ = try await client.participants(call); XCTFail("Revoked current admission returned another device's participants") }
+        catch let error as NativeApiError { XCTAssertEqual(error.status, 403) }
+        let current = await client.currentSession(); XCTAssertNotNil(current)
+    }
     func testNativeRegistrationUsesActualOwnerRoutesWithoutTokenInURL() async throws {
         let original = try Wire.decoder().decode(MemberSession.self, from: fixture())
         let vault = MemoryVault(.init(serverOrigin: "https://synthetic.example", session: original, accessExpiresAt: .distantFuture))
