@@ -86,6 +86,27 @@ defmodule CommsCore.PhoneProvisioningTest do
     assert Repo.aggregate(ProvisioningCommand, :count) == 0
   end
 
+  test "typed IO authority admits only the configured complete adapter while management is enabled",
+       %{
+         account: account,
+         subject: subject
+       } do
+    alias CommsCore.Telephony.ProvisioningAuthorityPort
+    assert ProvisioningAuthorityPort.authorized_adapter?(Adapter)
+    refute ProvisioningAuthorityPort.authorized_adapter?(__MODULE__)
+    {:ok, {_view, lease}} = Telephony.inspect_phone_provisioning(input(account), subject)
+    assert {:error, :forbidden} = ProvisioningAuthorityPort.authorize_io(lease, :read, __MODULE__)
+    assert :ok = ProvisioningAuthorityPort.authorize_io(lease, :read, Adapter)
+    refute Repo.get!(ProvisioningCommand, lease.command_id).effect_consumed
+
+    Application.put_env(:comms_core, :telephony_provisioning_enabled, false)
+    refute ProvisioningAuthorityPort.authorized_adapter?(Adapter)
+    assert {:error, :forbidden} = ProvisioningAuthorityPort.authorize_io(lease, :read, Adapter)
+    Application.put_env(:comms_core, :telephony_provisioning_enabled, true)
+    Application.put_env(:comms_core, :telephony_provisioning_adapter, __MODULE__)
+    refute ProvisioningAuthorityPort.authorized_adapter?(__MODULE__)
+  end
+
   test "inspection idempotency binds the exact assignment and never creates another lease", %{
     account: account,
     subject: subject

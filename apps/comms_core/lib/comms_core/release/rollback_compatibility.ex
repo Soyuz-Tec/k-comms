@@ -33,7 +33,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
     {"scheduled_meeting_lifecycle_v1", [:scheduled_meetings, :active_meeting_reminder_jobs]},
     {"rich_content_erasure_v1", [:rich_messages, :rich_whiteboards]},
     {"member_workspace_v1", [:member_workspaces]},
-    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]}
+    {"governance_history_v1", [:governance_history_snapshots, :active_history_purge_jobs]},
+    {"phone_provider_provisioning_v1", [:retained_phone_provisioning_commands]}
   ]
 
   def assert_guest_rollback_compatible! do
@@ -214,7 +215,8 @@ defmodule CommsCore.Release.RollbackCompatibility do
       active_history_purge_jobs:
         repo.active_continuation_oban_job_count!(
           RuntimePorts.job_worker_name!(:audit_history_snapshot_purge)
-        )
+        ),
+      retained_phone_provisioning_commands: Telephony.rollback_phone_provisioning_hazard_count()
     })
   end
 

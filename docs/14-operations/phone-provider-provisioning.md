@@ -37,3 +37,32 @@ Required gates after source review: migration/owner/controller/adapter tests,
 strict architecture/public-facade validation, web typecheck/unit/build and
 operator-owned synthetic provider journeys. Local source/light checks do not
 qualify production provider effects. Apply migration before enabling management.
+
+The exact HTTP routes are `GET /api/v1/admin/telephony/provisioning`,
+`POST /api/v1/admin/telephony/provisioning/inspect`,
+`POST /api/v1/admin/telephony/provisioning/{commandId}/apply` and
+`POST /api/v1/admin/telephony/provisioning/{commandId}/reconcile`. The latter two
+address an actual command UUID and require its current `version` and a change
+`reason`; inspection requires a UUID `idempotency_key`, the current
+`assignment_version` (zero before assignment) and the five exact assignment
+fields. Every write requires current eligible tenant administration, persisted
+recent step-up and secure transport. Responses are `Cache-Control: no-store`.
+Inspect the exact secret-free payload contracts in
+`contracts/json-schema/phone-provider-provisioning.v1.json` and mirrored OpenAPI.
+
+Release metadata appends only `phone_provider_provisioning_v1` to the previous
+Member14 set. A target lacking it is refused whenever **any** command is retained,
+including failed/expired unconsumed receipts. Fixed-tenant release fingerprints
+count and hash command identities without printing them. There is no Phone
+provisioning worker, automatic retry or durable queue to clear. Do not delete
+receipts, down-migrate `20261006000700`, remove required control credentials or
+rewrite an old image's immutable capability label to force a rollback. Reconcile
+original effects explicitly, retain all evidence, and roll forward or use an
+approved compatible bridge release. Disabling the flag does not erase hazards.
+
+All Kubernetes and Proxmox defaults keep management OFF with `{}` bindings.
+One-shot migration/bootstrap/preflight/remap/role maintenance also sets OFF/`{}`
+even if application configuration is enabled. The application-only service
+environment allowlist carries the two nonsecret owner controls; neither belongs
+in another service environment. Production bundle validation remains closed to
+provider enablement while the separate carrier/provider gates are unqualified.

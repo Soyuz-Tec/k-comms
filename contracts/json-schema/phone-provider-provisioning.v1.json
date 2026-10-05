@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example.test/contracts/phone-provider-provisioning.v1.json",
+  "title": "phone-provider-provisioning.v1.json",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/InspectPhoneProvisioningRequest"
+    },
+    {
+      "$ref": "#/$defs/PhoneProvisioningActionRequest"
+    },
+    {
+      "$ref": "#/$defs/PhoneProvisioningStateResponse"
+    },
+    {
+      "$ref": "#/$defs/PhoneProvisioningReceiptResponse"
+    }
+  ],
+  "$defs": {
+    "PhoneProvisioningAssignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "phone_number",
+        "extension",
+        "inbound_trunk_id",
+        "outbound_trunk_id"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "phone_number": {
+          "type": "string",
+          "pattern": "^\\+[1-9][0-9]{7,14}$"
+        },
+        "extension": {
+          "type": "string",
+          "pattern": "^[0-9]{2,8}$"
+        },
+        "inbound_trunk_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{2,200}$"
+        },
+        "outbound_trunk_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{2,200}$"
+        }
+      }
+    },
+    "InspectPhoneProvisioningRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "phone_number",
+        "extension",
+        "inbound_trunk_id",
+        "outbound_trunk_id",
+        "reason",
+        "assignment_version",
+        "idempotency_key"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "phone_number": {
+          "type": "string",
+          "pattern": "^\\+[1-9][0-9]{7,14}$"
+        },
+        "extension": {
+          "type": "string",
+          "pattern": "^[0-9]{2,8}$"
+        },
+        "inbound_trunk_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{2,200}$"
+        },
+        "outbound_trunk_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{2,200}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500,
+          "description": "Audited change reason; the server trims and requires 3 to 500 characters."
+        },
+        "assignment_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "idempotency_key": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable UUID bound to this exact assignment; reuse it after uncertain inspection transport."
+        }
+      }
+    },
+    "PhoneProvisioningActionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 500,
+          "description": "Audited change reason; the server trims and requires 3 to 500 characters."
+        }
+      }
+    },
+    "PhoneProvisioningProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "ready",
+        "reason",
+        "number_purchase",
+        "trunk_credentials_edit"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "boolean",
+          "description": "Current protected configuration and exclusive operator binding exist; this is not a provider/carrier health probe."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "provider_management_disabled",
+            "operator_provider_binding_required"
+          ]
+        },
+        "number_purchase": {
+          "const": false
+        },
+        "trunk_credentials_edit": {
+          "const": false
+        }
+      }
+    },
+    "PhoneProvisioningReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "request_id",
+        "status",
+        "version",
+        "assignment_version",
+        "desired",
+        "dispatch_ready",
+        "dispatch_rule_id",
+        "observed_at",
+        "failure_reason",
+        "effect_in_progress"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "inspecting",
+            "verified",
+            "applying",
+            "unknown",
+            "applied",
+            "failed",
+            "reconciling"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "assignment_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "desired": {
+          "$ref": "#/$defs/PhoneProvisioningAssignment"
+        },
+        "dispatch_ready": {
+          "type": "boolean"
+        },
+        "dispatch_rule_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Za-z0-9_-]{2,200}$"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "failure_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "provider_binding_forbidden",
+            "provider_number_mismatch",
+            "provider_dispatch_conflict",
+            "provider_inspection_incomplete",
+            "provider_unavailable",
+            "telephony_lease_expired",
+            "provider_outcome_unknown"
+          ]
+        },
+        "effect_in_progress": {
+          "type": "boolean"
+        }
+      }
+    },
+    "PhoneProvisioningState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "assignment_version",
+        "commands"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/PhoneProvisioningProvider"
+        },
+        "assignment_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/PhoneProvisioningReceipt"
+          }
+        }
+      }
+    },
+    "PhoneProvisioningStateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PhoneProvisioningState"
+        }
+      }
+    },
+    "PhoneProvisioningReceiptResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PhoneProvisioningReceipt"
+        }
+      }
+    }
+  }
+}

@@ -986,6 +986,198 @@ paths:
         '428': {$ref: '#/components/responses/Error'}
         '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/telephony/provisioning:
+    get:
+      tags:
+      - Telephony
+      - Administration
+      operationId: getPhoneProviderProvisioning
+      summary: Read provider management availability and ten current receipts
+      description: Management defaults OFF. Current tenant administration is revalidated; disabled management remains
+        readable. Uncertain commands are listed first. Provider readiness reports protected configuration and exclusive
+        operator binding, not external health or working carrier routing. No step-up is required for this read.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Secret-free current owner state; provider uncertainty is a retained receipt, not permission
+            to repeat Create.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneProvisioningStateResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/telephony/provisioning/inspect:
+    post:
+      tags:
+      - Telephony
+      - Administration
+      operationId: inspectPhoneProviderProvisioning
+      summary: Inspect existing operator-bound SIP trunks and acquired DID
+      description: Requires current active human workspace tenant administration, persisted recent step-up, secure
+        transport and an audited reason. Owner and eligible assignee authority, exclusive operator DID/trunk bindings,
+        assignment CAS and active calls are checked before each provider read/effect and local assignment. No carrier
+        purchase, credential editing or calling enablement. A stable UUID idempotency key returns the same command
+        for the same desired assignment; no provider effect is sent. The bounded synchronous inspection stores secret-free
+        evidence behind a 15-second lease. An observed missing/conflicting provider dispatch does not activate a
+        number.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InspectPhoneProvisioningRequest'
+      responses:
+        '200':
+          description: Secret-free current owner state; provider uncertainty is a retained receipt, not permission
+            to repeat Create.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneProvisioningReceiptResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/telephony/provisioning/{commandId}/apply:
+    post:
+      tags:
+      - Telephony
+      - Administration
+      operationId: applyPhoneProviderProvisioning
+      summary: Apply one verified provider binding with a single effect lease
+      description: Requires current active human workspace tenant administration, persisted recent step-up, secure
+        transport and an audited reason. Owner and eligible assignee authority, exclusive operator DID/trunk bindings,
+        assignment CAS and active calls are checked before each provider read/effect and local assignment. No carrier
+        purchase, credential editing or calling enablement. Requires the current receipt version and inspected assignment
+        generation. Inspection expires after 60 seconds. Adopts an existing unique safe individual dispatch rule
+        or consumes one durable effect capability before bounded CreateSIPDispatchRule. A timeout or interrupted
+        completion remains unknown. Never automatically repeat Create; use explicit read-only reconciliation.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: commandId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneProvisioningActionRequest'
+      responses:
+        '200':
+          description: Secret-free current owner state; provider uncertainty is a retained receipt, not permission
+            to repeat Create.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneProvisioningReceiptResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/v1/admin/telephony/provisioning/{commandId}/reconcile:
+    post:
+      tags:
+      - Telephony
+      - Administration
+      operationId: reconcilePhoneProviderProvisioning
+      summary: Reconcile the original uncertain provider effect without repeating Create
+      description: Requires current active human workspace tenant administration, persisted recent step-up, secure
+        transport and an audited reason. Owner and eligible assignee authority, exclusive operator DID/trunk bindings,
+        assignment CAS and active calls are checked before each provider read/effect and local assignment. No carrier
+        purchase, credential editing or calling enablement. Requires the current receipt version and an expired
+        prior effect/reconcile lease. Reads the original operation name and current safe dispatch resource; it never
+        sends Create. An absent/conflicting rule leaves the outcome uncertain and blocks another command/manual
+        assignment for the DID. A current verified result may complete the original local assignment.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: commandId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneProvisioningActionRequest'
+      responses:
+        '200':
+          description: Secret-free current owner state; provider uncertainty is a retained receipt, not permission
+            to repeat Create.
+          headers:
+            Cache-Control:
+              schema:
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneProvisioningReceiptResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
   /api/v1/telephony/calls:
     get:
       tags: [Telephony]
@@ -7098,6 +7290,215 @@ components:
                   code: invalid_guest_conversion_email
                   detail: The account conversion email is invalid
   schemas:
+    PhoneProvisioningAssignment:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - phone_number
+      - extension
+      - inbound_trunk_id
+      - outbound_trunk_id
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        phone_number:
+          type: string
+          pattern: ^\+[1-9][0-9]{7,14}$
+        extension:
+          type: string
+          pattern: ^[0-9]{2,8}$
+        inbound_trunk_id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{2,200}$
+        outbound_trunk_id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{2,200}$
+    InspectPhoneProvisioningRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - phone_number
+      - extension
+      - inbound_trunk_id
+      - outbound_trunk_id
+      - reason
+      - assignment_version
+      - idempotency_key
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        phone_number:
+          type: string
+          pattern: ^\+[1-9][0-9]{7,14}$
+        extension:
+          type: string
+          pattern: ^[0-9]{2,8}$
+        inbound_trunk_id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{2,200}$
+        outbound_trunk_id:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{2,200}$
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Audited change reason; the server trims and requires 3 to 500 characters.
+        assignment_version:
+          type: integer
+          minimum: 0
+        idempotency_key:
+          type: string
+          format: uuid
+          description: Stable UUID bound to this exact assignment; reuse it after uncertain inspection transport.
+    PhoneProvisioningActionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - reason
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Audited change reason; the server trims and requires 3 to 500 characters.
+    PhoneProvisioningProvider:
+      type: object
+      additionalProperties: false
+      required:
+      - enabled
+      - ready
+      - reason
+      - number_purchase
+      - trunk_credentials_edit
+      properties:
+        enabled:
+          type: boolean
+        ready:
+          type: boolean
+          description: Current protected configuration and exclusive operator binding exist; this is not a provider/carrier
+            health probe.
+        reason:
+          type:
+          - string
+          - 'null'
+          enum:
+          - null
+          - provider_management_disabled
+          - operator_provider_binding_required
+        number_purchase:
+          const: false
+        trunk_credentials_edit:
+          const: false
+    PhoneProvisioningReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - request_id
+      - status
+      - version
+      - assignment_version
+      - desired
+      - dispatch_ready
+      - dispatch_rule_id
+      - observed_at
+      - failure_reason
+      - effect_in_progress
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - inspecting
+          - verified
+          - applying
+          - unknown
+          - applied
+          - failed
+          - reconciling
+        version:
+          type: integer
+          minimum: 1
+        assignment_version:
+          type: integer
+          minimum: 0
+        desired:
+          $ref: '#/components/schemas/PhoneProvisioningAssignment'
+        dispatch_ready:
+          type: boolean
+        dispatch_rule_id:
+          type:
+          - string
+          - 'null'
+          pattern: ^[A-Za-z0-9_-]{2,200}$
+        observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        failure_reason:
+          type:
+          - string
+          - 'null'
+          enum:
+          - null
+          - provider_binding_forbidden
+          - provider_number_mismatch
+          - provider_dispatch_conflict
+          - provider_inspection_incomplete
+          - provider_unavailable
+          - telephony_lease_expired
+          - provider_outcome_unknown
+        effect_in_progress:
+          type: boolean
+    PhoneProvisioningState:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - assignment_version
+      - commands
+      properties:
+        provider:
+          $ref: '#/components/schemas/PhoneProvisioningProvider'
+        assignment_version:
+          type: integer
+          minimum: 0
+        commands:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/PhoneProvisioningReceipt'
+    PhoneProvisioningStateResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/PhoneProvisioningState'
+    PhoneProvisioningReceiptResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - data
+      properties:
+        data:
+          $ref: '#/components/schemas/PhoneProvisioningReceipt'
     TelephonyNumber:
       type: object
       additionalProperties: false
@@ -7107,6 +7508,10 @@ components:
         phone_number: {type: string, pattern: '^\+[1-9][0-9]{7,14}$'}
         extension: {type: string, pattern: '^[0-9]{2,8}$'}
         user_id: {type: string, format: uuid}
+        version:
+          type: integer
+          minimum: 1
+          description: Returned only to tenant administrators; current assignment CAS generation
         inbound_trunk_id:
           type: string
           pattern: '^[A-Za-z0-9_-]{2,200}$'
@@ -7157,6 +7562,10 @@ components:
       additionalProperties: false
       required: [phone_number, extension, user_id, inbound_trunk_id, outbound_trunk_id, reason]
       properties:
+        version:
+          type: integer
+          minimum: 0
+          description: Optional legacy manual-assignment CAS; zero when no assignment exists. Manual writes are blocked while provider management is enabled.
         phone_number: {type: string, pattern: '^\+[1-9][0-9]{7,14}$'}
         extension: {type: string, pattern: '^[0-9]{2,8}$'}
         user_id: {type: string, format: uuid}

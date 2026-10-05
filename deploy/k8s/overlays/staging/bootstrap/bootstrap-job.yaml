@@ -45,6 +45,10 @@ spec:
               value: one_shot
             - name: AUDIO_PROVIDER_MODE
               value: "disabled"
+            - name: TELEPHONY_PROVISIONING_ENABLED
+              value: "false"
+            - name: TELEPHONY_PROVISIONING_BINDINGS
+              value: "{}"
             - name: TELEPHONY_PROVIDER_MODE
               value: "disabled"
             - name: MEETING_ARTIFACTS_ENABLED

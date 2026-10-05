@@ -118,6 +118,17 @@ class ServiceEnvironmentTest(unittest.TestCase):
         for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
             self.assertNotIn("TELEPHONY_", (self.destination / "current" / f"{service}.env").read_text())
 
+    def test_phone_provisioning_bindings_reach_only_application_and_remain_literal(self):
+        bindings = '{"11111111-1111-4111-8111-111111111111":{"phone_numbers":["+14155550123"],"inbound_trunk_ids":["ST_in"],"outbound_trunk_ids":["ST_out"]}}'
+        self.source.write_text(self.source.read_text().replace(
+            "TELEPHONY_PROVISIONING_BINDINGS={}", "TELEPHONY_PROVISIONING_BINDINGS=" + bindings))
+        self.generate()
+        application = (self.destination / "current/app.env").read_text()
+        self.assertIn("TELEPHONY_PROVISIONING_ENABLED=false\n", application)
+        self.assertIn("TELEPHONY_PROVISIONING_BINDINGS=" + bindings + "\n", application)
+        for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+            self.assertNotIn("TELEPHONY_PROVISIONING_", (self.destination / "current" / f"{service}.env").read_text())
+
     def test_invalid_source_preserves_previous_generation_without_secret_output(self):
         self.generate()
         previous = os.readlink(self.destination / "current")

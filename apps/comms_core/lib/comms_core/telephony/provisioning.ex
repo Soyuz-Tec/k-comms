@@ -9,6 +9,7 @@ defmodule CommsCore.Telephony.Provisioning do
     Call,
     Number,
     ProvisioningCommand,
+    ProvisioningAuthorityPort,
     ProvisioningPort,
     ProvisioningRequest
   }
@@ -118,7 +119,7 @@ defmodule CommsCore.Telephony.Provisioning do
         if command.version != expected, do: Repo.rollback(:stale_version)
 
         case mode do
-          :apply ->
+          operation when operation in [:apply] ->
             if command.status != :verified or command.effect_consumed,
               do: Repo.rollback(:telephony_outcome_unknown)
 
@@ -155,7 +156,7 @@ defmodule CommsCore.Telephony.Provisioning do
   # The one effect capability is consumed durably before CreateSIPDispatchRule.
   def authorize_io(%ProvisioningRequest{} = request, mode, caller)
       when mode in [:read, :effect] do
-    if ProvisioningPort.authorized_adapter?(caller) do
+    if ProvisioningAuthorityPort.authorized_adapter?(caller) do
       transaction(fn ->
         preliminary =
           Repo.get_by(ProvisioningCommand, id: request.command_id, tenant_id: request.tenant_id)
@@ -170,8 +171,9 @@ defmodule CommsCore.Telephony.Provisioning do
         require_lease!(command, request)
 
         if mode == :effect do
-          if request.mode != :apply or command.status != :applying or command.effect_consumed,
-            do: Repo.rollback(:telephony_outcome_unknown)
+          if request.mode not in [:apply] or command.status != :applying or
+               command.effect_consumed,
+             do: Repo.rollback(:telephony_outcome_unknown)
 
           change!(command, %{effect_consumed: true})
         end
@@ -248,7 +250,7 @@ defmodule CommsCore.Telephony.Provisioning do
           _ ->
             status =
               if request.mode == :inspect or
-                   (request.mode == :apply and not command.effect_consumed),
+                   (request.mode in [:apply] and not command.effect_consumed),
                  do: :failed,
                  else: :unknown
 
@@ -272,10 +274,22 @@ defmodule CommsCore.Telephony.Provisioning do
   end
 
   def rollback_hazard_count do
-    Repo.aggregate(
-      from(c in ProvisioningCommand, where: c.effect_consumed == true or c.status == :applied),
-      :count
-    )
+    # Every retained receipt requires this owner, including failed/expired
+    # unconsumed inspections. No cleanup or retry worker removes that history.
+    Repo.aggregate(ProvisioningCommand, :count)
+  end
+
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      phone_provisioning_commands:
+        repo.all(
+          from(command in ProvisioningCommand,
+            where: command.tenant_id == ^tenant_id,
+            select: command.id
+          )
+        )
+    }
   end
 
   def guard_legacy_binding!(phone_number) when is_binary(phone_number) do

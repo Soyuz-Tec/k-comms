@@ -1,11 +1,3 @@
-defmodule CommsCore.Telephony.ProvisioningPort.Contract do
-  @moduledoc "Telephony owns provider setup; adapters return only bounded secret-free evidence."
-  @callback status(String.t()) :: map()
-  @callback inspect(CommsCore.Telephony.ProvisioningRequest.t()) ::
-              {:ok, map()} | {:error, atom()}
-  @callback apply(CommsCore.Telephony.ProvisioningRequest.t()) :: {:ok, map()} | {:error, atom()}
-end
-
 defmodule CommsCore.Telephony.ProvisioningPort do
   @moduledoc "Default-closed resolution of the configured SIP provisioning adapter."
   import Kernel, except: [inspect: 1]
@@ -21,6 +13,7 @@ defmodule CommsCore.Telephony.ProvisioningPort do
   def enabled?,
     do: Application.get_env(:comms_core, :telephony_provisioning_enabled, false) == true
 
+  @spec status(String.t()) :: map()
   def status(tenant_id) do
     with true <- enabled?(), {:ok, module} <- adapter() do
       module.status(tenant_id)
@@ -30,13 +23,19 @@ defmodule CommsCore.Telephony.ProvisioningPort do
     end
   end
 
-  def inspect(request), do: invoke(:inspect, request)
-  def apply(request), do: invoke(:apply, request)
-  def authorized_adapter?(caller), do: enabled?() and match?({:ok, ^caller}, adapter())
-
-  defp invoke(operation, request) do
+  @spec inspect(CommsCore.Telephony.ProvisioningRequest.t()) :: {:ok, map()} | {:error, atom()}
+  def inspect(request) do
     with true <- enabled?(), {:ok, module} <- adapter() do
-      apply(module, operation, [request])
+      module.inspect(request)
+    else
+      _ -> {:error, :telephony_provisioning_disabled}
+    end
+  end
+
+  @spec apply(CommsCore.Telephony.ProvisioningRequest.t()) :: {:ok, map()} | {:error, atom()}
+  def apply(request) do
+    with true <- enabled?(), {:ok, module} <- adapter() do
+      module.apply(request)
     else
       _ -> {:error, :telephony_provisioning_disabled}
     end

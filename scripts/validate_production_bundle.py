@@ -75,6 +75,7 @@ COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
         "audit_resource_history_snapshots",
         "CommsWorkers.AuditHistorySnapshotPurgeWorker.args.continue=true",
     ),
+    "phone_provider_provisioning_v1": ("telephony_provisioning_commands",),
 }
 COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
     COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
@@ -293,6 +294,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_oidc_issuer(data.get("OIDC_ISSUER"), errors)
     validate_livekit(data, errors)
     validate_instant_room_production_gate(data, errors)
+    validate_phone_provisioning_production_gate(data, errors)
     validate_database_tls(data, documents, errors)
 
     if public_origin:
@@ -350,6 +352,16 @@ def validate_instant_room_production_gate(
         errors.append(
             "ConfigMap k-comms-config: INSTANT_ROOM_TENANT_SLUG must be "
             "explicitly empty while the production instant-room gate is closed"
+        )
+
+
+def validate_phone_provisioning_production_gate(data: dict, errors: list[str]) -> None:
+    # Absent is the runtime's false default for an older approved bundle.
+    # Operator flags are not provider/carrier qualification evidence.
+    if data.get("TELEPHONY_PROVISIONING_ENABLED", "false") != "false":
+        errors.append(
+            "ConfigMap k-comms-config: TELEPHONY_PROVISIONING_ENABLED must remain false "
+            "until ADR-0107 provider effects and carrier routing are independently qualified"
         )
 
 
@@ -982,6 +994,8 @@ def validate_guest_rollback_preflight(
         "K_COMMS_ROLLBACK_WRITES_QUIESCED": "true",
         "AUDIO_PROVIDER_MODE": "disabled",
         "TELEPHONY_PROVIDER_MODE": "disabled",
+        "TELEPHONY_PROVISIONING_ENABLED": "false",
+        "TELEPHONY_PROVISIONING_BINDINGS": "{}",
         "MEETING_ARTIFACTS_ENABLED": "false",
         "LIVEKIT_EGRESS_ENABLED": "false",
         "ARTIFACT_TRANSCRIPTION_ENABLED": "false",
@@ -1014,11 +1028,12 @@ def validate_guest_rollback_preflight(
         "",
         COMMUNICATION_ROLLBACK_CAPABILITIES,
         m1_capabilities,
+        COMMUNICATION_ROLLBACK_CAPABILITIES.removesuffix(",phone_provider_provisioning_v1"),
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target, the known M1 set, or the exact communication-compatible capability set"
+            "empty for a legacy target, the known M1/Member14 sets, or the exact communication-compatible capability set"
         )
 
 

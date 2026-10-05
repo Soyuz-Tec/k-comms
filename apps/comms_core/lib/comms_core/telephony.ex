@@ -10,38 +10,62 @@ defmodule CommsCore.Telephony do
     CredentialRequest,
     Lifecycle,
     ProviderCommand,
+    ProvisioningRequest,
     ProviderWebhookPort,
     VerifiedProviderEvent
   }
 
   @type response :: {:ok, map() | CallView.t()} | {:error, atom() | CommsCore.ValidationError.t()}
+  @type provisioning_response ::
+          {:ok, {map(), ProvisioningRequest.t() | nil}}
+          | {:error, atom() | CommsCore.ValidationError.t()}
 
   @doc "Current-owner Phone provider setup; no carrier purchase or client credentials."
+  @spec phone_provisioning_state(map()) :: response()
   defdelegate phone_provisioning_state(subject), to: CommsCore.Telephony.Provisioning, as: :state
 
+  @spec inspect_phone_provisioning(map(), map()) :: provisioning_response()
   defdelegate inspect_phone_provisioning(attrs, subject),
     to: CommsCore.Telephony.Provisioning,
     as: :inspect
 
+  @spec apply_phone_provisioning(String.t(), map(), map()) :: provisioning_response()
   defdelegate apply_phone_provisioning(id, attrs, subject),
     to: CommsCore.Telephony.Provisioning,
     as: :apply_configuration
 
+  @spec reconcile_phone_provisioning(String.t(), map(), map()) :: provisioning_response()
   defdelegate reconcile_phone_provisioning(id, attrs, subject),
     to: CommsCore.Telephony.Provisioning,
     as: :reconcile
 
+  @spec authorize_phone_provisioning_io(ProvisioningRequest.t(), :read | :effect, module()) ::
+          :ok | {:error, atom()}
   defdelegate authorize_phone_provisioning_io(request, mode, caller),
     to: CommsCore.Telephony.Provisioning,
     as: :authorize_io
 
+  @spec complete_phone_provisioning(
+          ProvisioningRequest.t(),
+          {:ok, map()} | {:error, atom()},
+          map()
+        ) ::
+          response()
   defdelegate complete_phone_provisioning(request, result, subject),
     to: CommsCore.Telephony.Provisioning,
     as: :complete
 
+  @spec rollback_phone_provisioning_hazard_count() :: non_neg_integer()
   defdelegate rollback_phone_provisioning_hazard_count(),
     to: CommsCore.Telephony.Provisioning,
     as: :rollback_hazard_count
+
+  @doc false
+  @spec release_tenant_fingerprint_fragment(module(), binary()) :: %{
+          phone_provisioning_commands: [binary()]
+        }
+  defdelegate release_tenant_fingerprint_fragment(repo, tenant_id),
+    to: CommsCore.Telephony.Provisioning
 
   @doc false
   @spec rollback_voicemail_hazard_count() :: non_neg_integer()

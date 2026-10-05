@@ -612,6 +612,7 @@ contexts:
       - authorize_phone_provisioning_io/3
       - governance_erasure_pending?/3
       - prepare_governance_erasure/3
+      - release_tenant_fingerprint_fragment/2
       - revoke_identity_access/1
       - revoke_tenant_media/1
       - rollback_control_hazard_count/0
