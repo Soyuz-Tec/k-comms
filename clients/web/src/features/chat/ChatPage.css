@@ -112,10 +112,7 @@
   outline-offset: 2px;
 }
 
-/*
- * Row summaries stay content-free: the kind of conversation, and whether a
- * call is running in it. Never a message preview.
- */
+/* Keep conversation metadata compact without crowding message previews. */
 .conversation-meta-line {
   min-width: 0;
   display: flex;

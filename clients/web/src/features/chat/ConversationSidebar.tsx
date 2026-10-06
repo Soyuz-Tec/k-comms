@@ -439,14 +439,6 @@ export function ConversationSidebar({
                         Active call
                       </span>
                     )}
-                    {unreadCount > 0 && (
-                      <span
-                        className="conversation-unread-copy"
-                        aria-hidden="true"
-                      >
-                        {unreadCount} unread
-                      </span>
-                    )}
                   </small>
                 </span>
                 {unreadCount > 0 && (
