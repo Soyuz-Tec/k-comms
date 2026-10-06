@@ -1,7 +1,7 @@
 defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
   use ExUnit.Case, async: false
 
-  alias CommsCore.Repo
+  alias CommsCore.{MigrationFixture, Repo}
 
   @moduletag :integration
   @moduletag :release
@@ -13,6 +13,7 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
     "apps/comms_core/priv/repo/migrations/20261006001300_add_conversation_favorites.exs",
     "apps/comms_workers/lib/comms_workers/audit_history_snapshot_purge_worker.ex",
     "apps/comms_core/priv/repo/migrations/20261006000100_index_resource_audit_history.exs",
+    "apps/comms_core/test/support/migration_fixture.ex",
     "config/config.exs"
   ]
 
@@ -76,6 +77,8 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
 
       assert migration_status == 0,
              "fresh full75 migration failed; retained log: " <> migration_log
+
+      assert :ok = MigrationFixture.await_no_peers(admin, template)
 
       assert [[0]] =
                Postgrex.query!(admin, "SELECT count(*) FROM pg_stat_activity WHERE datname=$1", [

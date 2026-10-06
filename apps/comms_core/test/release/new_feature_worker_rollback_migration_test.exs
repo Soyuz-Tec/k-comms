@@ -5,7 +5,7 @@ end
 defmodule CommsCore.Release.NewFeatureWorkerRollbackMigrationTest do
   use ExUnit.Case, async: false
 
-  alias CommsCore.Repo
+  alias CommsCore.{MigrationFixture, Repo}
   alias CommsCore.Release.NewFeatureWorkerRollbackMigrationTest.MigrationRepo, as: R
   alias Ecto.Adapters.SQL
 
@@ -139,6 +139,8 @@ defmodule CommsCore.Release.NewFeatureWorkerRollbackMigrationTest do
         )
 
       assert status == 0, "fresh actual parent migration failed: " <> log
+
+      assert :ok = MigrationFixture.await_no_peers(admin, parent)
 
       assert [[0]] =
                Postgrex.query!(
