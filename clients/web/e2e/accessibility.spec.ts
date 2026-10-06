@@ -374,6 +374,15 @@ async function installAuthenticatedMocks(
       }
     }
   }));
+  await page.route("**/api/v1/socket-tickets", route => route.fulfill({ json: { data: {
+    ticket: "synthetic-accessibility-ticket", expires_in: 60
+  } } }));
+  await page.routeWebSocket(/\/socket\/websocket(?:\?|$)/, socket => socket.onMessage(message => {
+    const [joinRef, reference, topic, event] = JSON.parse(String(message)) as [string | null, string, string, string, unknown];
+    if (["phx_join", "phx_leave", "heartbeat"].includes(event)) {
+      socket.send(JSON.stringify([joinRef, reference, topic, "phx_reply", { status: "ok", response: {} }]));
+    }
+  }));
   await page.route("**/api/v1/status", (route) => route.fulfill({
     json: mockServiceStatus({
       push_notifications: false,

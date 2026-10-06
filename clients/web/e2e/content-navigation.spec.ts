@@ -51,7 +51,7 @@ async function contentWorkspace(page: Page) {
   await page.route(`**/api/v1/documents/${documentId}/operations?**`, route => route.fulfill({ json: {
     data: [], page: { generation: 1, through_version: 1, has_more: false, next_after_version: 1 }
   } }));
-  await page.route("**/api/v1/socket-tickets", route => route.fulfill({ json: { ticket: "synthetic-document-ticket", expires_in: 60 } }));
+  await page.route("**/api/v1/socket-tickets", route => route.fulfill({ json: { data: { ticket: "synthetic-document-ticket", expires_in: 60 } } }));
   await page.routeWebSocket(/\/socket\/websocket(?:\?|$)/, socket => socket.onMessage(message => {
     const [joinRef, reference, topic, event] = JSON.parse(String(message)) as [string | null, string, string, string, unknown];
     if (["phx_join", "phx_leave", "heartbeat"].includes(event)) {
@@ -91,6 +91,7 @@ const fileResult: UnifiedResult = {
 };
 
 async function capture(page: Page, info: TestInfo, name: string) {
+  await expect(page.getByRole("alert")).toHaveCount(0);
   if (process.env.K_COMMS_VISUAL_CAPTURE !== "1") return;
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: info.outputPath(`${name}.png`), animations: "disabled" });
