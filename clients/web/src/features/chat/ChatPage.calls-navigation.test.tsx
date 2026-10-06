@@ -154,7 +154,7 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.getByText("Saved on this device")).toBeVisible();
   });
 
-  it("marks the current call in the content-free Inbox summary", async () => {
+  it("marks the current call in the Inbox summary", async () => {
     harness.callTargetConversation = harness.conversations[0]!;
     harness.callSessionState = { joined: true };
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
@@ -162,7 +162,9 @@ describe("ChatPage durable sequence recovery", () => {
     const general = await screen.findByRole("button", { name: /^General/ });
     expect(within(general).getByText("Active call")).toBeVisible();
     expect(general).toHaveClass("has-active-call");
-    expect(within(general).getByText("1 unread")).toBeVisible();
+    const unreadBadge = within(general).getByLabelText("1 unread messages");
+    expect(unreadBadge).toBeVisible();
+    expect(unreadBadge).toHaveTextContent("1");
   });
 
   it("keeps drafts across conversation switches without claiming persistence when storage is full", async () => {
