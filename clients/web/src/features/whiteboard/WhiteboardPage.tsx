@@ -40,9 +40,9 @@ export function WhiteboardPage() {
   return (
     <main className={`whiteboard-page${galleryOpen ? " gallery-open" : ""}`} id="main-content">
       <header className="whiteboard-heading">
+        <Link className="surface-back whiteboard-content-link" to="/app/content" aria-label="Content" title="Content"><AppIcon name="arrowLeft" /><span>Content</span></Link>
         <div className="whiteboard-heading-copy">
-          <AppIcon name="whiteboard" aria-hidden="true" />
-          <div className="whiteboard-heading-title"><Link className="surface-back" to="/app/content"><AppIcon name="arrowLeft" />Content</Link><h1>Whiteboard</h1><p title={activeConversation ? conversationTitle(activeConversation) : undefined}>{activeConversation ? conversationTitle(activeConversation) : "Choose a conversation"}</p></div>
+          <div className="whiteboard-heading-title"><h1>Whiteboard</h1><p title={activeConversation ? conversationTitle(activeConversation) : undefined}>{activeConversation ? conversationTitle(activeConversation) : "Choose a conversation"}</p></div>
         </div>
         <div ref={setStatusContainer} className="whiteboard-heading-status" />
         <div ref={setLibraryTriggerContainer} className="whiteboard-context-actions">
