@@ -62,10 +62,22 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
 
     test("sender and draft previews support favorites that survive a reload", async ({ page }, info) => {
       const { workspace, state } = await triageWorkspace(page);
+      let releaseHistory!: () => void;
+      const historyReady = new Promise<void>(resolve => { releaseHistory = resolve; });
+      await page.route(new RegExp(`/api/v1/conversations/${conversationId}/messages(?:\\?.*)?$`), async route => {
+        expect(route.request().method()).toBe("GET");
+        await historyReady;
+        await route.fallback();
+      });
       await page.goto("/app/");
       const list = page.getByRole("navigation", { name: "Conversation list", exact: true });
       const rows = list.locator(".conversation-row");
       await expect(list).toBeVisible();
+      await expect(rows.filter({ hasText: "General" })).toContainText("You: Mobile-ready message body");
+      // Force history to arrive after the authorized list projection. The
+      // transcript commit must not erase that same message's Inbox preview.
+      releaseHistory();
+      if (viewport.name === "desktop") await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
       await expect(rows.filter({ hasText: "General" })).toContainText("You: Mobile-ready message body");
       await expect(rows.filter({ hasText: "Roadmap" })).toContainText("Draft: Review the launch plan");
       await expect(rows.filter({ hasText: "Planning" })).toContainText("Grace Hopper: Please review the proposed dates.");
