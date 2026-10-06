@@ -1,4 +1,4 @@
-# Run in a dedicated process with an owner-prepared, fresh full74 database:
+# Run in a dedicated process with an owner-prepared, fresh full75 database:
 # MIX_ENV=test DATABASE_URL=<private binding> mix run --no-start --no-compile \
 #   apps/comms_core/test/support/history_canonical_release_probe.exs <exact-owned-database-name>
 # Set K_COMMS_HISTORY_PROBE_RECEIPT to distinct negative/green JSON paths.
@@ -60,7 +60,22 @@ defmodule FullUc.HistoryCanonicalReleaseProbe do
              Ecto.Adapters.SQL.query!(Repo, "SELECT current_database()", [])
 
     assert [[^application_name, _, _, 0]] = Repo.release_migration_preflight!()
-    assert %{rows: [[74]]} = Repo.query!("SELECT count(*) FROM schema_migrations", [])
+    assert %{rows: [[75]]} = Repo.query!("SELECT count(*) FROM schema_migrations", [])
+
+    assert %{rows: [[20_261_006_001_300]]} =
+             Repo.query!("SELECT max(version) FROM schema_migrations", [])
+
+    assert %{rows: [["boolean", "NO", "false"]]} =
+             Repo.query!(
+               """
+               SELECT data_type, is_nullable, column_default
+               FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = 'conversation_memberships'
+                 AND column_name = 'favorite'
+               """,
+               []
+             )
+
     assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM oban_jobs", [])
     assert Audit.rollback_history_snapshot_hazard_count() == 0
 
@@ -72,7 +87,7 @@ defmodule FullUc.HistoryCanonicalReleaseProbe do
       Jason.encode!(
         %{
           database: expected_database,
-          migration_count: 74,
+          migration_count: 75,
           peers: 0,
           application_name: application_name,
           source_before: source_hashes(),
@@ -83,7 +98,7 @@ defmodule FullUc.HistoryCanonicalReleaseProbe do
       )
     )
 
-    IO.puts("HISTORY canonical own database=" <> expected_database <> " migrations=74 peers=0")
+    IO.puts("HISTORY canonical own database=" <> expected_database <> " migrations=75 peers=0")
     %{receipt_path: receipt_path}
   end
 
@@ -274,6 +289,7 @@ defmodule FullUc.HistoryCanonicalReleaseProbe do
           "apps/comms_core/lib/comms_core/release/rollback_compatibility.ex",
           "apps/comms_core/lib/comms_core/release/migration.ex",
           "apps/comms_core/lib/comms_core/runtime_ports.ex",
+          "apps/comms_core/priv/repo/migrations/20261006001300_add_conversation_favorites.exs",
           "apps/comms_workers/lib/comms_workers/audit_history_snapshot_purge_worker.ex",
           "config/config.exs"
         ],

@@ -555,6 +555,7 @@ defmodule CommsWeb.Router do
 
     resources "/conversations", ConversationController, only: [:index, :create, :show, :update] do
       post("/archive", ConversationController, :archive)
+      put("/favorite", ConversationController, :favorite)
       get("/guest-links", GuestLinkController, :index)
       post("/guest-links", GuestLinkController, :create)
       delete("/guest-links/:link_id", GuestLinkController, :revoke)

@@ -121,7 +121,8 @@ defmodule CommsCore.Telephony.Lifecycle do
   def list_calls(subject, params) do
     with {:ok, grant} <- access(subject),
          {:ok, cursor} <- parse_cursor(value(params, :cursor)),
-         {:ok, scope} <- parse_scope(value(params, :scope)) do
+         {:ok, scope} <- parse_scope(value(params, :scope)),
+         {:ok, filters} <- CommsCore.Telephony.HistoryQuery.parse(params) do
       limit = parse_limit(value(params, :limit))
 
       query =
@@ -134,6 +135,7 @@ defmodule CommsCore.Telephony.Lifecycle do
                     ^grant.user_id in c.offered_user_ids))
         )
 
+      query = CommsCore.Telephony.HistoryQuery.filter(query, filters)
       query = if scope == :active, do: where(query, [c], c.status in ^@active), else: query
 
       query =

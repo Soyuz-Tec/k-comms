@@ -10,7 +10,8 @@ defmodule CommsWeb.VoicemailPresenter do
         :retention_expires_at,
         :available_at,
         :inserted_at,
-        :read_at
+        :read_at,
+        :caller_number
       ])
 
   def playback(signed),

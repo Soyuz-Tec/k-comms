@@ -262,30 +262,30 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.getByLabelText("3 conversations shown")).toHaveTextContent("3");
 
     await user.type(screen.getByLabelText("Filter conversation titles"), "project");
-    expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
-    expect(within(list).queryByRole("button", { name: /General/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /^Project Alpha/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /^General/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.clear(screen.getByLabelText("Filter conversation titles"));
     const inboxView = screen.getByRole("group", { name: "Inbox view" });
     await user.click(within(inboxView).getByRole("button", { name: "Direct" }));
-    expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
-    expect(within(list).queryByRole("button", { name: /Project Alpha/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /^Grace/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /^Project Alpha/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.click(within(inboxView).getByRole("button", { name: "Rooms" }));
-    expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
-    expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
-    expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /^General/ })).toBeVisible();
+    expect(within(list).getByRole("button", { name: /^Project Alpha/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /^Grace/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("2 conversations shown")).toHaveTextContent("2");
 
     await user.click(within(inboxView).getByRole("button", { name: "Unread" }));
-    expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
-    expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: /^General/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /^Grace/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.click(within(inboxView).getByRole("button", { name: "All" }));
-    expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
+    expect(within(list).getByRole("button", { name: /^Grace/ })).toBeVisible();
     expect(screen.getByLabelText("3 conversations shown")).toHaveTextContent("3");
   });
 
@@ -322,8 +322,8 @@ describe("ChatPage durable sequence recovery", () => {
     const firstIdentifier = `Grace · #${participantDisambiguator("grace-one")}`;
     const secondIdentifier = `grace · #${participantDisambiguator("grace-two")}`;
     const list = screen.getByRole("navigation", { name: "Conversation list" });
-    expect(within(list).getByRole("button", { name: new RegExp(firstIdentifier) })).toBeVisible();
-    expect(within(list).getByRole("button", { name: new RegExp(secondIdentifier) })).toBeVisible();
+    expect(within(list).getByRole("button", { name: new RegExp(`^${firstIdentifier}`) })).toBeVisible();
+    expect(within(list).getByRole("button", { name: new RegExp(`^${secondIdentifier}`) })).toBeVisible();
     expect(screen.getByRole("heading", { name: firstIdentifier })).toBeVisible();
     expect(screen.getByPlaceholderText(`Message ${firstIdentifier}`)).toBeVisible();
   });

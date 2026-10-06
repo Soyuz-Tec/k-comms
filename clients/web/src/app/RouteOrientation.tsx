@@ -123,17 +123,35 @@ export function RouteOrientation({ authenticated = true }: { authenticated?: boo
   useEffect(() => {
     let observer: MutationObserver | null = null;
     let fallbackTimer: number | null = null;
-    const frame = window.requestAnimationFrame(() => {
+    let frame: number | null = null;
+    let pending = true;
+    const stop = () => {
+      pending = false;
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+      document.removeEventListener("focusin", stop, true);
+      document.removeEventListener("keydown", stop, true);
+      document.removeEventListener("pointerdown", stop, true);
+    };
+    // The event that caused navigation happened before this effect. A later
+    // interaction owns focus, including controls in the persistent shell.
+    document.addEventListener("focusin", stop, true);
+    document.addEventListener("keydown", stop, true);
+    document.addEventListener("pointerdown", stop, true);
+    frame = window.requestAnimationFrame(() => {
+      if (!pending) return;
+      frame = null;
       const main = renderedMain();
       const activeElement = document.activeElement;
       const id = fragmentId(location.hash);
 
       if (id) {
         const orientToFragment = () => {
+          if (!pending) return false;
           const destination = fragmentDestination(id);
           if (!destination) return false;
-          if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-          observer?.disconnect();
+          stop();
           focusRouteDestination(destination, true);
           return true;
         };
@@ -144,8 +162,9 @@ export function RouteOrientation({ authenticated = true }: { authenticated?: boo
         });
         observer.observe(document.body, { childList: true, subtree: true });
         fallbackTimer = window.setTimeout(() => {
-          observer?.disconnect();
+          if (!pending) return;
           const destination = routeDestination();
+          stop();
           if (destination) focusRouteDestination(destination);
         }, 1_500);
         return;
@@ -157,16 +176,16 @@ export function RouteOrientation({ authenticated = true }: { authenticated?: boo
         main.contains(activeElement) &&
         activeElement.matches("input, select, textarea, button, a[href], [autofocus]") &&
         isRendered(activeElement)
-      ) return;
+      ) {
+        stop();
+        return;
+      }
       const destination = routeDestination();
+      stop();
       if (!destination) return;
       focusRouteDestination(destination);
     });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      observer?.disconnect();
-      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
-    };
+    return stop;
   }, [location.hash, location.pathname, location.search]);
 
   return <span className="sr-only" aria-live="polite" aria-atomic="true">{label} view</span>;

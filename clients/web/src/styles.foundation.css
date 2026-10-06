@@ -335,7 +335,6 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .conversation-summary-line { display: flex; align-items: center; gap: .35rem; }
 .conversation-summary-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-call-state,
-.conversation-unread-copy { color: var(--accent-text); font-weight: 760; }
 .conversation-call-state { display: inline-flex; align-items: center; gap: .2rem; }
 .conversation-call-state .app-icon { width: 12px; height: 12px; }
 .conversation-summary-line > span + span::before { margin-right: .35rem; color: var(--text-muted); content: "·"; }

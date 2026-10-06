@@ -77,6 +77,53 @@ specific reviewed UI allocation, not an automatic baseline update or a
 responsiveness claim. The final official build must still pass every ceiling;
 its exact measurements and verification belong in the pull request.
 
+## Daily workflow packaging (2026-10-06)
+
+The daily workflow milestone retains all five existing route ceilings and the
+10,400,000 raw / 3,250,000 gzip aggregate ceiling. It adds explicit closures for
+guest entry, active instant rooms, Inbox with conversation details, and Inbox
+with a thread. Each new closure includes the shared entry and its actual feature
+roots; every emitted dynamic chunk still counts toward the aggregate. The checker
+and failure-case tests remain unchanged.
+
+Guest entry now loads on `/join`, the shared room surface loads when an instant
+room becomes active, and conversation details and threads load when opened.
+The shared room surface owns its stylesheet so its layout does not depend on
+visiting the guest entry first. Each boundary supplies loading feedback and uses
+the existing route recovery handling. Guest communication, member deep links, active calls and
+authority cleanup retain their behavior. These boundaries reduce the code
+needed before a member can read the Inbox; they do not remove those workflows
+from the build or from qualification.
+
+The Vite preload resolver retains HTML entry preloads and all stylesheet
+dependencies. Dynamically imported JavaScript uses ordinary module loading:
+WebKit can retain a failed `modulepreload` response across a document reload,
+including after a transient HTTP 503 with `Cache-Control: no-store`. The same
+behavior was reproduced with the immutable pre-milestone build and a minimal
+HTML page. Omitting dynamic JavaScript preloads lets an explicit reload retry
+the failed module; CSS still completes before its dependent view renders.
+This can delay discovery of dynamic JavaScript dependencies by a network round
+trip. Keep byte budgets enforced and qualify both JavaScript and stylesheet
+download failure/recovery against production assets. Local timing samples do
+not establish a field performance improvement.
+
+Private-room bootstrap imports the maintained Matrix SDK constructors directly,
+preserving SDK 43's memory store, scheduler, browser IndexedDB crypto-store
+factory, fallback behavior and duplicate-entrypoint guard. It avoids evaluating
+unused widget entry points exported by the SDK's general barrel. An identical
+source snapshot measured a reduction of 105,533 raw / 19,913 gzip bytes with
+this import change. Tests cover the bootstrap defaults and existing Rust crypto
+behavior. This is not a replacement crypto implementation; dependency upgrades
+must review the bootstrap defaults against the pinned SDK.
+
+The retained exact-main base `a3f6666` measured 10,391,848 raw / 3,152,477 gzip
+bytes across all emitted JS/CSS. Final candidate measurements belong in the
+source-bound delivery record. Conservative duplicate-CSS removal offered less
+than 1 KB, and a paired primary Terser build increased output size; neither
+experiment was adopted. No new dependency, build exclusion or raised existing
+ceiling was used to accommodate the milestone. Passing these byte limits does
+not establish field latency, screen-reader usability or physical-device quality.
+
 ## Browser regression scope
 
 CI installs Chromium and WebKit. The existing desktop WebKit matrix remains;

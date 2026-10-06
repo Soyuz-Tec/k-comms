@@ -106,4 +106,8 @@ ADRs capture decisions that materially constrain implementation or operation.
 | [0097](0097-verify-opt-in-workspace-domain-discovery.md) | Verify opt-in workspace domain discovery | Accepted; runtime and DNS qualification pending |
 | 0105 | Package the existing UC interface in a constrained Electron client | Accepted for implementation; unsigned evaluation and native qualification pending |
 
+| [0111](0111-authorized-inbox-triage-and-favorites.md) | Authorized Inbox previews and personal favorites | Accepted |
+
+| [0112](0112-protect-transient-work-during-navigation.md) | Protect transient work during navigation | Accepted |
+
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

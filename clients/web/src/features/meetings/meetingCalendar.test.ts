@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MeetingInput } from "../../types/meetings";
-import { dateInTimezone, isIanaTimezone, monthDays, monthQuery, validateMeeting } from "./meetingCalendar";
+import { dateInTimezone, isIanaTimezone, monthDays, monthQuery, upcomingQuery, validateMeeting } from "./meetingCalendar";
 
 const input: MeetingInput = {
   title: "Review", timezone: "America/New_York", local_start: "2026-10-05T09:30",
@@ -13,6 +13,14 @@ describe("meeting calendar dates", () => {
     expect(monthQuery("2026-03", "America/New_York")).toEqual({ from: "2026-03-01T05:00:00.000Z", to: "2026-04-01T04:00:00.000Z" });
     expect(monthQuery("2026-10", "Asia/Kolkata")).toEqual({ from: "2026-09-30T18:30:00.000Z", to: "2026-10-31T18:30:00.000Z" });
     expect(dateInTimezone("2026-10-01T00:00:00Z", "America/Los_Angeles")).toBe("2026-09-30");
+  });
+
+  it("keeps ongoing meetings and a cross-month ninety-day agenda inside the server's 93-day limit", () => {
+    const now = new Date("2026-12-31T23:59:00Z");
+    const query = upcomingQuery(now);
+    expect(query.from).toBe("2026-12-31T15:59:00.000Z");
+    expect(query.to).toBe("2027-03-31T23:59:00.000Z");
+    expect(Date.parse(query.to) - Date.parse(query.from)).toBeLessThan(93 * 86_400_000);
   });
 
   it("builds a leap-year month with weekday padding", () => {

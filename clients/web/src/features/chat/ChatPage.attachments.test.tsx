@@ -194,7 +194,7 @@ describe("ChatPage attachment lifecycle", () => {
         screen.getByRole("navigation", {
           name: "Conversation list"
         })
-      ).getByRole("button", { name: /Operations/ })
+      ).getByRole("button", { name: /^Operations/ })
     );
 
     await waitFor(() => expect(uploadSignal?.aborted).toBe(true));

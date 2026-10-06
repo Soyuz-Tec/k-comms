@@ -254,6 +254,17 @@ defmodule CommsCore.Telephony.Mailboxes do
 
       messages = Enum.take(rows, limit)
 
+      callers =
+        Repo.all(
+          from(c in Call,
+            where: c.tenant_id == ^grant.tenant_id and c.id in ^Enum.map(messages, & &1.call_id),
+            select: {c.id, c.direction, c.from_number, c.to_number}
+          )
+        )
+        |> Map.new(fn {id, direction, from, to} ->
+          {id, if(direction == :inbound, do: from, else: to)}
+        end)
+
       reads =
         Repo.all(
           from(r in VoicemailRead,
@@ -269,7 +280,7 @@ defmodule CommsCore.Telephony.Mailboxes do
 
       {:ok,
        %{
-         messages: Enum.map(messages, &view(&1, reads[&1.id])),
+         messages: Enum.map(messages, &view(&1, reads[&1.id], callers[&1.call_id])),
          limit: limit,
          has_more: more,
          next_cursor: if(more, do: List.last(messages).id, else: nil),
@@ -328,7 +339,16 @@ defmodule CommsCore.Telephony.Mailboxes do
         })
         |> Repo.insert!(on_conflict: :nothing, conflict_target: [:voicemail_id, :user_id])
 
-        view(v, Repo.get_by!(VoicemailRead, voicemail_id: id, user_id: grant.user_id).read_at)
+        call = Repo.get_by(Call, id: v.call_id, tenant_id: grant.tenant_id)
+
+        caller =
+          if(call, do: if(call.direction == :inbound, do: call.from_number, else: call.to_number))
+
+        view(
+          v,
+          Repo.get_by!(VoicemailRead, voicemail_id: id, user_id: grant.user_id).read_at,
+          caller
+        )
       end)
     else
       {:error, :forbidden} = error -> error
@@ -934,7 +954,7 @@ defmodule CommsCore.Telephony.Mailboxes do
     end
   end
 
-  defp view(v, read_at),
+  defp view(v, read_at, caller_number),
     do:
       Map.take(v, [
         :id,
@@ -946,6 +966,7 @@ defmodule CommsCore.Telephony.Mailboxes do
         :inserted_at
       ])
       |> Map.put(:read_at, read_at)
+      |> Map.put(:caller_number, caller_number)
 
   defp visible_box(nil), do: nil
 

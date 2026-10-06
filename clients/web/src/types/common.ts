@@ -22,6 +22,8 @@ export interface ServiceStatus {
     immersive_mode?: boolean;
     instant_rooms: boolean;
     notifications: boolean;
+    /** Deployment configuration preflight only; not live provider qualification. */
+    private_rooms?: boolean;
     push_notifications?: boolean;
     realtime: boolean;
     secure_account_actions: boolean;

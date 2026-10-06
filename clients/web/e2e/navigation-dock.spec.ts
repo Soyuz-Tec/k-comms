@@ -114,6 +114,11 @@ test("pinning reserves a sidebar after the activity rail and unpinning returns t
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  // Pin state commits before the dock's existing reveal transition finishes.
+  await expect(dock).toHaveCSS("opacity", "1");
+  await expect.poll(() => dock.evaluate((element) =>
+    element.getAnimations().filter((animation) => animation.playState !== "finished").length
+  )).toBe(0);
   expect(await dock.boundingBox()).toMatchObject({ x: 52, y: 44, width: 240 });
   expect(await workspace.boundingBox()).toMatchObject({ x: 292, y: 44, width: 1148 });
   expect(await rail.boundingBox()).toMatchObject({ x: 0, y: 44, width: 52 });

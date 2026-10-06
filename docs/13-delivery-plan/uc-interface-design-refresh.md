@@ -1,5 +1,9 @@
 # UC interface design refresh
 
+The next functional increment is documented in the
+[daily workflow milestone](daily-workflow-milestone.md), including its
+unfinished-work, Inbox, meeting, calling and availability acceptance criteria.
+
 The refresh addresses the design review of the five public/authentication,
 twelve member-workspace, and nine administration screens. It uses the existing
 capability, role, identity, provider, and retention contracts.

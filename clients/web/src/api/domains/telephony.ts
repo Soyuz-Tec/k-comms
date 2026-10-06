@@ -30,10 +30,11 @@ export function createTelephonyApi(request: ApiRequest) {
       if (!data.number) throw new Error("The saved phone assignment was not returned. Refresh phone settings before retrying.");
       return data.number;
     }),
-    phoneCalls(options: { scope?: "active" | "missed"; limit?: number; cursor?: string | null } = {}): Promise<PhoneCallsPage> {
+    phoneCalls(options: { scope?: "active" | "missed"; limit?: number; cursor?: string | null; q?: string; direction?: "inbound" | "outbound"; from?: string; to?: string } = {}): Promise<PhoneCallsPage> {
       const query = new URLSearchParams({ limit: String(options.limit ?? 30) });
       if (options.scope) query.set("scope", options.scope);
       if (options.cursor) query.set("cursor", options.cursor);
+      for (const key of ["q", "direction", "from", "to"] as const) if (options[key]) query.set(key, options[key]);
       return request(`/api/v1/telephony/calls?${query}`);
     },
     phoneCall: (id: string) => request<DataResponse<PhoneCall>>(callPath(id)).then(({ data }) => data),

@@ -3,14 +3,20 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: ab3c8816a7a2f75307597ff2e76bc19a6a89ccab51b2a9d05508d3b073d96a82
+  sha256: 3ba76277f11331c536eaaea142368eb1ab07da5dd99b453aa960410b13a2aede
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+  - id: authorized-inbox-triage-and-favorites
+    previous_manifest_sha256: ec68e281a995bff917185681658df11d5752139649cbb5b901a5f7541b416114
+    approved_changes:
+    - public_facade_api:sha256:ab3c8816a7a2f75307597ff2e76bc19a6a89ccab51b2a9d05508d3b073d96a82->3ba76277f11331c536eaaea142368eb1ab07da5dd99b453aa960410b13a2aede
+    adr: docs/02-architecture/adr/0111-authorized-inbox-triage-and-favorites.md
+    removal_condition: Remove after the exact Inbox preview and favorite facade additions are protected on main.
   reviewed_baseline_transitions:
   - id: non-media-authorization-tenant-identity-and-notification-boundaries
     previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff

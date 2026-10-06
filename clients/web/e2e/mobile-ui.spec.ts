@@ -53,7 +53,7 @@ test.describe("authenticated mobile web acceptance", () => {
         await page.screenshot({ path: testInfo.outputPath(`inbox-${viewport.width}.png`), fullPage: true });
       }
 
-      const conversation = page.getByRole("button", { name: /General/ });
+      const conversation = page.getByRole("button", { name: /^General/ });
       await expectMinimumTarget(conversation, "conversation row");
       /*
        * Notifications moved out of the deleted top bar and into the inbox,
@@ -299,9 +299,9 @@ test.describe("authenticated mobile web acceptance", () => {
     const fixture = await installWorkspace(page, { callRunning: true });
     await page.goto("/app/");
 
-    const conversation = page.getByRole("button", { name: /General/ });
+    const conversation = page.getByRole("button", { name: /^General/ });
     await expect(conversation).toContainText("Active call");
-    // The summary stays content-free: conversation kind and call state only.
+    // Without a preview in this fixture, keep the conversation-kind fallback and call state.
     await expect(conversation).toContainText("Room conversation");
     await expectNoDocumentOverflow(page);
     expect(fixture.unexpectedRequests).toEqual([]);
@@ -338,7 +338,7 @@ test.describe("authenticated mobile web acceptance", () => {
     await installWorkspace(page);
     await page.goto("/app/");
 
-    await expect(page.getByRole("button", { name: /General/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^General/ })).toBeVisible();
     await expect(page.getByText("Active call")).toHaveCount(0);
   });
 

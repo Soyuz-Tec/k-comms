@@ -18,6 +18,13 @@ export interface Conversation {
   membership_role?: string;
   last_read_sequence?: number;
   unread_count?: number;
+  favorite?: boolean;
+  /** Authorized bounded main-timeline preview; absent when not requested. */
+  inbox?: {
+    message: { id: string; sequence: number; sender_user_id: string;
+      sender_display_name: string; status: Message["status"]; excerpt: string; inserted_at: string } | null;
+    draft: { excerpt: string; expires_at: string } | null;
+  } | null;
   archived_at?: string | null;
   version?: number;
   inserted_at: string;

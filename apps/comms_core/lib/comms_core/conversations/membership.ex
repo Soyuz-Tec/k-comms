@@ -9,6 +9,7 @@ defmodule CommsCore.Conversations.Membership do
     field(:joined_at, :utc_datetime_usec)
     field(:left_at, :utc_datetime_usec)
     field(:last_read_sequence, :integer, default: 0)
+    field(:favorite, :boolean, default: false)
     field(:lock_version, :integer, default: 1)
     timestamps()
   end

@@ -81,6 +81,10 @@ defmodule CommsCore.Conversations do
           | {:ok, public_value() | [public_value()]}
           | {:error, public_error()}
 
+  @spec put_favorite(binary(), boolean(), public_map()) :: public_response()
+  defdelegate put_favorite(conversation_id, favorite, subject),
+    to: CommsCore.Conversations.InboxPreferences
+
   @spec active_member_ids(binary(), binary()) :: public_response()
   @spec add_member_view(binary(), binary(), atom() | binary(), public_map()) :: public_response()
   @spec archive_view(binary(), public_map(), public_map()) :: public_response()

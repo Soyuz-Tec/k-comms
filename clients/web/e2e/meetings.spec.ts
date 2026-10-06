@@ -55,6 +55,8 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     await editor.getByLabel("Number of occurrences").fill("3");
     await editor.getByRole("button", { name: "Schedule meeting", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Planning review", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Meeting sharing" })).toContainText("Email invitations are not sent automatically.");
+    await expect(page.getByRole("button", { name: "Copy member meeting link" })).toBeEnabled();
     expect(createInput).toMatchObject({ timezone: "America/New_York", local_start: "2026-10-07T10:00", recurrence: { frequency: "weekly", interval: 1, count: 3 }, reminder_minutes: 15 });
     await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
     await page.getByRole("button", { name: "Calendar", exact: true }).click();

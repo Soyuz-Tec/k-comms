@@ -1,5 +1,5 @@
 import type { CallMediaKind, CallSessionResponse, DataResponse, ListResponse } from "../../types";
-import type { Meeting, MeetingInput, MeetingsQuery, UpdateMeetingInput } from "../../types/meetings";
+import type { Meeting, MeetingInput, MeetingsPageResponse, MeetingsQuery, UpdateMeetingInput } from "../../types/meetings";
 import type { ApiRequest } from "../contracts";
 
 export function createMeetingsApi(request: ApiRequest) {
@@ -7,6 +7,11 @@ export function createMeetingsApi(request: ApiRequest) {
     getMeeting(id: string): Promise<Meeting> {
       return request<DataResponse<Meeting>>(`/api/v1/meetings/${encodeURIComponent(id)}`)
         .then((response) => response.data);
+    },
+
+    meetingsPage(query: MeetingsQuery): Promise<MeetingsPageResponse> {
+      const params = new URLSearchParams({ from: query.from, to: query.to });
+      return request<MeetingsPageResponse>(`/api/v1/meetings?${params.toString()}`);
     },
 
     meetings(query: MeetingsQuery): Promise<Meeting[]> {

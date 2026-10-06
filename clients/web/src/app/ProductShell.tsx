@@ -29,6 +29,8 @@ import { useRouterHistory } from "./router-history";
 import { useWindowControlsOverlay } from "./useWindowControlsOverlay";
 import { ContextualNavigationProvider } from "./ContextualNavigation";
 import { WorkspaceToolNavigation } from "./WorkspaceToolNavigation";
+import { QuickAvailability } from "../features/settings/QuickAvailability";
+import { useAvailability, availabilityLabels } from "../features/settings/useAvailability";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -69,6 +71,7 @@ function ProductShellContent() {
   const location = useLocation();
   const history = useRouterHistory();
   const { session, logout } = useSession();
+  const availability = useAvailability();
   const { teardownCall } = useCallSession();
   const { mode } = useExperienceMode();
   const { error, setError, refreshAll, conversations } = useWorkspaceData();
@@ -228,7 +231,7 @@ function ProductShellContent() {
         role="button"
         className="workspace-account-trigger"
         aria-label={`Account menu for ${session.user.display_name}`}
-        title={session.user.display_name}
+        title={`${session.user.display_name}${availability.data ? ` · ${availabilityLabels[availability.data.status]}` : ""}`}
       >
         <AvatarBadge name={session.user.display_name} avatarUrl={session.user.avatar_url} size="small" />
         <span className="workspace-account-copy">
@@ -245,6 +248,7 @@ function ProductShellContent() {
             <small>{session.tenant.name} · {session.user.role}</small>
           </span>
         </div>
+        <QuickAvailability controller={availability} onSettings={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }} />
         <nav className="desktop-role-links" aria-label="Personal settings">
           <NavLink to="/app/you?section=profile" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Profile &amp; settings</NavLink>
           <NavLink to="/app/you?section=audio-video" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Audio &amp; video</NavLink>

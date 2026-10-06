@@ -7,6 +7,8 @@ export interface VoicemailMessage {
   available_at: string | null;
   inserted_at: string;
   read_at: string | null;
+  /** Caller ID display data; never an authenticated identity. Older servers may omit it. */
+  caller_number?: string | null;
 }
 export interface VoicemailPage {
   data: VoicemailMessage[];

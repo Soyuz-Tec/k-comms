@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { Link, MemoryRouter, Route, Routes } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { routeLabel, RouteOrientation } from "./RouteOrientation";
 
 function Harness() {
@@ -37,6 +37,80 @@ function DelayedNotificationSettings() {
 }
 
 describe("RouteOrientation", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function deferFrames() {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+    return () => act(() => {
+      for (const [id, callback] of [...frames]) {
+        if (frames.delete(id)) callback(0);
+      }
+    });
+  }
+
+  it("does not steal newly selected account-summary focus while route orientation is pending", () => {
+    const flushFrame = deferFrames();
+    render(<MemoryRouter initialEntries={["/app/content"]}>
+      <RouteOrientation />
+      <details><summary>Account menu</summary><button>Set status</button></details>
+      <main><h1>Content</h1></main>
+    </MemoryRouter>);
+
+    const summary = screen.getByText("Account menu");
+    summary.focus();
+    flushFrame();
+
+    expect(summary).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Content" })).not.toHaveAttribute("tabindex");
+  });
+
+  it.each(["keydown", "pointerdown"])("lets a subsequent %s operation cancel pending orientation without blocking normal navigation", (event) => {
+    const flushFrame = deferFrames();
+    render(<MemoryRouter initialEntries={["/app/"]}><Harness /></MemoryRouter>);
+    flushFrame();
+    const link = screen.getByRole("link", { name: "Settings" });
+    link.focus();
+    fireEvent.click(link);
+    if (event === "keydown") fireEvent.keyDown(link, { key: "Tab" });
+    else fireEvent.pointerDown(link);
+    flushFrame();
+
+    expect(link).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Profile and settings" })).not.toHaveAttribute("tabindex");
+  });
+
+  it("stops waiting for a fragment when the user selects another control", async () => {
+    const flushFrame = deferFrames();
+    render(<MemoryRouter initialEntries={["/app/you#notification-settings"]}>
+      <RouteOrientation />
+      <details><summary>Account menu</summary><button>Set status</button></details>
+      <DelayedNotificationSettings />
+    </MemoryRouter>);
+    flushFrame();
+    const summary = screen.getByText("Account menu");
+    summary.focus();
+    await screen.findByRole("heading", { name: "Notification preferences" });
+
+    expect(summary).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Notification preferences" })).not.toHaveAttribute("tabindex");
+  });
+
+  it("keeps an already focused main input when orientation runs", () => {
+    const flushFrame = deferFrames();
+    render(<MemoryRouter initialEntries={["/app/content"]}>
+      <RouteOrientation />
+      <main><h1>Content</h1><input aria-label="Search content" autoFocus /></main>
+    </MemoryRouter>);
+    flushFrame();
+    expect(screen.getByRole("textbox", { name: "Search content" })).toHaveFocus();
+  });
+
   it("names content destinations and all administration deep links", () => {
     expect(routeLabel("/app/meetings", "")).toBe("Meetings");
     expect(routeLabel("/app/artifacts", "")).toBe("Recordings and transcripts");

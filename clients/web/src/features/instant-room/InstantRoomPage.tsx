@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -8,7 +8,6 @@ import {
 import { useSession } from "../../app/session";
 import { browserName } from "../../lib/format";
 import type { GuestSession } from "../../types";
-import { GuestShell } from "../guest/GuestAccessPage";
 import { AuthenticationCanvasPage } from "../auth/AuthenticationCanvasPage";
 import {
   type GuestRoomApi,
@@ -45,6 +44,12 @@ import {
 import { clearInstantWorkspaceDraft } from "./instantWorkspaceDraftStore";
 import "./InstantRoomPage.css";
 import "./PublicLandingPage.css";
+
+// A live room owns its message/call UI and stylesheet. Keep that surface lazy
+// while the public landing page is showing only the local draft workspace.
+const GuestShell = lazy(() =>
+  import("../guest/GuestShell").then(({ GuestShell: shell }) => ({ default: shell }))
+);
 
 export function InstantRoomPage({
   authenticationGateway
@@ -378,15 +383,7 @@ export function InstantRoomPage({
   const roomApi = activeRoom ? stableRoomApi : null;
 
   if (loading && !activeRoom && memberContinuity) {
-    return (
-      <main className="instant-room-entry" id="main-content" aria-busy="true">
-        <section className="instant-room-loading" aria-labelledby="instant-room-title">
-          <span className="spinner" aria-hidden="true" />
-          <h1 id="instant-room-title">Opening your room…</h1>
-          <p>Your invite link and QR code will be ready in a moment.</p>
-        </section>
-      </main>
-    );
+    return <OpeningRoom />;
   }
 
   if (!activeRoom || !roomApi) {
@@ -471,6 +468,7 @@ export function InstantRoomPage({
     ) : undefined;
 
   return (
+    <Suspense fallback={<OpeningRoom />}>
     <GuestShell
       api={roomApi}
       initialSession={activeRoom.session}
@@ -549,7 +547,18 @@ export function InstantRoomPage({
         });
       }}
     />
+    </Suspense>
   );
+}
+
+function OpeningRoom() {
+  return <main className="instant-room-entry" id="main-content" aria-busy="true">
+    <section className="instant-room-loading" role="status" aria-labelledby="instant-room-title">
+      <span className="spinner" aria-hidden="true" />
+      <h1 id="instant-room-title">Opening your room…</h1>
+      <p>Your invite link and QR code will be ready in a moment.</p>
+    </section>
+  </main>;
 }
 
 async function seedDraftWorkspace(

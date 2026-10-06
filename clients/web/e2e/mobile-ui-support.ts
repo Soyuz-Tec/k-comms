@@ -1,4 +1,4 @@
-import { expect, mockServiceStatus } from "./fixtures";
+import { expect, installSyntheticRealtime, mockServiceStatus } from "./fixtures";
 import type { Locator, Page, Route } from "@playwright/test";
 
 export const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -185,7 +185,7 @@ export function callFixtureIcon(name: string) {
 
 export async function installWorkspace(
   page: Page,
-  options: { tenantName?: string; callRunning?: boolean } = {}
+  options: { tenantName?: string; callRunning?: boolean; sessionReceivedAt?: number } = {}
 ) {
   const state = { readCursorRequests: 0, unexpectedRequests: [] as string[] };
   const drafts = new Map<string, { body: string; version: number }>();
@@ -194,7 +194,7 @@ export async function installWorkspace(
     refresh_token: "refresh-token",
     token_type: "Bearer",
     expires_in: 3_600,
-    received_at: Date.now(),
+    received_at: options.sessionReceivedAt ?? Date.now(),
     tenant: {
       id: tenantId,
       name: options.tenantName || "Acme Workspace",
@@ -368,6 +368,7 @@ export async function installWorkspace(
     return json(route, { error: { code: "unexpected_mobile_test_request", detail: `${method} ${path}` } }, 501);
   });
 
+  await installSyntheticRealtime(page);
   return state;
 }
 

@@ -112,7 +112,8 @@ for (const width of [761, 1024, 1280, 390]) {
     await page.getByLabel("Advanced file filters", { exact: true }).click();
 
     await page.goto("/app/calls");
-    await expect(page.getByRole("button", { name: "Join video call for General" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Recent", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Start video call for General" })).toBeVisible();
     if (width === 390) {
       const launcher = page.getByRole("button", { name: "Start call", exact: true });
       await expect(launcher).toHaveAttribute("aria-expanded", "false");

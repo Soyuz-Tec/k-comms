@@ -96,6 +96,60 @@ defmodule CommsCore.AudioCallSessionListingTest do
              AudioCalls.list_sessions(Map.put(subject, :session_id, Ecto.UUID.generate()))
   end
 
+  test "filters the complete authorized history before pagination by conversation, starter and start time" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    older = start_and_end(account.conversation.id, subject, :audio)
+    newer = start_and_end(account.conversation.id, subject, :video)
+    from_at = DateTime.add(newer.started_at, -3600, :second)
+    before_at = DateTime.add(newer.started_at, 60, :second)
+
+    from(call in AudioCall, where: call.id == ^older.id)
+    |> Repo.update_all(
+      set: [
+        started_at: DateTime.add(from_at, -60, :second),
+        expires_at: DateTime.add(from_at, 3600, :second)
+      ]
+    )
+
+    filters = %{
+      scope: :recent,
+      conversation_id: account.conversation.id,
+      started_by_user_id: account.user.id,
+      after: DateTime.to_iso8601(from_at),
+      before: DateTime.to_iso8601(before_at),
+      limit: 1
+    }
+
+    assert {:ok, %{calls: [result], has_more: false}} = AudioCalls.list_sessions(subject, filters)
+    assert result.id == newer.id
+
+    assert {:ok, %{calls: []}} =
+             AudioCalls.list_sessions(
+               subject,
+               Map.put(filters, :started_by_user_id, Ecto.UUID.generate())
+             )
+
+    other = Fixtures.account_fixture()
+    foreign = start_and_end(other.conversation.id, Fixtures.subject(other), :audio)
+
+    assert {:ok, %{calls: []}} =
+             AudioCalls.list_sessions(subject, %{conversation_id: foreign.conversation_id})
+
+    assert {:ok, %{calls: []}} =
+             AudioCalls.list_sessions(subject, %{started_by_user_id: other.user.id})
+
+    for params <- [
+          %{conversation_id: "invalid"},
+          %{started_by_user_id: "invalid"},
+          %{after: "2026-13-40"},
+          %{before: 123},
+          %{after: DateTime.to_iso8601(before_at), before: DateTime.to_iso8601(from_at)}
+        ] do
+      assert {:error, :invalid_call_history_filters} = AudioCalls.list_sessions(subject, params)
+    end
+  end
+
   defp start_and_end(conversation_id, subject, media_kind) do
     assert {:ok, call, :created} =
              AudioCalls.start(conversation_id, subject, media_kind)

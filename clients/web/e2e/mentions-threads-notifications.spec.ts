@@ -140,7 +140,7 @@ async function mockWorkspace(page: Page) {
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: users } }));
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [conversation] } }));
+  await page.route("**/api/v1/conversations?include=inbox", (route) => route.fulfill({ json: { data: [conversation] } }));
   await page.route(`**/api/v1/conversations/${conversationId}/members`, (route) => route.fulfill({ json: { data: users.map((user, index) => ({ id: `membership-${index}`, role: "member", joined_at: "2026-07-12T12:00:00Z", last_read_sequence: 0, user })) } }));
   await page.route(`**/api/v1/conversations/${conversationId}/messages**`, messages);
   await page.route(`**/api/v1/conversations/${conversationId}/delivery-cursors`, (route) => route.fulfill({ json: { data: [] } }));

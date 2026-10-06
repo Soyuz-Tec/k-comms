@@ -107,6 +107,8 @@ export function useConversationFeed({
 
   const updateLoadedMessage = useCallback((updated: Message) => {
     if (updated.conversation_id !== activeConversationIdRef.current) return;
+    setConversations(current => current.map(conversation => conversation.inbox?.message?.id === updated.id
+      ? { ...conversation, inbox: { ...conversation.inbox, message: null } } : conversation));
     // A thread can load history outside the transcript's current window.
     // Mutations must not insert that history, advance cursors or count new mail.
     setMessages((current) => current.some((message) => message.id === updated.id)
@@ -119,7 +121,7 @@ export function useConversationFeed({
             : updated;
         })
       : current);
-  }, [setMessages]);
+  }, [setConversations, setMessages]);
 
   const updateConversationSummaries = useCallback(
     (incoming: Message[]) => {
@@ -135,7 +137,8 @@ export function useConversationFeed({
           activeConversationIdRef.current,
           document.visibilityState === "visible" &&
             nearBottomRef.current
-        )
+        ).map(conversation => incoming.some(message => invalidatesInboxMessage(conversation, message))
+          ? { ...conversation, inbox: conversation.inbox ? { ...conversation.inbox, message: null } : null } : conversation)
       );
     },
     [session?.user.id, setConversations]
@@ -446,4 +449,21 @@ export function useConversationFeed({
     sendCommand,
     setTyping
   };
+}
+
+function invalidatesInboxMessage(conversation: Conversation, message: Message): boolean {
+  if (message.conversation_id !== conversation.id) return false;
+  const preview = conversation.inbox?.message;
+  if (preview && message.id === preview.id) {
+    // Initial history and duplicate replay must not erase an unchanged,
+    // authorized projection. Compare PostgreSQL left(body, 200) code points;
+    // never construct a preview or restore one that another update removed.
+    return message.tenant_id !== conversation.tenant_id ||
+      Boolean(message.thread_root_message_id) ||
+      message.status !== "active" || preview.status !== "active" ||
+      message.conversation_sequence !== preview.sequence ||
+      message.sender_user_id !== preview.sender_user_id ||
+      Array.from(message.body ?? "").slice(0, 200).join("") !== preview.excerpt;
+  }
+  return !message.thread_root_message_id && message.conversation_sequence > (preview?.sequence ?? 0);
 }

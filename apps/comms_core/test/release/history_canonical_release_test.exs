@@ -1,7 +1,7 @@
 defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
   use ExUnit.Case, async: false
 
-  alias CommsCore.Repo
+  alias CommsCore.{MigrationFixture, Repo}
 
   @moduletag :integration
   @moduletag :release
@@ -10,12 +10,14 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
     "apps/comms_core/lib/comms_core/release/rollback_compatibility.ex",
     "apps/comms_core/lib/comms_core/release/migration.ex",
     "apps/comms_core/lib/comms_core/runtime_ports.ex",
+    "apps/comms_core/priv/repo/migrations/20261006001300_add_conversation_favorites.exs",
     "apps/comms_workers/lib/comms_workers/audit_history_snapshot_purge_worker.ex",
     "apps/comms_core/priv/repo/migrations/20261006000100_index_resource_audit_history.exs",
+    "apps/comms_core/test/support/migration_fixture.ex",
     "config/config.exs"
   ]
 
-  test "actual canonical preflight preserves own full74 database while fencing every exact history worker job" do
+  test "actual canonical preflight preserves own full75 database while fencing every exact history worker job" do
     repository = Path.expand("../../../..", __DIR__)
     support = Path.expand("../support/history_canonical_release_probe.exs", __DIR__)
     source_paths = [__ENV__.file, support | Enum.map(@source_paths, &Path.join(repository, &1))]
@@ -29,7 +31,7 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
     artifact_directory = Path.join(System.tmp_dir!(), "k_comms_history_canonical_" <> suffix)
     File.mkdir!(artifact_directory)
     File.chmod!(artifact_directory, 0o700)
-    migration_log = Path.join(artifact_directory, "full74-migration.log")
+    migration_log = Path.join(artifact_directory, "full75-migration.log")
     probe_log = Path.join(artifact_directory, "canonical-probe.log")
     probe_receipt = Path.join(artifact_directory, "canonical-probe.json")
     parent_receipt = Path.join(artifact_directory, "subprocess-test.json")
@@ -74,7 +76,9 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
       File.chmod!(migration_log, 0o600)
 
       assert migration_status == 0,
-             "fresh full74 migration failed; retained log: " <> migration_log
+             "fresh full75 migration failed; retained log: " <> migration_log
+
+      assert :ok = MigrationFixture.await_no_peers(admin, template)
 
       assert [[0]] =
                Postgrex.query!(admin, "SELECT count(*) FROM pg_stat_activity WHERE datname=$1", [
@@ -146,7 +150,7 @@ defmodule CommsCore.Release.HistoryCanonicalReleaseTest do
 
     proof = probe_receipt |> File.read!() |> Jason.decode!()
     assert proof["database"] == database
-    assert proof["migration_count"] == 74
+    assert proof["migration_count"] == 75
     assert proof["peers"] == 0
     assert String.starts_with?(proof["application_name"], "k_comms/one_shot/")
     assert proof["source_bytes_unchanged"]

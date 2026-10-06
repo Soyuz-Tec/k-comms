@@ -300,7 +300,6 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-entry-actions .button {
   min-height: 44px;
-  color: var(--text-secondary);
 }
 
 .guest-shell {
@@ -1722,10 +1721,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-message-menu-trigger {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  min-height: 40px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   display: inline-grid;
   place-items: center;
   padding: 0;

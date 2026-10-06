@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -26,15 +28,13 @@ import {
   type ParticipantIdentity
 } from "../../lib/participantIdentity";
 import { canManageUsers } from "../../lib/roles";
-import type { Message, MessageMetadata, WhiteboardMessageReference } from "../../types";
-import { ConversationDetails } from "./ConversationDetails";
+import type { Conversation, Message, MessageMetadata, WhiteboardMessageReference } from "../../types";
 import {
   ConversationSidebar,
   type InboxFilter
 } from "./ConversationSidebar";
 import { ChannelBrowser } from "./ChannelBrowser";
 import { UnifiedSearchPanel } from "./UnifiedSearchPanel";
-import { ThreadDrawer } from "./ThreadDrawer";
 import { ConversationShareDialog } from "../guest/ConversationShareDialog";
 import {
   safeCallKind,
@@ -61,6 +61,10 @@ import { useConversationMembers } from "./useConversationMembers";
 import { useMemberWorkspace } from "../member-workspace/useMemberWorkspace";
 import { SetupGuide } from "../member-workspace/SetupGuide";
 import "./ChatPage.css";
+
+// Membership and federation management are needed only when details are open.
+const ConversationDetails = lazy(() => import("./ConversationDetails").then(({ ConversationDetails: panel }) => ({ default: panel })));
+const ThreadDrawer = lazy(() => import("./ThreadDrawer").then(({ ThreadDrawer: panel }) => ({ default: panel })));
 
 interface FocusTarget {
   id: string;
@@ -95,7 +99,8 @@ export function ChatPage() {
     setConversations,
     createConversation,
     startDirectConversation,
-    refreshConversations
+    refreshConversations,
+    updateConversationFavorite
   } = useWorkspaceData();
   const memberWorkspace = useMemberWorkspace();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -156,6 +161,19 @@ export function ChatPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [pendingFavoriteId, setPendingFavoriteId] = useState<string | null>(null);
+  const [favoriteError, setFavoriteError] = useState<string | null>(null);
+  const favoriteAuthorityRef = useRef(federationAuthorityGeneration);
+  favoriteAuthorityRef.current = federationAuthorityGeneration;
+  async function toggleFavorite(conversation: Conversation) {
+    if (pendingFavoriteId) return;
+    const authority = federationAuthorityGeneration;
+    setPendingFavoriteId(conversation.id); setFavoriteError(null);
+    try { await updateConversationFavorite(conversation.id, !conversation.favorite); }
+    catch { if (favoriteAuthorityRef.current === authority) setFavoriteError("Could not update favorites. Try again."); }
+    finally { if (favoriteAuthorityRef.current === authority) setPendingFavoriteId(null); }
+  }
+  useEffect(() => { setPendingFavoriteId(null); setFavoriteError(null); }, [federationAuthorityGeneration]);
 
   const [directStartingUserId, setDirectStartingUserId] = useState<string | null>(null);
   const activeCallConversationIds = useActiveConversationCalls(api);
@@ -322,12 +340,13 @@ export function ChatPage() {
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
     return conversations.filter((conversation) => {
+      if (inboxFilter === "favorites" && !conversation.favorite) return false;
       if (inboxFilter === "unread" && (conversation.unread_count || 0) === 0) return false;
       if (inboxFilter === "direct" && conversation.kind !== "direct") return false;
       if (inboxFilter === "rooms" && !["group", "channel"].includes(conversation.kind)) return false;
       if (query && !conversationTitle(conversation).toLocaleLowerCase().includes(query)) return false;
       return true;
-    });
+    }).sort((left, right) => Number(right.favorite === true) - Number(left.favorite === true));
   }, [conversationQuery, conversations, inboxFilter]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const activeConversationMemberUsersById = useMemo(
@@ -606,6 +625,10 @@ export function ChatPage() {
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       <ConversationSidebar
         activeConversationId={activeConversationId}
+        composer={composer}
+        pendingFavoriteId={pendingFavoriteId}
+        favoriteError={favoriteError}
+        onToggleFavorite={(conversation) => void toggleFavorite(conversation)}
         activeCallConversationIds={
           callSessionState?.joined && callTargetConversation?.id
             ? new Set([...activeCallConversationIds, callTargetConversation.id])
@@ -764,10 +787,10 @@ export function ChatPage() {
 
       {showSearch && <UnifiedSearchPanel key={searchConversationId || "workspace"} api={api} conversations={conversations} initialConversationId={searchConversationId} onClose={closeSearch} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
-      {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}-${federationAuthorityGeneration}`} authorityGeneration={federationAuthorityGeneration} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
+      {showDetails && activeConversation && <Suspense fallback={<p role="status">Opening conversation details…</p>}><ConversationDetails key={`${activeConversation.id}-${membershipVersion}-${federationAuthorityGeneration}`} authorityGeneration={federationAuthorityGeneration} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} /></Suspense>}
       {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}
       {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
-      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} onMessageUpdated={updateLoadedMessage} onReport={(message) => { setReportError(null); setReportTarget(message); }} />}
+      {threadTargetId && activeConversationId && <Suspense fallback={<p role="status">Opening thread…</p>}><ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} onMessageUpdated={updateLoadedMessage} onReport={(message) => { setReportError(null); setReportTarget(message); }} /></Suspense>}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );

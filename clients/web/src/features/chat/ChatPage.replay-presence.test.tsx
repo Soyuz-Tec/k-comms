@@ -189,7 +189,7 @@ describe("ChatPage durable sequence recovery", () => {
     act(() => { harness.callbacks!.onStatus("reconnecting"); harness.callbacks!.onStatus("live"); });
     await waitFor(() => expect(harness.api.messages).toHaveBeenCalledTimes(2));
     if (interruption === "conversation switch") {
-      await user.click(within(screen.getByRole("navigation", { name: "Conversation list" })).getByRole("button", { name: /Operations/ }));
+      await user.click(within(screen.getByRole("navigation", { name: "Conversation list" })).getByRole("button", { name: /^Operations/ }));
       await screen.findByText("Operations content");
     } else {
       act(() => harness.callbacks!.onStatus("reconnecting"));
@@ -749,7 +749,7 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
     const conversationButton = within(screen.getByRole("navigation", { name: "Conversation list" }))
-      .getByRole("button", { name: /General/ });
+      .getByRole("button", { name: /^General/ });
 
     await user.click(conversationButton);
     await waitFor(() => expect(screen.getByLabelText("location-search")).toHaveTextContent("?conversation=conversation-1"));
@@ -773,7 +773,7 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
     const conversationButton = within(screen.getByRole("navigation", { name: "Conversation list" }))
-      .getByRole("button", { name: /General/ });
+      .getByRole("button", { name: /^General/ });
 
     await user.click(conversationButton);
     await waitFor(() => expect(document.querySelector("main#main-content")).toHaveClass("mobile-messages"));

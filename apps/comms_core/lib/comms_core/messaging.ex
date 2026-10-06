@@ -126,6 +126,9 @@ defmodule CommsCore.Messaging do
   defdelegate save_message(message_id, subject), to: CommsCore.Messaging.PersonalContent
   @spec unsave_message(binary(), public_map()) :: public_response()
   defdelegate unsave_message(message_id, subject), to: CommsCore.Messaging.PersonalContent
+  @spec inbox_summaries([binary()], public_map()) :: public_response()
+  defdelegate inbox_summaries(conversation_ids, subject), to: CommsCore.Messaging.Inbox
+
   @spec get_draft(binary(), public_map(), public_map()) :: public_response()
   defdelegate get_draft(conversation_id, params, subject), to: CommsCore.Messaging.PersonalContent
   @spec put_draft(binary(), public_map(), public_map()) :: public_response()

@@ -45,4 +45,25 @@ describe("voicemail panel", () => {
     expect(await screen.findByText(/Voicemail capture needs a verified phone provider/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Listen to voicemail" })).toBeVisible();
   });
+  it("shows caller identity but offers callback only for an unambiguous international number", async () => {
+    harness.api.voicemails.mockResolvedValueOnce({ data: [{ ...message, caller_number: "+14155550123" }, { ...message, id: "withheld", caller_number: "Unknown" }], configured: true, page: { limit: 30, has_more: false, next_cursor: null } });
+    const useNumber = vi.fn();
+    render(<VoicemailPanel onUseNumber={useNumber} />);
+    expect(await screen.findByText("+14155550123")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Return call" })).toHaveLength(1);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Return call" }));
+    expect(useNumber).toHaveBeenCalledExactlyOnceWith("+14155550123");
+    expect(harness.api.voicemailPlayback).not.toHaveBeenCalled();
+  });
+  it("clears caller data and signed audio when playback authority is withdrawn", async () => {
+    harness.api.voicemails.mockResolvedValueOnce({ data: [{ ...message, caller_number: "+14155550123" }], configured: true, page: { limit: 30, has_more: false, next_cursor: null } });
+    harness.api.markVoicemailRead.mockRejectedValueOnce(Object.assign(new Error("Voicemail access withdrawn"), { status: 403 }));
+    render(<VoicemailPanel onUseNumber={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Listen to voicemail" }));
+    fireEvent.play(screen.getByLabelText("Voicemail playback"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Voicemail access withdrawn");
+    expect(screen.queryByText("+14155550123")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Voicemail playback")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Return call" })).not.toBeInTheDocument();
+  });
 });

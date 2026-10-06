@@ -35,7 +35,7 @@ test("admin creates, rotates, and revokes a scoped bot with one-time credential 
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations?include=inbox", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/admin/tenant", (route) => {
     const limits = { max_active_users: 500, max_active_conversations: 2000, max_conversation_members: 250 };
     const flags = { active_users: false, active_conversations: false, conversation_members: false, any: false };

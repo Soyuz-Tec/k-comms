@@ -134,6 +134,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
     } catch (reason: unknown) {
       if (alive.current && version === operation.current) {
         if (reason instanceof ApiError && [401, 403].includes(reason.status)) {
+          setConfiguration(null);
           operation.current += 1;
           releaseMedia();
           callRef.current = null;
@@ -174,6 +175,7 @@ export function TelephonyProvider({ children }: { children: ReactNode }) {
     } catch (reason: unknown) {
       if (alive.current) {
         if (reason instanceof ApiError && [401, 403].includes(reason.status)) {
+          setConfiguration(null);
           operation.current += 1;
           releaseMedia();
           callRef.current = null;

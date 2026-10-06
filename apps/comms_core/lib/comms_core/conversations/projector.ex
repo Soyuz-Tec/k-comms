@@ -33,6 +33,7 @@ defmodule CommsCore.Conversations.Projector do
     |> conversation(counterpart)
     |> Map.merge(%{
       membership_role: result.membership_role,
+      favorite: Map.get(result, :favorite, false),
       last_read_sequence: result.last_read_sequence,
       unread_count: result.unread_count
     })

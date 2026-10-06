@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -50,7 +50,8 @@ const harness = vi.hoisted(() => {
     calls,
     launchCall: vi.fn(),
     refreshCallAvailability: vi.fn(),
-    api: { calls },
+    api: { calls, directoryUsers: vi.fn() },
+    startDirectConversation: vi.fn(),
     audioCallsAvailable: true,
     videoCallsAvailable: true,
     workspaceLoading: false,
@@ -66,6 +67,7 @@ const harness = vi.hoisted(() => {
 });
 
 vi.mock("./CallSessionProvider", () => ({
+  useCallSession: () => ({ launchCall: harness.launchCall }),
   CallLaunchButton: ({
     children,
     className,
@@ -105,6 +107,7 @@ vi.mock("../../app/session", () => ({
 vi.mock("../../app/workspace-data", () => ({
   useWorkspaceData: () => ({
     conversations: [conversation],
+    startDirectConversation: harness.startDirectConversation,
     users: [starter],
     capabilities: harness.capabilities,
     audioCallsAvailable: harness.audioCallsAvailable,
@@ -125,6 +128,8 @@ describe("CallsPage", () => {
       page: { limit: 25, has_more: false, next_cursor: null }
     });
     harness.launchCall.mockReset();
+    harness.api.directoryUsers.mockReset().mockResolvedValue({ data: [], page: { next_cursor: null } });
+    harness.startDirectConversation.mockReset().mockResolvedValue(conversation);
     harness.refreshCallAvailability.mockReset().mockResolvedValue(undefined);
     harness.audioCallsAvailable = true;
     harness.videoCallsAvailable = true;
@@ -197,7 +202,7 @@ describe("CallsPage", () => {
     });
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
 
-    await screen.findByText("No active call rooms");
+    await screen.findByText("No recent call rooms");
     expect(document.querySelector(".calls-new-call-toggle")).toHaveAttribute("aria-expanded", "false");
     const callTypes = screen.getByRole("navigation", { name: "Call types" });
     expect(callTypes).toBeVisible();
@@ -311,7 +316,7 @@ describe("CallsPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Calls are temporarily unavailable");
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("No active call rooms")).toBeVisible();
+    expect(await screen.findByText("No recent call rooms")).toBeVisible();
     expect(harness.calls).toHaveBeenCalledTimes(2);
   });
 
@@ -386,4 +391,61 @@ describe("CallsPage", () => {
       name: "Start audio call for Execution room"
     })).toHaveTextContent("Start audio");
   });
+  it("opens recent history by default and filters all retained results by person, conversation, and local dates", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await screen.findByText("Active room");
+    expect(harness.calls).toHaveBeenLastCalledWith({ scope: "recent", media_kind: undefined, limit: 25, cursor: undefined });
+    await user.click(screen.getByText("Filter call history"));
+    await user.selectOptions(screen.getByLabelText("Conversation"), conversationId);
+    await user.selectOptions(screen.getByLabelText("Started by"), starter.id);
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-07-23" } });
+    fireEvent.change(screen.getByLabelText("Through"), { target: { value: "2026-07-24" } });
+    await waitFor(() => expect(harness.calls).toHaveBeenLastCalledWith(expect.objectContaining({
+      conversation_id: conversationId, started_by_user_id: starter.id,
+      after: new Date(2026, 6, 23).toISOString(), before: new Date(2026, 6, 25).toISOString(), cursor: undefined
+    })));
+    expect(screen.getByText(/Filtered history/)).toHaveTextContent("Started by Grace Hopper");
+    await user.click(screen.getByRole("button", { name: "Clear history filters" }));
+    await waitFor(() => expect(harness.calls).toHaveBeenLastCalledWith({ scope: "recent", media_kind: undefined, limit: 25, cursor: undefined }));
+  });
+
+  it("blocks reversed date ranges without requesting an invalid history query", async () => {
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await screen.findByText("Active room");
+    fireEvent.click(screen.getByText("Filter call history"));
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-07-25" } });
+    await waitFor(() => expect(harness.calls).toHaveBeenCalledTimes(2));
+    fireEvent.change(screen.getByLabelText("Through"), { target: { value: "2026-07-24" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose an end date on or after the start date.");
+    expect(harness.calls).toHaveBeenCalledTimes(2);
+  });
+
+  it("finds a person without an existing conversation and opens the media lobby after resolving the direct conversation", async () => {
+    const person = { id: "person-4", display_name: "Katherine Johnson" };
+    harness.api.directoryUsers.mockResolvedValue({ data: [person], page: { next_cursor: null } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await user.type(screen.getByRole("searchbox", { name: "Find a conversation to call" }), "Katherine");
+    await user.click(await screen.findByRole("button", { name: "Video call Katherine Johnson" }));
+    expect(harness.api.directoryUsers).toHaveBeenLastCalledWith("Katherine", 20);
+    expect(harness.startDirectConversation).toHaveBeenCalledExactlyOnceWith(person.id);
+    expect(harness.launchCall).toHaveBeenCalledExactlyOnceWith(conversation, "video");
+  });
+
+  it("does not launch a delayed person selection after the search changes", async () => {
+    const person = { id: "person-4", display_name: "Katherine Johnson" };
+    harness.api.directoryUsers.mockResolvedValue({ data: [person], page: { next_cursor: null } });
+    let resolve: ((value: Conversation) => void) | undefined;
+    harness.startDirectConversation.mockImplementation(() => new Promise<Conversation>(done => { resolve = done; }));
+    const user = userEvent.setup();
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    const search = screen.getByRole("searchbox", { name: "Find a conversation to call" });
+    await user.type(search, "Katherine");
+    await user.click(await screen.findByRole("button", { name: "Video call Katherine Johnson" }));
+    await user.clear(search);
+    await act(async () => { resolve?.(conversation); });
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
 });

@@ -53,7 +53,15 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       manifest: true,
-      sourcemap: false
+      sourcemap: false,
+      modulePreload: {
+        // WebKit can retain a failed JS modulepreload across reloads. Keep
+        // entry preloads and CSS, but let dynamic JS imports retry normally.
+        resolveDependencies: (_filename, dependencies, { hostType }) =>
+          hostType === "js"
+            ? dependencies.filter((dependency) => dependency.endsWith(".css"))
+            : dependencies
+      }
     }
   };
 });

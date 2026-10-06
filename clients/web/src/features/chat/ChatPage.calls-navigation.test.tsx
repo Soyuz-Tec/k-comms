@@ -154,15 +154,17 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.getByText("Saved on this device")).toBeVisible();
   });
 
-  it("marks the current call in the content-free Inbox summary", async () => {
+  it("marks the current call in the Inbox summary", async () => {
     harness.callTargetConversation = harness.conversations[0]!;
     harness.callSessionState = { joined: true };
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
-    const general = await screen.findByRole("button", { name: /General/ });
+    const general = await screen.findByRole("button", { name: /^General/ });
     expect(within(general).getByText("Active call")).toBeVisible();
     expect(general).toHaveClass("has-active-call");
-    expect(within(general).getByText("1 unread")).toBeVisible();
+    const unreadBadge = within(general).getByLabelText("1 unread messages");
+    expect(unreadBadge).toBeVisible();
+    expect(unreadBadge).toHaveTextContent("1");
   });
 
   it("keeps drafts across conversation switches without claiming persistence when storage is full", async () => {
@@ -177,9 +179,9 @@ describe("ChatPage durable sequence recovery", () => {
       expect(screen.getByText("Kept in this tab only. Send before reloading or closing.")).toBeVisible();
       expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
       const conversations = screen.getByRole("navigation", { name: "Conversation list" });
-      await user.click(within(conversations).getByRole("button", { name: /Operations/ }));
+      await user.click(within(conversations).getByRole("button", { name: /^Operations/ }));
       await user.type(await screen.findByLabelText("Message"), "Operations draft");
-      await user.click(within(conversations).getByRole("button", { name: /General/ }));
+      await user.click(within(conversations).getByRole("button", { name: /^General/ }));
       await waitFor(() => expect(screen.getByLabelText("Message")).toHaveValue("Unsaved General draft"));
       expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
     } finally {
@@ -407,7 +409,7 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.queryByText("Build bot")).not.toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Grace" }));
     await user.type(screen.getByLabelText("Message"), "Mention retry");
-    await user.click(screen.getByRole("button", { name: /Send/ }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
 
     await user.click(await screen.findByRole("button", { name: "Retry" }));
     await waitFor(() => expect(harness.sendMessage).toHaveBeenCalledTimes(2));
@@ -458,14 +460,14 @@ describe("ChatPage durable sequence recovery", () => {
     await waitFor(() => expect(harness.callbacks).not.toBeNull());
     const composerA = await screen.findByLabelText("Message");
     await user.type(composerA, "Send from General");
-    await user.click(screen.getByRole("button", { name: /Send/ }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(harness.sendMessage).toHaveBeenCalledTimes(1));
 
     const conversations = screen.getByRole("navigation", {
       name: "Conversation list"
     });
     await user.click(
-      within(conversations).getByRole("button", { name: /Operations/ })
+      within(conversations).getByRole("button", { name: /^Operations/ })
     );
     const composerB = await screen.findByLabelText("Message");
     await waitFor(() =>
@@ -490,7 +492,7 @@ describe("ChatPage durable sequence recovery", () => {
     )).toBe("");
 
     await user.click(
-      within(conversations).getByRole("button", { name: /General/ })
+      within(conversations).getByRole("button", { name: /^General/ })
     );
     await waitFor(() => expect(screen.getByLabelText("Message")).toHaveValue(""));
   });

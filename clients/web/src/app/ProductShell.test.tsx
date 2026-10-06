@@ -34,6 +34,7 @@ const harness = vi.hoisted(() => {
 
   return {
     session,
+    availabilityApi: undefined as undefined | { availability: ReturnType<typeof vi.fn>; updateAvailability: ReturnType<typeof vi.fn> },
     logout: vi.fn(),
     teardownCall: vi.fn(),
     refreshAll: vi.fn(),
@@ -60,6 +61,7 @@ const harness = vi.hoisted(() => {
 vi.mock("./session", () => ({
   useSession: () => ({
     session: harness.session,
+    api: harness.availabilityApi,
     logout: harness.logout
   })
 }));
@@ -168,6 +170,7 @@ describe("ProductShell", () => {
     window.localStorage.clear();
     harness.pwa.installMode = "unavailable";
     harness.pwa.updateAvailable = false;
+    harness.availabilityApi = undefined;
     harness.session.user.role = "member";
     harness.session.user.account_type = "human";
     harness.session.user.access_scope = "workspace";
@@ -188,6 +191,21 @@ describe("ProductShell", () => {
         dispatchEvent: vi.fn()
       }))
     });
+  });
+
+  it("offers persistent quick status from the desktop account menu and links to its schedule", async () => {
+    responsiveViewport(true);
+    const value = { status: "available", presence_state: "available", presence_expires_at: null, dnd_until: null, dnd_schedule: {}, dnd_active: false, retry_at: null, timezone: "Etc/UTC" };
+    harness.availabilityApi = { availability: vi.fn().mockResolvedValue(value), updateAvailability: vi.fn().mockResolvedValue({ ...value, status: "dnd", presence_state: "dnd", dnd_active: true }) };
+    renderProductShell();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Account menu for Taylor Example" }));
+    await user.click(await screen.findByRole("button", { name: "Pause notifications" }));
+    expect(await screen.findByText("Do not disturb saved.")).toBeVisible();
+    expect(harness.availabilityApi.updateAvailability).toHaveBeenCalledWith(expect.objectContaining({ presence_state: "dnd", dnd_schedule: {} }));
+    await user.click(screen.getByRole("link", { name: "Schedule and notification settings" }));
+    expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
+    expect(document.querySelector(".workspace-account-menu")).not.toHaveAttribute("open");
   });
 
   it("separates administration from daily destinations and returns to the workspace", async () => {
