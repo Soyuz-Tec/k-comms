@@ -15,6 +15,7 @@ import {
 import { callAvailabilityGuidance } from "./callAvailability";
 import { CallReadinessLauncher } from "./CallReadinessLauncher";
 import { CallLaunchButton } from "./CallSessionProvider";
+import { CallTypeNavigation } from "./CallTypeNavigation";
 import type {
   CallMediaKind,
   CallSummary,
@@ -154,7 +155,7 @@ export function CallsPage() {
 
   return (
     <main className="page-shell calls-page" id="main-content">
-      <SurfaceHeader title="Calls" description="Start a conversation call or return to a recent session." actions={<div className="calls-page-actions">
+      <SurfaceHeader title="Calls" description="Internet audio and video calls with your workspace conversations." actions={<div className="calls-page-actions">
           <button className="button primary calls-start-action" type="button" onClick={() => {
             setLauncherPreference(true);
             launcherSearchRef.current?.focus();
@@ -180,12 +181,14 @@ export function CallsPage() {
           </button>
         </div>} />
 
-      {!hasSidebarNavigation && <nav className="calls-destination-tabs" aria-label="Calling destinations">
-        <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Conversation calls</Link>
-        <Link to="/app/meetings"><AppIcon name="clock" />Calendar</Link>
-        <Link to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
-        <Link to="/app/artifacts"><AppIcon name="file" />Recordings</Link>
-      </nav>}
+      <div className="calls-navigation">
+        <CallTypeNavigation active="internet" />
+        {!hasSidebarNavigation && <nav className="calls-related-destinations" aria-label="Related calling destinations">
+          <span>Related</span>
+          <Link to="/app/meetings"><AppIcon name="clock" />Calendar</Link>
+          <Link to="/app/artifacts"><AppIcon name="file" />Recordings</Link>
+        </nav>}
+      </div>
 
       <div className="calls-workspace">
         <button

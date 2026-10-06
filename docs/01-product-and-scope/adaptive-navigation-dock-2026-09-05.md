@@ -17,3 +17,11 @@ Desktop K-Comms uses a transparent 48px floating navigation dock with 44px contr
 ## Validation
 
 Rendered acceptance covers compact/hidden/expanded geometry, idle hiding during ordinary workspace activity, intentional edge reveal, keyboard recovery, open-menu and pin protection, no workspace reflow, and the phone/tablet/desktop reference UI matrix in both themes.
+
+## Member destinations
+
+The desktop rail opens Inbox, Calls, Meetings, Content, Files and Directory. Content brings together files, shared documents, whiteboards, recordings and saved messages, and offers workspace search with content-type and conversation filters. Search results open their authorized source. The content sidebar keeps those five tools together while existing links to individual tools remain valid, including conversation and document deep links.
+
+Calls includes Internet calls and Phone destinations. Meetings links to connected calendars in You, where calendar connections have their own settings section. Phone setup and calendar setup retain their existing permission checks.
+
+On mobile, the five primary destinations remain Inbox, Calls, Directory, Files and You. Open You, then Content, to browse the content library; existing secondary shortcuts are also available. Workspace administration and service operations remain visible only to authorized roles. Keyboard navigation, route-heading focus and browser history apply to these destinations as they do to the rest of the workspace.

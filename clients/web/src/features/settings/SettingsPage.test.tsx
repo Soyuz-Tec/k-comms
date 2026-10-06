@@ -1,10 +1,11 @@
-import { render as renderView, screen, waitFor } from "@testing-library/react";
+import { render as renderView, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../types";
 import type { SessionUpdate } from "../../app/session";
+import { StepUpProvider } from "../../app/step-up";
 import { workspaceFixture } from "../member-workspace/memberWorkspace.testSupport";
 import { SettingsPage } from "./SettingsPage";
 import * as profilePreferences from "./EnterpriseProfileSettings";
@@ -42,7 +43,8 @@ const harness = vi.hoisted(() => {
       updateNotificationPreference: vi.fn(),
       revokeDevice: vi.fn(),
       revokeSession: vi.fn(),
-      updateProfile: vi.fn()
+      updateProfile: vi.fn(),
+      calendarConnections: vi.fn()
     },
     pwa: {
       installMode: "unavailable" as
@@ -73,7 +75,7 @@ vi.mock("../../pwa/PwaProvider", () => ({
 }));
 
 function render(ui: ReactNode, path = "/app/you") {
-  return renderView(ui, { wrapper: ({ children }) => <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter> });
+  return renderView(ui, { wrapper: ({ children }) => <MemoryRouter initialEntries={[path]}><StepUpProvider>{children}</StepUpProvider></MemoryRouter> });
 }
 
 function LocationProbe() {
@@ -115,6 +117,10 @@ describe("profile settings", () => {
       ...harness.initialSession.user,
       display_name: "Updated Name"
     });
+    harness.api.calendarConnections.mockResolvedValue({ data: [], meta: {
+      mode: "one_way_hosted_occurrences", policy: { export_allowed: true, version: 7 },
+      providers: [{ provider: "google", configured: false, qualified: false }, { provider: "microsoft", configured: false, qualified: false }]
+    } });
     harness.pwa.installMode = "unavailable";
     harness.pwa.requestInstall.mockResolvedValue("accepted");
   });
@@ -501,6 +507,56 @@ describe("profile settings", () => {
     expect(screen.getByLabelText("Current URL")).toHaveTextContent("section=notifications&source=account");
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("tab", { name: "Security" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens the calendar OAuth return directly in personal settings with scheduling access", async () => {
+    render(<><SettingsPage /><LocationProbe /></>, "/app/you?section=calendar&calendar_result=connected&source=oauth");
+
+    expect(screen.getByText("Personal settings")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Connected calendars" })).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("tabpanel", { name: "Connected calendars" });
+    expect(within(panel).getByRole("heading", { name: "Connected calendars" })).toBeVisible();
+    expect(within(panel).getByRole("link", { name: "Meetings & scheduling" })).toHaveAttribute("href", "/app/meetings");
+    expect(await within(panel).findByRole("heading", { name: "Google Calendar" })).toBeVisible();
+    expect(within(panel).getByText(/Existing external events are never imported/)).toBeVisible();
+    expect(panel.querySelector("details")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Current URL")).toHaveTextContent("section=calendar&calendar_result=connected&source=oauth");
+    expect(harness.api.calendarConnections).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads calendar connections only when selected and preserves callback query values across settings", async () => {
+    const user = userEvent.setup();
+    render(<><SettingsPage /><LocationProbe /></>, "/app/you?section=profile&calendar_result=rejected");
+    expect(harness.api.calendarConnections).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("tab", { name: "Connected calendars" }));
+    expect(await screen.findByRole("heading", { name: "Google Calendar" })).toBeVisible();
+    expect(screen.getByLabelText("Current URL")).toHaveTextContent("section=calendar&calendar_result=rejected");
+    await user.click(screen.getByRole("tab", { name: "Profile" }));
+    expect(screen.queryByRole("heading", { name: "Connected calendars" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("tab", { name: "Connected calendars" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Google Calendar" })).toBeVisible();
+  });
+
+  it.each([
+    { name: "a limited account", accessScope: "conversation_only" as const, exportAllowed: true },
+    { name: "disabled workspace export policy", accessScope: "workspace" as const, exportAllowed: false }
+  ])("preserves calendar cleanup for $name while disabling new connections", async ({ accessScope, exportAllowed }) => {
+    harness.currentSession = { ...harness.initialSession, user: {
+      ...harness.initialSession.user, account_type: "human", access_scope: accessScope
+    } };
+    harness.api.calendarConnections.mockResolvedValue({
+      data: [{ id: "connection-1", provider: "google", version: 3, status: "reauthorization_required", managed_events_pending_removal: 1 }],
+      meta: { mode: "one_way_hosted_occurrences", policy: { export_allowed: exportAllowed, version: 7 },
+        providers: [{ provider: "google", configured: true, qualified: true }, { provider: "microsoft", configured: true, qualified: true }]
+      }
+    });
+    render(<SettingsPage />, "/app/you?section=calendar");
+
+    expect(await screen.findByRole("button", { name: "Authorize the same account for cleanup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Connect Microsoft" })).toBeDisabled();
   });
 
   it("keeps workspace and account tools available outside Profile", async () => {

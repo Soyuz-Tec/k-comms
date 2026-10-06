@@ -164,7 +164,7 @@ export function FilesPage() {
 
   return (
     <main className="page-shell files-page" id="main-content">
-      <SurfaceHeader title="Files" className="files-page-heading" actions={<div className="files-heading-actions">
+      <SurfaceHeader title="Files" back={{ to: "/app/content", label: "Content" }} className="files-page-heading" actions={<div className="files-heading-actions">
           <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
             <AppIcon name="paperclip" />Share a file
           </button>

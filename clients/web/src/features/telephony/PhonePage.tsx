@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
 import { SurfaceHeader } from "../../components/SurfaceHeader";
+import { CallTypeNavigation } from "../calls/CallTypeNavigation";
 import { useSession } from "../../app/session";
 import { errorText, formatDateTime } from "../../lib/format";
 import { useTelephony } from "./TelephonyProvider";
@@ -57,7 +58,8 @@ export function PhonePage() {
   const currentActive = Boolean(phone.currentCall && phoneCallIsActive(phone.currentCall));
   const visibleCalls = calls.filter((call) => filter === "all" || (call.direction === "inbound" && ["no_answer", "busy"].includes(call.status)));
   return <main className="page-shell phone-page" id="main-content">
-    <SurfaceHeader title="Phone" description="Dial a number, review calls, and manage your voicemail." actions={<Link className="button ghost" to="/app/calls">Conversation calls</Link>} />
+    <SurfaceHeader title="Phone" description="Dial a phone number, review calls, and manage your voicemail." />
+    <CallTypeNavigation active="phone" />
     {phone.loading ? <p role="status">Checking phone availability…</p> : !configured && <section className="phone-setup-note" aria-label="Phone setup">
       <div><h2>{advice.title}</h2><p>{setupNext}</p><small>Your personal call history remains available below.</small></div>
       {phone.configuration?.can_manage ? <Link className="button ghost" to="/admin?section=phone">Review phone setup</Link> : <button className="button ghost" type="button" onClick={() => void phone.refresh()}>Refresh phone availability</button>}

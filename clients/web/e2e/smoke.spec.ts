@@ -73,7 +73,7 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
    */
   const onPhone = await page.getByRole("navigation", { name: "Primary navigation" }).isVisible();
   if (onPhone) {
-    const workspaceTools = page.getByRole("navigation", { name: "Administration and operations", exact: true });
+    const workspaceTools = page.getByRole("navigation", { name: "Workspace administration", exact: true });
     await expect(workspaceTools).toBeVisible();
     await workspaceTools
       .getByRole("link", { name: "Workspace administration", exact: true })

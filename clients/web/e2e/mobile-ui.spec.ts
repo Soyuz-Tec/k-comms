@@ -197,7 +197,7 @@ test.describe("authenticated mobile web acceptance", () => {
       const workspaceTools = page.getByRole("navigation", { name: "Workspace" });
       await expect(workspaceTools.getByRole("link", { name: "Whiteboard" })).toBeVisible();
       await expect(workspaceTools.getByRole("button", { name: "Start instant room" })).toBeVisible();
-      const administrationTools = page.getByRole("navigation", { name: "Administration and operations" });
+      const administrationTools = page.getByRole("navigation", { name: /^(Workspace administration|Service operations)$/ });
       await expect(administrationTools.getByRole("link", { name: "Workspace administration" })).toBeVisible();
       await expect(administrationTools.getByRole("link", { name: "Service operations" })).toBeVisible();
       await expectMinimumTargets(administrationTools.locator("a"), "administration tools");
@@ -221,13 +221,13 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectNoDocumentOverflow(page);
 
       await page.getByRole("tab", { name: "Profile" }).click();
-      await page.getByRole("navigation", { name: "Administration and operations" }).getByRole("link", { name: "Workspace administration" }).click();
+      await page.getByRole("navigation", { name: "Workspace administration", exact: true }).getByRole("link", { name: "Workspace administration", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Workspace", level: 1, exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
-      await page.getByRole("navigation", { name: "Administration and operations" }).getByRole("link", { name: "Service operations" }).click();
+      await page.getByRole("navigation", { name: "Service operations", exact: true }).getByRole("link", { name: "Service operations", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);

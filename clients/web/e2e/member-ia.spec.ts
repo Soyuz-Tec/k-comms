@@ -70,7 +70,7 @@ test.describe("low-click member information architecture", () => {
           expect(tabColumnCount).toBe(2);
           const [profileBox, toolsBox] = await Promise.all([
             page.locator("#profile-settings").boundingBox(),
-            page.getByRole("navigation", { name: "Administration and operations" }).boundingBox()
+            page.getByRole("navigation", { name: "Workspace administration", exact: true }).boundingBox()
           ]);
           expect(profileBox).not.toBeNull();
           expect(toolsBox).not.toBeNull();
@@ -682,8 +682,10 @@ async function openYouScreen(page: Page, count: () => void) {
     page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }),
     count
   );
-  const workspaceTools = page.getByRole("navigation", { name: "Administration and operations" });
-  await expect(workspaceTools).toBeVisible();
+  const workspaceTools = page.getByRole("navigation", { name: /^(Workspace administration|Service operations)$/ });
+  await expect(workspaceTools).toHaveCount(2);
+  await expect(workspaceTools.first()).toBeVisible();
+  await expect(workspaceTools.last()).toBeVisible();
   return workspaceTools;
 }
 

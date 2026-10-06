@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
@@ -25,11 +25,12 @@ import {
 } from "../../pwa/PwaInstallHelpDialog";
 import { AccountSetupGuide } from "../member-workspace/SetupGuide";
 import { announceMemberWorkspaceChange } from "../member-workspace/useMemberWorkspace";
+import { CalendarConnectionsPanel } from "../calendar-sync/CalendarConnectionsPanel";
 import "./settings.css";
 const AudioVideoSettings = lazy(() => import("./AudioVideoSettings").then((module) => ({ default: module.AudioVideoSettings })));
-type SettingsSection = "profile" | "security" | "notifications" | "audio-video" | "accessibility";
+type SettingsSection = "profile" | "security" | "notifications" | "audio-video" | "accessibility" | "calendar";
 
-const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "audio-video", "accessibility"];
+const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "audio-video", "accessibility", "calendar"];
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -322,7 +323,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
   return (
     <main className="page-shell settings-page" id="main-content">
-      <SurfaceHeader title="You" description="Manage your profile and preferences." className="settings-page-heading" />
+      <SurfaceHeader title="You" eyebrow="Personal settings" description="Manage your profile, connected calendars and preferences." className="settings-page-heading" />
       <nav className="settings-section-tabs" aria-label="Profile and settings sections" role="tablist">
         {settingsSections.map((value) => (
           <button
@@ -341,14 +342,14 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
               }
             }}
           >
-            <AppIcon name={value === "profile" ? "user" : value === "security" ? "lock" : value === "notifications" ? "bell" : value === "audio-video" ? "video" : "sliders"} />
+            <AppIcon name={value === "profile" ? "user" : value === "security" ? "lock" : value === "notifications" ? "bell" : value === "audio-video" ? "video" : value === "calendar" ? "clock" : "sliders"} />
             {value === "profile"
               ? "Profile"
               : value === "security"
                 ? "Security"
                 : value === "notifications"
                   ? "Notifications"
-                  : value === "audio-video" ? "Audio & video" : "Accessibility"}
+                  : value === "audio-video" ? "Audio & video" : value === "calendar" ? "Connected calendars" : "Accessibility"}
           </button>
         ))}
       </nav>
@@ -497,6 +498,12 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
           <CallControlPreferences />
         </section>
       )}
+      {section === "calendar" && <section id="settings-calendar-panel" role="tabpanel" aria-labelledby="settings-calendar-tab">
+        <div className="settings-calendar-actions">
+          <Link className="button ghost compact" to="/app/meetings"><AppIcon name="clock" />Meetings &amp; scheduling</Link>
+        </div>
+        <CalendarConnectionsPanel collapsible={false} />
+      </section>}
       {roleTools}
     </main>
   );

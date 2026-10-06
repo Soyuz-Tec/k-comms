@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallSummary, Conversation, User } from "../../types";
 import { CallsPage } from "./CallsPage";
@@ -199,11 +199,15 @@ describe("CallsPage", () => {
 
     await screen.findByText("No active call rooms");
     expect(document.querySelector(".calls-new-call-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("navigation", { name: "Calling destinations" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Conversation calls" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/app/meetings");
-    expect(screen.getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
-    expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+    const callTypes = screen.getByRole("navigation", { name: "Call types" });
+    expect(callTypes).toBeVisible();
+    expect(within(callTypes).getByRole("link", { name: "Internet calls" })).toHaveAttribute("aria-current", "page");
+    expect(within(callTypes).getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+    expect(within(callTypes).getAllByRole("link")).toHaveLength(2);
+    const related = screen.getByRole("navigation", { name: "Related calling destinations" });
+    expect(within(related).getByText("Related")).toBeVisible();
+    expect(within(related).getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/app/meetings");
+    expect(within(related).getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
     fireEvent.click(screen.getByRole("button", { name: "Start call" }));
     expect(screen.getByRole("searchbox", { name: "Find a conversation to call" })).toHaveFocus();
     const hideLauncher = screen.getByText("Hide call launcher").closest("button");
@@ -216,17 +220,37 @@ describe("CallsPage", () => {
     );
   });
 
-  it("uses sidebar destinations when present and restores page navigation when unavailable", async () => {
+  it("keeps call types visible with a sidebar and restores related destinations without one", async () => {
     harness.hasSidebarNavigation = true;
     const view = render(<MemoryRouter><CallsPage /></MemoryRouter>);
     await screen.findByText("Active room");
-    expect(screen.queryByRole("navigation", { name: "Calling destinations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Call types" })).toBeVisible();
+    expect(screen.queryByRole("navigation", { name: "Related calling destinations" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Browse directory" })).toHaveAttribute("href", "/app/directory");
 
     harness.hasSidebarNavigation = false;
     view.rerender(<MemoryRouter><CallsPage /></MemoryRouter>);
-    expect(screen.getByRole("navigation", { name: "Calling destinations" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Call types" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Related calling destinations" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+  });
+
+  it("opens the member Phone page without launching an internet call", async () => {
+    harness.hasSidebarNavigation = true;
+    render(<MemoryRouter initialEntries={["/app/calls"]}>
+      <Routes>
+        <Route path="/app/calls" element={<CallsPage />} />
+        <Route path="/app/calls/phone" element={<h1>Member phone destination</h1>} />
+      </Routes>
+    </MemoryRouter>);
+    await screen.findByText("Active room");
+
+    const phoneLink = within(screen.getByRole("navigation", { name: "Call types" })).getByRole("link", { name: "Phone" });
+    expect(phoneLink).not.toHaveAttribute("aria-current");
+    await userEvent.setup().click(phoneLink);
+
+    expect(screen.getByRole("heading", { name: "Member phone destination" })).toBeVisible();
+    expect(harness.launchCall).not.toHaveBeenCalled();
   });
 
   it("keeps starter attribution when a different member ended the room", async () => {
@@ -314,6 +338,7 @@ describe("CallsPage", () => {
     expect(screen.getByRole("button", {
       name: "Join video call for Execution room (unavailable)"
     })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
   });
 
   it("explains runtime-unavailable calling and disables the affected history action", async () => {

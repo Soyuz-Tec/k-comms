@@ -181,7 +181,11 @@ export function MeetingsPage() {
   }
 
   return <main className="meetings-page member-page" id="main-content">
-    <SurfaceHeader title="Meetings" description="See what is next and schedule time with your conversations." actions={<button className="button primary" type="button" disabled={workspaceLoading || activeConversations.length === 0} onClick={() => { setEditor("new"); setActionError(null); }}>Schedule meeting</button>} />
+    <SurfaceHeader title="Meetings" description="See what is next and schedule time with your conversations." actions={<>
+      <Link className="button ghost" to="/app/artifacts">Recordings</Link>
+      <Link className="button ghost" to="/app/you?section=calendar">Connected calendars</Link>
+      <button className="button primary" type="button" disabled={workspaceLoading || activeConversations.length === 0} onClick={() => { setEditor("new"); setActionError(null); }}>Schedule meeting</button>
+    </>} />
     {!workspaceLoading && activeConversations.length === 0 && <p role="note">Create or join a conversation in <Link to="/app/">Inbox</Link> to schedule a meeting.</p>}
     <div className="meetings-toolbar">
       <label className="field">Month<input type="month" value={month} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setMonth(event.target.value); setSelectedDay(null); } }} /></label>

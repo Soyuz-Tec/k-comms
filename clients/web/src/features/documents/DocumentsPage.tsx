@@ -72,7 +72,7 @@ function DocumentsForIdentity() {
   }, []);
   if (loading) return <main id="main-content" className="centered-page" aria-busy="true"><p>Opening documents…</p></main>;
   return <main className="page-shell documents-page" id="main-content">
-    <SurfaceHeader title="Shared documents" description="Write notes and plans together with your conversation members." className="documents-heading" actions={
+    <SurfaceHeader title="Shared documents" back={{ to: "/app/content", label: "Content" }} description="Write notes and plans together with your conversation members." className="documents-heading" actions={
       <label className="field">Conversation<select value={conversation?.id || ""} onChange={event => setParams({ conversation: event.target.value })}>
         {!conversation && <option value="">Choose a conversation</option>}
         {conversations.map(value => <option key={value.id} value={value.id}>{value.title || "Untitled conversation"}</option>)}

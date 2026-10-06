@@ -12,7 +12,6 @@ import {
 import { useOptionalCallSession } from "../calls/CallSessionProvider";
 import { beginNewInstantRoomVisit } from "../instant-room/idempotency";
 import { clearMemberInstantRoomContinuity } from "../instant-room/memberContinuity";
-import { CalendarConnectionsPanel } from "../calendar-sync/CalendarConnectionsPanel";
 import { SettingsPage } from "../settings/SettingsPage";
 
 export function YouPage() {
@@ -58,14 +57,18 @@ export function YouPage() {
                 </button>
               </div>
             </nav>}
-            <CalendarConnectionsPanel />
-            {(showAdmin || showOperations) && <nav className="you-role-shortcuts you-administration-shortcuts" aria-label="Administration and operations">
-              <h2>Administration and operations</h2>
+            {showAdmin && <nav className="you-role-shortcuts you-administration-shortcuts" aria-label="Workspace administration">
+              <h2>Workspace administration</h2>
               <div className="you-role-card-grid">
                 {showPeople && <Link to="/admin?section=people"><AppIcon name="userPlus" /><span>People &amp; invitations</span><AppIcon name="arrowUpRight" /></Link>}
                 {showSafety && <Link to="/admin?section=safety"><AppIcon name="flag" /><span>Safety review</span><AppIcon name="arrowUpRight" /></Link>}
-                {showAdmin && <Link to="/admin"><AppIcon name="settings" /><span>Workspace administration</span><AppIcon name="arrowUpRight" /></Link>}
-                {showOperations && <Link to="/ops"><AppIcon name="activity" /><span>Service operations</span><AppIcon name="arrowUpRight" /></Link>}
+                <Link to="/admin"><AppIcon name="settings" /><span>Workspace administration</span><AppIcon name="arrowUpRight" /></Link>
+              </div>
+            </nav>}
+            {showOperations && <nav className="you-role-shortcuts you-operations-shortcuts" aria-label="Service operations">
+              <h2>Service operations</h2>
+              <div className="you-role-card-grid">
+                <Link to="/ops"><AppIcon name="activity" /><span>Service operations</span><AppIcon name="arrowUpRight" /></Link>
               </div>
             </nav>}
             <section className="you-account-actions" aria-label="Signed-in account">

@@ -53,6 +53,7 @@ test("default desktop navigation reserves space and account settings opens the s
   const navigation = page.getByRole("navigation", { name: "Workspace shortcuts" });
   await expect(navigation.getByRole("link", { name: "Open Inbox", exact: true })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "Open Files", exact: true })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Open Content", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Workspace tools", exact: true }).getByRole("link", { name: "Saved items", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Toggle workspace navigation", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();

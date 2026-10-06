@@ -16,9 +16,9 @@ interface Shortcut {
 
 const shortcuts: Shortcut[] = [
   { label: "Inbox", path: "/app/", icon: "messages", exact: true },
-  { label: "Calls", path: "/app/calls", icon: "phone", exact: true },
+  { label: "Calls", path: "/app/calls", icon: "phone" },
   { label: "Meetings", path: "/app/meetings", icon: "clock" },
-  { label: "Shared documents", path: "/app/documents", icon: "file" },
+  { label: "Content", path: "/app/content", icon: "file" },
   { label: "Files", path: "/app/files", icon: "paperclip" },
   { label: "Directory", path: "/app/directory", icon: "contact" }
 ];
@@ -49,13 +49,14 @@ export function DesktopActivityRail({ user, accountMenu }: { user: User; account
   function current(shortcut: Pick<Shortcut, "path" | "exact">) {
     const pathname = location.pathname.replace(/\/+$/, "");
     const path = shortcut.path.replace(/\/+$/, "");
+    if (path === "/app/content") return ["/app/content", "/app/documents", "/app/whiteboard", "/app/artifacts", "/app/saved"].includes(pathname);
     return pathname === path || (!shortcut.exact && pathname.startsWith(`${path}/`));
   }
 
   function shortcutLink(shortcut: Shortcut) {
     const selected = current(shortcut);
-    // Reopening the current document area must retain its conversation/document.
-    const to = selected && shortcut.path === "/app/documents"
+    // Reopening the hub retains its query; its library pages have sidebar links.
+    const to = selected && location.pathname === shortcut.path
       ? { pathname: location.pathname, search: location.search, hash: location.hash }
       : shortcut.path;
     return <Link key={shortcut.path} className="desktop-activity-link" to={to}
