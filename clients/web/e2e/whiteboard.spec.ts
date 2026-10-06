@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
@@ -50,6 +51,8 @@ async function mockWhiteboardWorkspace(page: Page) {
   };
   const operations: unknown[] = [];
   const writes: Array<{ kind: string; base_sequence?: number; payload: { elements?: unknown[] } }> = [];
+  const rawWrites: Array<{ idempotencyKey: string; body: typeof writes[number] }> = [];
+  const acknowledged = new Map<string, { body: typeof writes[number]; operation: unknown }>();
   let writesUnavailable = false;
   const sentMessages: Array<Record<string, unknown>> = [];
 
@@ -156,15 +159,30 @@ async function mockWhiteboardWorkspace(page: Page) {
       }
 
       const request = route.request();
-      if (writesUnavailable) {
-        await route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Temporarily offline" } } });
-        return;
-      }
       const body = request.postDataJSON() as {
         kind: "scene.update" | "board.clear";
         base_sequence?: number;
         payload: { elements?: unknown[] };
       };
+      const idempotencyKey = request.headers()["idempotency-key"];
+      expect(idempotencyKey).toBeTruthy();
+      rawWrites.push({ idempotencyKey, body });
+      if (writesUnavailable) {
+        await route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Temporarily offline" } } });
+        return;
+      }
+      // Recovery can replay an acknowledged ID before IndexedDB cleanup finishes.
+      // Match the server's tenant/device/conversation scope; count logical writes.
+      const key = JSON.stringify([session.tenant.id, session.device.id, conversationId, idempotencyKey]);
+      const previous = acknowledged.get(key);
+      if (previous) {
+        if (previous.body.kind !== body.kind || !isDeepStrictEqual(previous.body.payload, body.payload)) {
+          await route.fulfill({ status: 409, json: { error: { code: "idempotency_conflict", message: "Idempotency key reused with different content" } } });
+          return;
+        }
+        await route.fulfill({ status: 200, json: { data: previous.operation } });
+        return;
+      }
       writes.push(body);
       const operation = {
         id: crypto.randomUUID(),
@@ -179,11 +197,12 @@ async function mockWhiteboardWorkspace(page: Page) {
         inserted_at: new Date().toISOString()
       };
       operations.push(operation);
+      acknowledged.set(key, { body, operation });
       await route.fulfill({ status: 201, json: { data: operation } });
     }
   );
 
-  return { operations, sentMessages, writes, setWritesUnavailable: (value: boolean) => { writesUnavailable = value; } };
+  return { operations, sentMessages, writes, rawWrites, setWritesUnavailable: (value: boolean) => { writesUnavailable = value; } };
 }
 
 test("conversation whiteboard renders a usable white-labeled drawing workspace", async ({
