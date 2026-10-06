@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "../../app/session";
 import { errorText } from "../../lib/format";
+import { InvalidAvailabilityResponse, readAvailability } from "./availabilityResponse";
 import type { Availability, UpdateAvailability } from "../../types/enterpriseIdentity";
 
 const changedEvent = "k-comms:availability-changed";
@@ -44,7 +45,7 @@ export function useAvailability() {
       return;
     }
     try {
-      const data = await api.availability();
+      const data = readAvailability(await api.availability());
       if (serial === request.current && generation === identity.current.serial) {
         setDenied(false);
         setState({ generation, data, loading: false, busy: false, error: "" });
@@ -108,9 +109,9 @@ export function useAvailability() {
     try {
       // Quick status changes preserve the latest saved weekly policy, including
       // changes made in a different session since this menu was opened.
-      const update = typeof input === "function" ? input(await api.availability()) : input;
+      const update = typeof input === "function" ? input(readAvailability(await api.availability())) : input;
       if (!valid()) return null;
-      const data = await api.updateAvailability(update);
+      const data = readAvailability(await api.updateAvailability(update));
       if (!valid()) return null;
       setDenied(false);
       setState({ generation, data, loading: false, busy: false, error: "" });
@@ -120,7 +121,7 @@ export function useAvailability() {
       if (valid()) {
         const denied = accessDenied(reason);
         setDenied(denied);
-        setState((previous) => ({ ...previous, data: denied ? null : previous.data, busy: false, error: errorText(reason) }));
+        setState((previous) => ({ ...previous, data: denied || reason instanceof InvalidAvailabilityResponse ? null : previous.data, busy: false, error: errorText(reason) }));
       }
       return null;
     } finally {

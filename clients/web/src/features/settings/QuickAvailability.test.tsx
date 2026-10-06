@@ -160,3 +160,113 @@ describe("quick persistent availability", () => {
     expect(mocks.api.updateAvailability).not.toHaveBeenCalled();
   });
 });
+
+
+describe("availability response verification", () => {
+  const invalidResponses: [string, unknown][] = [
+    ["the unwrapped data array", []],
+    ["null data", null],
+    ["a missing weekly schedule", { ...available, dnd_schedule: undefined }],
+    ["a null weekly schedule", { ...available, dnd_schedule: null }],
+    ["an array instead of a schedule", { ...available, dnd_schedule: [] }],
+    ["non-array schedule days", { ...available, dnd_schedule: { ...schedule, days: "weekdays" } }],
+    ["duplicate schedule days", { ...available, dnd_schedule: { ...schedule, days: [1, 1] } }],
+    ["a schedule outside the clock range", { ...available, dnd_schedule: { ...schedule, start: "24:00" } }],
+    ["a partial weekly schedule", { ...available, dnd_schedule: { days: [1] } }],
+    ["an unknown current status", { ...available, status: "ready" }],
+    ["a non-boolean DND policy", { ...available, dnd_active: "false" }],
+    ["an invalid expiry", { ...available, presence_expires_at: "later" }],
+    ["an impossible calendar date", { ...available, presence_expires_at: "2026-02-30T12:00:00Z" }],
+    ["an expiry at hour 24", { ...available, retry_at: "2026-10-07T24:00:00Z" }],
+    ["a missing timezone", { ...available, timezone: undefined }]
+  ];
+
+  it.each(invalidResponses)("shows a recoverable error for %s without claiming a status", async (_name, response) => {
+    // A successful HTTP { data: [] } is unwrapped to [] by the API domain.
+    mocks.api.availability.mockResolvedValueOnce(response);
+    render(view());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Availability could not be verified");
+    expect(screen.queryByRole("combobox", { name: "Set status" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready to connect")).not.toBeInTheDocument();
+    expect(mocks.api.updateAvailability).not.toHaveBeenCalled();
+    mocks.api.availability.mockResolvedValue({ ...available, status: "dnd", presence_state: "dnd", dnd_active: true, dnd_schedule: schedule });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Retry availability" }));
+    expect(await screen.findByRole("combobox", { name: "Set status" })).toHaveValue("dnd");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/Your weekly schedule still applies/)).toBeVisible();
+  });
+
+  it("clears retained status when a background response cannot verify it", async () => {
+    render(view());
+    await screen.findByRole("combobox", { name: "Set status" });
+    mocks.api.availability.mockResolvedValue([]);
+    fireEvent.focus(window);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Availability could not be verified");
+    expect(screen.queryByRole("combobox", { name: "Set status" })).not.toBeInTheDocument();
+  });
+
+  it("does not overwrite weekly policy after a malformed prerequisite read and supports a valid retry", async () => {
+    const user = userEvent.setup();
+    render(view());
+    await screen.findByRole("combobox", { name: "Set status" });
+    mocks.api.availability.mockResolvedValue({ ...available, dnd_schedule: { days: [1, 2] } });
+    await user.click(screen.getByRole("button", { name: "Pause notifications" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Availability could not be verified");
+    expect(mocks.api.updateAvailability).not.toHaveBeenCalled();
+    expect(screen.queryByRole("combobox", { name: "Set status" })).not.toBeInTheDocument();
+    mocks.api.availability.mockResolvedValue({ ...available, dnd_schedule: schedule });
+    await user.click(screen.getByRole("button", { name: "Retry availability" }));
+    await user.click(await screen.findByRole("button", { name: "Pause notifications" }));
+    expect(await screen.findByText("Do not disturb saved.")).toBeVisible();
+    expect(mocks.api.updateAvailability).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ dnd_schedule: schedule }));
+  });
+
+  it("does not claim success or retain unverifiable status after a malformed save acknowledgement", async () => {
+    const user = userEvent.setup();
+    mocks.api.updateAvailability.mockResolvedValue([]);
+    render(view());
+    await user.click(await screen.findByRole("button", { name: "Pause notifications" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Availability could not be verified");
+    expect(screen.queryByRole("combobox", { name: "Set status" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Do not disturb saved.")).not.toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0);
+    mocks.api.availability.mockResolvedValue({ ...available, status: "dnd", presence_state: "dnd", dnd_active: true });
+    await user.click(screen.getByRole("button", { name: "Retry availability" }));
+    expect(await screen.findByRole("combobox", { name: "Set status" })).toHaveValue("dnd");
+  });
+
+  it("ignores a malformed response from an obsolete session", async () => {
+    let resolveOld!: (value: unknown) => void;
+    mocks.api.availability.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const { rerender } = render(view());
+    mocks.session.access_token = "new-access";
+    mocks.api.availability.mockResolvedValue({ ...available, status: "away", presence_state: "away" });
+    rerender(view());
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Set status" })).toHaveValue("away"));
+    await act(async () => resolveOld([]));
+    expect(screen.getByRole("combobox", { name: "Set status" })).toHaveValue("away");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uses explicitly labelled UTC when a server timezone is unsupported by browser ICU", async () => {
+    const timezone = "America/Coyhaique";
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    const original = Intl.DateTimeFormat;
+    const formatter = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locale, options) {
+      if (options?.timeZone === timezone) throw new RangeError("Unsupported time zone");
+      return new original(locale, options);
+    });
+    try {
+      mocks.api.availability.mockResolvedValue({ ...available, timezone, status: "busy", presence_state: "busy", presence_expires_at: until });
+      render(view());
+      expect(await screen.findByRole("combobox", { name: "Set status" })).toHaveValue("busy");
+      const time = screen.getByText(until);
+      expect(time).toHaveAttribute("datetime", until);
+      expect(time.parentElement).toHaveTextContent(`Until ${until} · UTC`);
+      expect(screen.queryByText(timezone, { exact: false })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      formatter.mockRestore();
+    }
+  });
+});

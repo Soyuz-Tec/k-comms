@@ -30,7 +30,7 @@
 .phone-keypad-help p { margin-top: .5rem; }
 .phone-dialer h2, .phone-history h2, .phone-voicemail h2 { font-family: var(--font-body); font-size: var(--text-base); font-weight: 600; margin-block: 0 .75rem; }
 .phone-history .surface-empty { min-height: 10rem; }
-.phone-history-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, .6fr); gap: .75rem; align-items: end; }
+.phone-history-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; align-items: end; }
 .phone-history-filters > details, .phone-history-filters > .phone-actions { grid-column: 1 / -1; }
 .phone-history-filters summary { cursor: pointer; padding-block: .5rem; font-size: var(--text-sm); }
 .phone-history-date-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .75rem; }

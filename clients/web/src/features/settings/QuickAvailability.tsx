@@ -22,11 +22,22 @@ export function QuickAvailability({ controller, onSettings }: { controller: Avai
   </section>;
 }
 
+function formatDeadline(deadline: string, timezone: string) {
+  try {
+    return { text: new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short", timeZone: timezone }).format(new Date(deadline)), timezone };
+  } catch {
+    // The server may know an IANA zone that an older browser does not support.
+    // Preserve the exact instant and label its fallback timezone explicitly.
+    return { text: new Date(deadline).toISOString(), timezone: "UTC" };
+  }
+}
+
 function QuickAvailabilityForm({ data, busy, save }: { data: Availability; busy: boolean; save: AvailabilityController["save"] }) {
   const [notice, setNotice] = useState("");
   const [duration, setDuration] = useState("60");
   const deadline = data.dnd_active ? data.retry_at : data.presence_expires_at;
   const currentDeadline = deadline && Date.parse(deadline) > Date.now() ? deadline : null;
+  const formattedDeadline = currentDeadline ? formatDeadline(currentDeadline, data.timezone) : null;
   async function change(presence: Availability["presence_state"], clear = false) {
     setNotice("");
     const result = await save((fresh) => ({
@@ -41,7 +52,7 @@ function QuickAvailabilityForm({ data, busy, save }: { data: Availability; busy:
   }
   return <>
     <p className="quick-availability-current"><strong>{availabilityLabels[data.status]}</strong>{currentDeadline
-      ? <span>Until <time dateTime={currentDeadline}>{new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short", timeZone: data.timezone }).format(new Date(currentDeadline))}</time> · {data.timezone}</span>
+      ? <span>Until <time dateTime={currentDeadline}>{formattedDeadline?.text}</time> · {formattedDeadline?.timezone}</span>
       : <span>{data.status === "available" ? "Ready to connect" : "Until you change it"}</span>}</p>
     <div className="quick-availability-fields">
       <label className="field">Set status<select aria-label="Set status" value={data.status} disabled={busy} onChange={(event) => void change(event.currentTarget.value as Availability["presence_state"])}>{Object.entries(availabilityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

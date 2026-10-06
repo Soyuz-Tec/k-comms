@@ -22,7 +22,7 @@ async function workspace(page: Page) {
   }, session);
   await page.route("**/api/v1/**", async route => {
     const url = new URL(route.request().url()); const path = url.pathname; const method = route.request().method();
-    if (method === "GET" && path === "/api/v1/me/workspace") return route.fallback();
+    if (method === "GET" && ["/api/v1/me/workspace", "/api/v1/me/availability"].includes(path)) return route.fallback();
     if (path === "/api/v1/status") return route.fulfill({ json: mockServiceStatus() });
     if (path === "/api/v1/me") return route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_audio_calls: true, allow_video_calls: true, allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } });
     if (path === "/api/v1/users") return route.fulfill({ json: { data: [session.user] } });
