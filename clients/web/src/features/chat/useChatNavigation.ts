@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -62,7 +63,7 @@ export function useChatNavigation({
     return () => query.removeEventListener("change", changed);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previousConversationId = previousMobileConversationRef.current;
     previousMobileConversationRef.current = activeConversation?.id || null;
     if (!isMobile || mobilePane !== "list") return;
@@ -70,33 +71,30 @@ export function useChatNavigation({
     const conversationId =
       mobileListFocusConversationRef.current || previousConversationId;
     if (!conversationId) return;
-    const frame = window.requestAnimationFrame(() => {
+    mobileListFocusConversationRef.current = null;
+    return scheduleNavigationFocus(() => {
       const target = conversationButtonRefs.current.get(conversationId);
       if (!target) return;
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: "nearest" });
-      mobileListFocusConversationRef.current = null;
     });
-    return () => window.cancelAnimationFrame(frame);
   }, [activeConversation?.id, isMobile, mobilePane]);
 
-  useEffect(() => {
-    if (!isMobile || mobilePane !== "messages") return;
-    const frame = window.requestAnimationFrame(() =>
+  useLayoutEffect(() => {
+    if (!isMobile || mobilePane !== "messages" || focusComposerAfterDirectRef.current) return;
+    return scheduleNavigationFocus(() =>
       mobileBackRef.current?.focus({ preventScroll: true })
     );
-    return () => window.cancelAnimationFrame(frame);
   }, [activeConversation?.id, isMobile, mobilePane]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focusComposerAfterDirectRef.current || !activeConversationId) return;
-    const frame = window.requestAnimationFrame(() => {
+    focusComposerAfterDirectRef.current = false;
+    return scheduleNavigationFocus(() => {
       const composer = document.getElementById("message-composer");
       if (!(composer instanceof HTMLTextAreaElement)) return;
       composer.focus({ preventScroll: true });
-      focusComposerAfterDirectRef.current = false;
     });
-    return () => window.cancelAnimationFrame(frame);
   }, [activeConversationId, mobilePane]);
 
   const selectConversation = useCallback(
@@ -128,4 +126,25 @@ export function useChatNavigation({
     selectConversation,
     showConversationList
   };
+}
+
+function scheduleNavigationFocus(focus: () => void): () => void {
+  // Contextual layout effects schedule before generic route orientation. Any
+  // later user interaction owns focus, even before this frame gets CPU time.
+  let frame: number | null = null;
+  const stop = () => {
+    if (frame !== null) window.cancelAnimationFrame(frame);
+    frame = null;
+    document.removeEventListener("focusin", stop, true);
+    document.removeEventListener("keydown", stop, true);
+    document.removeEventListener("pointerdown", stop, true);
+  };
+  document.addEventListener("focusin", stop, true);
+  document.addEventListener("keydown", stop, true);
+  document.addEventListener("pointerdown", stop, true);
+  frame = window.requestAnimationFrame(() => {
+    stop();
+    focus();
+  });
+  return stop;
 }

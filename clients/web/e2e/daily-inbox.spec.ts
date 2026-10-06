@@ -116,6 +116,7 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
       const list = page.getByRole("navigation", { name: "Conversation list", exact: true });
       await list.locator(".conversation-row").filter({ hasText: "General" }).click();
       await page.getByRole("textbox", { name: "Message", exact: true }).fill("Finish the updated project notes");
+      await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Finish the updated project notes");
       if (viewport.name === "mobile") await page.getByRole("button", { name: "Back to conversations", exact: true }).click();
       await expect(list.locator(".conversation-row").filter({ hasText: "General" })).toContainText("Draft: Finish the updated project notes");
       await expect(list.locator(".conversation-row").filter({ hasText: "General" })).not.toContainText("You: Mobile-ready message body");
@@ -124,3 +125,35 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     });
   });
 }
+
+test("pending mobile navigation focus preserves input and its Inbox draft", async ({ page }, info) => {
+  test.skip(!["chromium", "webkit"].includes(info.project.name), "Explicit phone viewport runs once per browser engine");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await triageWorkspace(page);
+  await page.goto("/app/");
+  const list = page.getByRole("navigation", { name: "Conversation list", exact: true });
+  await expect(list).toBeVisible();
+  await page.evaluate(() => {
+    const request = window.requestAnimationFrame.bind(window);
+    const cancel = window.cancelAnimationFrame.bind(window);
+    const frames = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    window.requestAnimationFrame = callback => { frames.set(--id, callback); return id; };
+    window.cancelAnimationFrame = pending => { if (!frames.delete(pending)) cancel(pending); };
+    (window as typeof window & { releaseNavigationFrames: () => void }).releaseNavigationFrames = () => {
+      window.requestAnimationFrame = request;
+      window.cancelAnimationFrame = cancel;
+      for (const [pending, callback] of [...frames]) if (frames.delete(pending)) callback(performance.now());
+    };
+  });
+  await list.locator(".conversation-row").filter({ hasText: "General" }).click();
+  const composer = page.getByRole("textbox", { name: "Message", exact: true });
+  await composer.focus();
+  // Match real input ordering: focus the editor, then let the older navigation
+  // frame run before text arrives. No sleep, retry or pre-typing focus wait.
+  await page.evaluate(() => (window as typeof window & { releaseNavigationFrames: () => void }).releaseNavigationFrames());
+  await page.keyboard.insertText("Draft started before navigation focus settled");
+  await page.getByRole("button", { name: "Back to conversations", exact: true }).click();
+  await expect(list.locator(".conversation-row").filter({ hasText: "General" }))
+    .toContainText("Draft: Draft started before navigation focus settled");
+});
