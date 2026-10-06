@@ -37,7 +37,7 @@ defmodule CommsCore.Accounts.SessionRevocationLockOrderTest do
         end)
 
       assert_receive {:authority_backend, authority_backend}, 5_000
-      {query, blockers} = wait_for_lock(authority_backend)
+      {query, blockers} = wait_for_lock(authority_backend, ~s(FROM "users"), revoker_backend)
       assert String.contains?(query, ~s(FROM "users"))
       assert revoker_backend in blockers
 
@@ -108,7 +108,9 @@ defmodule CommsCore.Accounts.SessionRevocationLockOrderTest do
       # Audit now waits for the retained Tenant. The settings writer must still
       # acquire its actor User KEY SHARE and commit, despite revocation's User
       # fence. FOR UPDATE on that User would create a genuine wait cycle.
-      {query, blockers} = wait_for_lock(revoker_backend)
+      {query, blockers} =
+        wait_for_lock(revoker_backend, ~s(INSERT INTO "audit_events"), settings_backend)
+
       assert String.contains?(query, ~s(INSERT INTO "audit_events"))
       assert settings_backend in blockers
       send(settings_pid, {:release_barrier, settings_release})
@@ -159,7 +161,7 @@ defmodule CommsCore.Accounts.SessionRevocationLockOrderTest do
       end)
 
     assert_receive {:crossed_backend, crossed_backend}, 5_000
-    {query, blockers} = wait_for_lock(crossed_backend)
+    {query, blockers} = wait_for_lock(crossed_backend, ~s(FROM "users"), first_backend)
     assert String.contains?(query, ~s(FROM "users"))
     assert String.contains?(query, ~s(ORDER BY u0."id"))
     assert String.contains?(query, "FOR NO KEY UPDATE")
@@ -226,7 +228,7 @@ defmodule CommsCore.Accounts.SessionRevocationLockOrderTest do
       end)
 
     assert_receive {:revoker_backend, revoker_backend}, 5_000
-    {query, blockers} = wait_for_lock(revoker_backend)
+    {query, blockers} = wait_for_lock(revoker_backend, ~s(FROM "sessions"), holder_backend)
     assert String.contains?(query, ~s(FROM "sessions"))
     assert holder_backend in blockers
     wait_for_expiry(expires_at)
@@ -385,22 +387,39 @@ defmodule CommsCore.Accounts.SessionRevocationLockOrderTest do
       )
   end
 
-  defp wait_for_lock(backend, attempts \\ 300)
-  defp wait_for_lock(_backend, 0), do: flunk("actor did not reach an actual database lock wait")
+  defp wait_for_lock(backend, expected_sql, expected_blocker, attempts \\ 300)
 
-  defp wait_for_lock(backend, attempts) do
-    case unboxed(fn ->
-           Repo.query!(
-             "SELECT query, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock' AND cardinality(pg_blocking_pids(pid)) > 0",
-             [backend]
-           ).rows
-         end) do
-      [[query, blockers]] ->
-        {query, blockers}
+  defp wait_for_lock(_backend, expected_sql, _expected_blocker, 0),
+    do: flunk("actor did not reach the expected database lock wait: #{expected_sql}")
 
-      [] ->
-        Process.sleep(10)
-        wait_for_lock(backend, attempts - 1)
+  defp wait_for_lock(backend, expected_sql, expected_blocker, attempts) do
+    observation =
+      unboxed(fn ->
+        Repo.query!(
+          "SELECT query, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock' AND cardinality(pg_blocking_pids(pid)) > 0",
+          [backend]
+        ).rows
+      end)
+
+    # PostgreSQL samples activity text before reading live wait/blocker state.
+    # A transition into the row lock can still report the preceding set_config
+    # query, so wait for the expected statement and its actual blocker together.
+    # A wrong lock still exhausts the original bounded poll and fails.
+    expected_wait? =
+      case observation do
+        [[query, blockers]] ->
+          String.contains?(query, expected_sql) and expected_blocker in blockers
+
+        [] ->
+          false
+      end
+
+    if expected_wait? do
+      [[query, blockers]] = observation
+      {query, blockers}
+    else
+      Process.sleep(10)
+      wait_for_lock(backend, expected_sql, expected_blocker, attempts - 1)
     end
   end
 

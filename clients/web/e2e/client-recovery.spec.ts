@@ -7,7 +7,7 @@ test("a failed route module keeps the shell usable and reloads only on request",
   await page.route("**/api/v1/files?**", (route) => route.fulfill({ json: {
     data: [], page: { limit: 25, has_more: false, next_cursor: null }
   } }));
-  const failedModule = /\/src\/features\/files\/FilesPage\.tsx(?:\?.*)?$/;
+  const failedModule = /(?:\/src\/features\/files\/FilesPage\.tsx|\/app\/assets\/FilesPage-[A-Za-z0-9_-]+\.js)(?:\?.*)?$/;
   let failures = 0;
   await page.route(failedModule, (route) => { failures += 1; return route.abort(); });
   await page.goto("/app/files");

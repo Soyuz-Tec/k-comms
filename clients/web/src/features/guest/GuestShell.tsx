@@ -52,6 +52,7 @@ import { useGuestMessageViewport } from "./useGuestMessageViewport";
 import { useGuestParticipants } from "./useGuestParticipants";
 import { useGuestRealtime } from "./useGuestRealtime";
 import { useMobileRoomLayout } from "./useMobileRoomLayout";
+import "./GuestAccess.css";
 
 import { useExperienceModeController } from "../experience/ExperienceModeProvider";
 
