@@ -84,3 +84,11 @@ export function validateMeeting(input: MeetingInput): string | null {
   if (!Number.isInteger(input.reminder_minutes) || input.reminder_minutes < 0 || input.reminder_minutes > 10080) return "Reminder must be between 0 and 10080 minutes before the meeting.";
   return null;
 }
+
+/** Include an ongoing meeting up to the supported eight-hour duration. */
+export function upcomingQuery(now = new Date()): MeetingsQuery {
+  return {
+    from: new Date(now.getTime() - 8 * 60 * 60_000).toISOString(),
+    to: new Date(now.getTime() + 90 * 24 * 60 * 60_000).toISOString()
+  };
+}

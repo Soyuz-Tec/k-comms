@@ -126,7 +126,12 @@ defmodule CommsCore.AudioCalls.Lifecycle do
              has_more: boolean(),
              next_cursor: String.t() | nil
            }}
-          | {:error, :forbidden | :invalid_call_scope | :invalid_media_kind | :invalid_cursor}
+          | {:error,
+             :forbidden
+             | :invalid_call_scope
+             | :invalid_media_kind
+             | :invalid_cursor
+             | :invalid_call_history_filters}
   def list_sessions(subject, params \\ %{})
 
   def list_sessions(subject, params), do: SessionListing.list(subject, params)

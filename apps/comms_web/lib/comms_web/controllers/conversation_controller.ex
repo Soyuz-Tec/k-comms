@@ -1,16 +1,38 @@
 defmodule CommsWeb.ConversationController do
   use CommsWeb, :controller
 
-  alias CommsCore.Conversations
+  alias CommsCore.{Conversations, Messaging}
 
-  def index(conn, _params) do
-    data =
-      conn.assigns.current_subject
-      |> Conversations.list_for_user_views()
-      |> Enum.map(&Presenter.conversation/1)
+  def index(conn, params) do
+    subject = conn.assigns.current_subject
+    conversations = Conversations.list_for_user_views(subject)
 
-    json(conn, %{data: data})
+    with {:ok, summaries} <- inbox_summaries(conversations, params, subject) do
+      data =
+        Enum.map(conversations, fn conversation ->
+          presented = Presenter.conversation(conversation)
+
+          if params["include"] == "inbox",
+            do: Map.put(presented, :inbox, Map.get(summaries, conversation.id)),
+            else: presented
+        end)
+
+      json(conn, %{data: data})
+    end
   end
+
+  def favorite(conn, %{"conversation_id" => id, "favorite" => favorite}) do
+    with {:ok, result} <- Conversations.put_favorite(id, favorite, conn.assigns.current_subject) do
+      json(conn, %{data: result})
+    end
+  end
+
+  def favorite(_conn, _params), do: {:error, {:missing_fields, ["favorite"]}}
+
+  defp inbox_summaries(conversations, %{"include" => "inbox"}, subject),
+    do: Messaging.inbox_summaries(Enum.take(conversations, 500) |> Enum.map(& &1.id), subject)
+
+  defp inbox_summaries(_conversations, _params, _subject), do: {:ok, %{}}
 
   def discover_public(conn, params) do
     with {:ok, result} <-

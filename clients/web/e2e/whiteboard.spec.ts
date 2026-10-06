@@ -79,7 +79,7 @@ async function mockWhiteboardWorkspace(page: Page) {
   await page.route("**/api/v1/users", (route) =>
     route.fulfill({ json: { data: [session.user] } })
   );
-  await page.route("**/api/v1/conversations", (route) =>
+  await page.route("**/api/v1/conversations?include=inbox", (route) =>
     route.fulfill({ json: { data: [conversation] } })
   );
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) =>

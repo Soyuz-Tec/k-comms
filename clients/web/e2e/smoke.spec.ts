@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations?include=inbox", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/status", (route) => route.fulfill({ json: mockServiceStatus() }));
   await page.route("**/health/ready", (route) => route.fulfill({ json: { status: "ready" } }));
   await page.route("**/api/v1/admin/tenant", (route) => route.fulfill({ json: { data: tenantAdministration() } }));
@@ -65,7 +65,7 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
       .getByRole("link", { name: "Profile & settings", exact: true })
       .click();
   }
-  await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You", exact: true })).toBeVisible();
   /*
    * Role tools reach the phone from the You screen this test already opened —
    * the overflow drawer that used to carry them was duplicating it. Desktop

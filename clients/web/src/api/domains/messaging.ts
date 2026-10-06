@@ -11,10 +11,17 @@ interface MessagingApiSupport {
 export function createMessagingApi(request: ApiRequest, { resolveSenderLabelBatches }: MessagingApiSupport) {
   const api = {
     conversations(): Promise<Conversation[]> {
-        return request<ListResponse<Conversation>>("/api/v1/conversations").then(
+        return request<ListResponse<Conversation>>("/api/v1/conversations?include=inbox").then(
           (response) => response.data
         );
       },
+
+    setConversationFavorite(id: string, favorite: boolean): Promise<{ conversation_id: string; favorite: boolean }> {
+      return request<DataResponse<{ conversation_id: string; favorite: boolean }>>(
+        `/api/v1/conversations/${encodeURIComponent(id)}/favorite`,
+        { method: "PUT", body: JSON.stringify({ favorite }) }
+      ).then(response => response.data);
+    },
 
     discoverPublicChannels(query = "", limit = 25, cursor?: string | null): Promise<PublicChannelDiscoveryPage> {
         const params = new URLSearchParams({ q: query, limit: String(limit) });

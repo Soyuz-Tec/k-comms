@@ -18,6 +18,7 @@ import { PushNotifications } from "./PushNotifications";
 import { avatarData, EnterpriseProfileSettings } from "./EnterpriseProfileSettings";
 import { EnterpriseSecuritySettings } from "./EnterpriseSecuritySettings";
 import { AvailabilitySettings } from "./AvailabilitySettings";
+import { PersonalAvailability } from "./QuickAvailability";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import {
   PwaInstallHelpDialog,
@@ -324,6 +325,7 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   return (
     <main className="page-shell settings-page" id="main-content">
       <SurfaceHeader title="You" eyebrow="Personal settings" description="Manage your profile, connected calendars and preferences." className="settings-page-heading" />
+      {section === "profile" && typeof api.availability === "function" && <div className="you-quick-availability"><PersonalAvailability /></div>}
       <nav className="settings-section-tabs" aria-label="Profile and settings sections" role="tablist">
         {settingsSections.map((value) => (
           <button

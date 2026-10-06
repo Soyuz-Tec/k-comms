@@ -1,9 +1,10 @@
-import { lazy, Suspense } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { createBrowserRouter, Navigate, Route, RouterProvider, Routes, useLocation } from "react-router";
 import { ProductShell } from "./app/ProductShell";
 import { RouteOrientation } from "./app/RouteOrientation";
 import { RouteRecoveryBoundary } from "./app/RouteRecoveryBoundary";
 import { RouterHistoryProvider } from "./app/router-history";
+import { UnsavedWorkProvider, useWorkAuthority } from "./app/UnsavedWork";
 import { PublicDesktopShell } from "./app/PublicDesktopShell";
 import { DesktopThemeSync } from "./app/DesktopThemeSync";
 import { SessionProvider, useSession } from "./app/session";
@@ -13,7 +14,6 @@ import { authenticationReturnTarget, guestContinuationState, safeMemberReturnTar
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { OidcCallback } from "./features/auth/OidcCallback";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
-import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
 import { validWorkspaceSlug } from "./lib/workspacePreference";
 import "./fonts.css";
@@ -29,6 +29,9 @@ import "./interface-system.css";
  */
 import "./experience-mode.css";
 
+const GuestAccessPage = lazy(() =>
+  import("./features/guest/GuestAccessPage").then(({ GuestAccessPage: page }) => ({ default: page }))
+);
 const AdminPage = lazy(() =>
   import("./features/admin/AdminPage").then(({ AdminPage: page }) => ({ default: page }))
 );
@@ -69,17 +72,26 @@ const OpsPage = lazy(() =>
 const YouPage = lazy(() =>
   import("./features/you/YouPage").then(({ YouPage: page }) => ({ default: page }))
 );
-export default function App() {
-  return (
-    <SessionProvider>
-      <BrowserRouter>
-        <RouterHistoryProvider trackBrowserIndex>
-          <DesktopThemeSync />
-          <RouteRecoveryBoundary><PublicDesktopShell><ApplicationRoutes /></PublicDesktopShell></RouteRecoveryBoundary>
-        </RouterHistoryProvider>
-      </BrowserRouter>
-    </SessionProvider>
-  );
+export function createAppRouter() {
+  return createBrowserRouter([{ path: "*", element: <ApplicationShell /> }]);
+}
+
+export default function App({ router: providedRouter }: { router?: ReturnType<typeof createAppRouter> } = {}) {
+  // A data router supplies supported navigation blocking, including browser POP.
+  // The existing public/member route tree and URLs remain the routing authority.
+  const [router] = useState(() => providedRouter || createAppRouter());
+  useEffect(() => () => { if (!providedRouter) router.dispose(); }, [providedRouter, router]);
+  return <SessionProvider><RouterProvider router={router} /></SessionProvider>;
+}
+
+function ApplicationShell() {
+  const authority = useWorkAuthority();
+  return <UnsavedWorkProvider authority={authority}>
+    <RouterHistoryProvider trackBrowserIndex>
+      <DesktopThemeSync />
+      <RouteRecoveryBoundary><PublicDesktopShell><ApplicationRoutes /></PublicDesktopShell></RouteRecoveryBoundary>
+    </RouterHistoryProvider>
+  </UnsavedWorkProvider>;
 }
 
 function ApplicationRoutes() {
@@ -105,7 +117,7 @@ function ApplicationRoutes() {
       <>
         <RouteOrientation authenticated={false} />
         <Routes>
-          <Route path="/join" element={<GuestAccessPage />} />
+          <Route path="/join" element={<Suspense fallback={<RouteLoading />}><GuestAccessPage /></Suspense>} />
         </Routes>
       </>
     );

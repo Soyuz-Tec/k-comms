@@ -42,7 +42,7 @@ vi.mock("../guest/QrCode", () => ({
   }
 }));
 
-vi.mock("../guest/GuestAccessPage", () => ({
+vi.mock("../guest/GuestShell", () => ({
   GuestShell: ({
     api,
     initialSession,

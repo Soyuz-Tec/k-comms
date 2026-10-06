@@ -75,6 +75,13 @@
             "null"
           ],
           "format": "date-time"
+        },
+        "caller_number": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Other party's caller ID from the voicemail's tenant-bound call. Display data only, never an authenticated identity; null if the call is no longer retained."
         }
       }
     },

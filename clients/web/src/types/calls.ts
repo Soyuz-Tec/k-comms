@@ -81,6 +81,10 @@ export interface CallsPageResponse {
 
 export interface CallsQueryOptions {
   scope?: CallsScope;
+  conversation_id?: string;
+  started_by_user_id?: string;
+  after?: string;
+  before?: string;
   media_kind?: CallMediaKind;
   limit?: number;
   cursor?: string | null;

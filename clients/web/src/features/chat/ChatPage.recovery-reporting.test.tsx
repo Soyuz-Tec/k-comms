@@ -109,7 +109,7 @@ describe("ChatPage durable sequence recovery", () => {
     await user.click(
       within(
         screen.getByRole("navigation", { name: "Conversation list" })
-      ).getByRole("button", { name: /Project Alpha/u })
+      ).getByRole("button", { name: /^Project Alpha/u })
     );
     expect(await screen.findByText("Second-conversation message")).toBeVisible();
 

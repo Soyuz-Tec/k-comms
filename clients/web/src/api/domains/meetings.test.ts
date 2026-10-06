@@ -48,4 +48,11 @@ describe("meetings API", () => {
     await expect(api.startMeeting("meeting/1", "occurrence/1", "video")).resolves.toEqual(response);
     expect(request).toHaveBeenCalledWith("/api/v1/meetings/meeting%2F1/occurrences/occurrence%2F1/start", { method: "POST", body: JSON.stringify({ media_kind: "video" }) });
   });
+  it("retains server truncation evidence for the agenda", async () => {
+    const response = { data: [], meta: { truncated: true } };
+    const request = vi.fn().mockResolvedValue(response);
+    const api = createMeetingsApi(request as ApiRequest);
+    await expect(api.meetingsPage({ from: "2026-10-01T00:00:00Z", to: "2026-12-30T00:00:00Z" })).resolves.toEqual(response);
+  });
+
 });

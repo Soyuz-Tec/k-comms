@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../../app/session";
 import { errorText } from "../../lib/format";
 import type { PhoneCall, PhoneCapabilities, PhoneControlAction, PhoneControlInput, PhoneControlReceipt } from "./types";
+import { normalizePhoneDestination } from "./types";
 
 export function AdvancedPhoneControls({ call, disabled, recoveryDisabled = disabled, sendDtmf, refresh }: {
   call: PhoneCall; disabled: boolean; recoveryDisabled?: boolean; sendDtmf: (digit: string) => Promise<void>; refresh: () => Promise<void>;
@@ -41,13 +42,16 @@ export function AdvancedPhoneControls({ call, disabled, recoveryDisabled = disab
     } finally { setBusy(false); }
   };
   const action = (name: PhoneControlAction, digit?: string) => {
-    void submit({ action: name, digit, ...(name === "blind_transfer" || name === "consult_transfer" ? { destination } : {}), idempotency_key: crypto.randomUUID() });
+    const transfer = name === "blind_transfer" || name === "consult_transfer";
+    const number = normalizePhoneDestination(destination);
+    if (transfer && !number) return;
+    void submit({ action: name, digit, ...(transfer ? { destination: number! } : {}), idempotency_key: crypto.randomUUID() });
   };
   const enabled = (name: PhoneControlAction) => capabilities[name]?.supported === true;
   const state = call.control_state ?? "connected";
   const blocked = disabled || busy || Boolean(pending) || receipts.some(({ status, action }) => action !== "dtmf" && (status === "pending" || status === "dispatching" || status === "unknown"));
   const recoveryBlocked = recoveryDisabled || busy || Boolean(pending) || receipts.some(({ status, action }) => action !== "dtmf" && (status === "pending" || status === "dispatching" || status === "unknown"));
-  const transferValid = /^\+[1-9]\d{7,14}$/.test(destination);
+  const transferValid = normalizePhoneDestination(destination);
   const latest = receipts[0];
   const cancellableUnknown = latest?.action === "consult_transfer" && latest.status === "unknown";
   return <section aria-label="Advanced phone controls">
@@ -64,7 +68,8 @@ export function AdvancedPhoneControls({ call, disabled, recoveryDisabled = disab
     {enabled("resume") && state === "held" && <button type="button" className="button primary" disabled={blocked} onClick={() => action("resume")}>Resume</button>}
     {(enabled("blind_transfer") || enabled("consult_transfer")) && (state === "connected" || state === "held") && <fieldset disabled={blocked}>
       <legend>Transfer</legend>
-      <label>International destination<input value={destination} onChange={(event) => setDestination(event.target.value)} inputMode="tel" placeholder="+14155550100" /></label>
+      <label>International destination<input value={destination} onChange={(event) => setDestination(event.target.value)} inputMode="tel" placeholder="+1 (415) 555-0100" maxLength={40} aria-describedby="phone-transfer-help" /></label>
+      <p id="phone-transfer-help">Include + and the country code. Spaces, parentheses and dashes are accepted.{transferValid && ` Destination: ${transferValid}.`}</p>
       {enabled("blind_transfer") && state === "connected" && <button type="button" className="button ghost" disabled={!transferValid} onClick={() => action("blind_transfer")}>Transfer now</button>}
       {enabled("consult_transfer") && <button type="button" className="button ghost" disabled={!transferValid} onClick={() => action("consult_transfer")}>Consult before transfer</button>}
       <p>Only operator-approved destination prefixes are accepted.</p>

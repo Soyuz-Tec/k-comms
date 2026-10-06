@@ -33,6 +33,7 @@ defmodule CommsWeb.Presenters.Conversations do
     else
       Map.merge(base, %{
         membership_role: conversation.membership_role,
+        favorite: conversation.favorite == true,
         last_read_sequence: conversation.last_read_sequence,
         unread_count: conversation.unread_count
       })

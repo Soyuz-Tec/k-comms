@@ -1,14 +1,15 @@
+import { UnsavedWorkProvider } from "../../app/UnsavedWork";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryRouter, Link, MemoryRouter, Outlet, RouterProvider } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VerificationRequest } from "matrix-js-sdk/lib/crypto-api";
 import { PrivateRoomsPage } from "./PrivateRoomsPage";
 import type { PrivateRoom } from "./types";
 
 const harness = vi.hoisted(() => ({
   api: {
-    directoryUsers: vi.fn(),
+    directoryUsers: vi.fn(), status: vi.fn(),
     privateRoomApi: {
       privateRooms: vi.fn(), privateRoom: vi.fn(), createPrivateRoom: vi.fn(),
       matrixUploadPublicSigningKeys: vi.fn(), removePrivateMember: vi.fn()
@@ -20,7 +21,7 @@ const harness = vi.hoisted(() => ({
     loadEarlier: vi.fn(), send: vi.fn(),
     publicDevice: () => ({ userId: "@ada:example.test", deviceId: "SYNTHETIC" })
   },
-  callbacks: null as null | { verification: (request: VerificationRequest) => void },
+  callbacks: null as null | { verification: (request: VerificationRequest) => void; blocked: (message: string) => void },
   runWithStepUp: (operation: () => Promise<unknown>) => operation()
 }));
 
@@ -46,6 +47,7 @@ function openPage(path = "/app/private") {
   return render(<MemoryRouter initialEntries={[path]}><PrivateRoomsPage /></MemoryRouter>);
 }
 async function unlock(user: ReturnType<typeof userEvent.setup>) {
+  await waitFor(() => expect(screen.getByRole("button", { name: "Unlock encrypted device" })).toBeEnabled());
   await user.type(screen.getByLabelText("Local crypto-store password", { exact: true }), "synthetic-store-password");
   await user.click(screen.getByRole("button", { name: "Unlock encrypted device" }));
   await screen.findByRole("button", { name: "Lock device" });
@@ -53,6 +55,9 @@ async function unlock(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
   vi.clearAllMocks(); harness.callbacks = null;
+  vi.stubGlobal("isSecureContext", true);
+  Object.defineProperty(navigator, "locks", { configurable: true, value: { request: vi.fn() } });
+  harness.api.status.mockResolvedValue({ capabilities: { private_rooms: true } });
   harness.api.directoryUsers.mockResolvedValue({ data: [{ id: "user-2", display_name: "Grace" }] });
   harness.api.privateRoomApi.privateRooms.mockResolvedValue([room]);
   harness.api.privateRoomApi.privateRoom.mockResolvedValue(room);
@@ -64,6 +69,8 @@ beforeEach(() => {
   harness.runtime.prepareRecovery.mockResolvedValue("synthetic-recovery-key");
   harness.runtime.confirmRecoverySaved.mockResolvedValue(undefined);
 });
+
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); Reflect.deleteProperty(navigator, "locks"); });
 
 describe("private room task guidance", () => {
   it("distinguishes loading and failed room inventory from an empty workspace", async () => {
@@ -157,5 +164,132 @@ describe("private room task guidance", () => {
     expect(cancel).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "Verify encryption identity" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lock device" })).toBeVisible();
+  });
+});
+
+
+describe("private draft navigation protection", () => {
+  it("keeps encrypted draft text in memory when a sidebar link is followed", async () => {
+    const user = userEvent.setup();
+    const router = createMemoryRouter([{ element: <UnsavedWorkProvider authority="test"><Link to="/app/content">Content</Link><Outlet /></UnsavedWorkProvider>, children: [
+      { path: "/app/private", element: <PrivateRoomsPage /> },
+      { path: "/app/content", element: <h1>Content destination</h1> }
+    ] }], { initialEntries: ["/app/private?room=room-1"] });
+    render(<RouterProvider router={router} />);
+    await unlock(user);
+    await user.type(await screen.findByLabelText("Encrypted message", { exact: true }), "Unsent private draft");
+    await user.click(screen.getByRole("link", { name: "Content" }));
+    expect(screen.queryByRole("heading", { name: "Content destination" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "Leave unfinished work?" })).toBeVisible();
+  });
+});
+
+
+describe("private room availability and transient work", () => {
+  it.each([false, undefined])("keeps setup disabled for capability %s without unlocking crypto", async capability => {
+    harness.api.status.mockResolvedValue({ capabilities: { private_rooms: capability } });
+    openPage();
+    await screen.findByRole("heading", { name: capability === false ? "Private rooms are not enabled" : "Private room availability could not be confirmed" });
+    expect(screen.getByLabelText("Local crypto-store password", { exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Unlock encrypted device" })).toBeDisabled();
+    expect(harness.runtime.unlock).not.toHaveBeenCalled();
+  });
+  it("rechecks an unavailable capability and inventory before permitting setup", async () => {
+    const user = userEvent.setup();
+    harness.api.status.mockRejectedValueOnce(new Error("Offline"));
+    openPage();
+    await screen.findByRole("heading", { name: "Private room availability could not be confirmed" });
+    await user.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Unlock encrypted device" })).toBeEnabled());
+    expect(harness.api.status).toHaveBeenCalledTimes(2);
+    expect(harness.api.privateRoomApi.privateRooms).toHaveBeenCalledTimes(2);
+    expect(harness.runtime.unlock).not.toHaveBeenCalled();
+  });
+  it("requires HTTPS and Web Locks before asking for a local password", async () => {
+    vi.stubGlobal("isSecureContext", false); openPage();
+    await screen.findByRole("heading", { name: "This browser cannot unlock private rooms" });
+    expect(screen.getByLabelText("Local crypto-store password", { exact: true })).toBeDisabled();
+    expect(harness.runtime.unlock).not.toHaveBeenCalled();
+  });
+  it("keeps drafts during a cancelled lock and clears them only on explicit lock", async () => {
+    const user = userEvent.setup(); openPage("/app/private?room=room-1"); await unlock(user);
+    await user.type(await screen.findByLabelText("Encrypted message", { exact: true }), "Private unsent text");
+    await user.click(screen.getByRole("button", { name: "Lock device" }));
+    expect(screen.getByRole("alertdialog", { name: "Lock and clear unfinished work?" })).toBeVisible();
+    expect(harness.runtime.close).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Stay unlocked" }));
+    expect(screen.getByLabelText("Encrypted message", { exact: true })).toHaveValue("Private unsent text");
+    await user.click(screen.getByRole("button", { name: "Lock device" }));
+    await user.click(screen.getByRole("button", { name: "Lock and clear" }));
+    await waitFor(() => expect(harness.runtime.close).toHaveBeenCalledWith(false));
+    expect(screen.getByLabelText("Encrypted message", { exact: true })).toHaveValue("");
+  });
+  it("clears local draft and recovery material immediately when the crypto authority is withdrawn", async () => {
+    const user = userEvent.setup(); openPage("/app/private?room=room-1"); await unlock(user);
+    await user.type(await screen.findByLabelText("Encrypted message", { exact: true }), "Withdrawn private text");
+    await user.click(screen.getByText("Set up or recover encryption"));
+    await user.click(screen.getByRole("button", { name: "Set up a new identity and recovery key" }));
+    await screen.findByLabelText("Save this recovery key securely", { exact: true });
+    act(() => harness.callbacks!.blocked("Private room access changed"));
+    expect(screen.getByRole("alert")).toHaveTextContent("Private room access changed");
+    expect(screen.queryByLabelText("Save this recovery key securely", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Encrypted message", { exact: true })).toHaveValue("");
+  });
+});
+
+
+describe("private-room data-router selection", () => {
+  it("updates the selected room URL after an authorized internal selection without a leave prompt", async () => {
+    const user = userEvent.setup();
+    const nextRoom = { ...room, id: "room-2", title: "Second private room" };
+    harness.api.privateRoomApi.privateRooms.mockResolvedValue([room, nextRoom]);
+    harness.api.privateRoomApi.privateRoom.mockImplementation(async id => id === "room-2" ? nextRoom : room);
+    const router = createMemoryRouter([{ path: "/app/private", element: <UnsavedWorkProvider authority="test"><PrivateRoomsPage /></UnsavedWorkProvider> }], { initialEntries: ["/app/private"] });
+    render(<RouterProvider router={router} />); await unlock(user);
+    await user.click(screen.getByRole("button", { name: /Sample private room/ }));
+    await waitFor(() => expect(router.state.location.search).toBe("?room=room-1"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Set up or recover encryption"));
+    await user.click(screen.getByRole("button", { name: "Set up a new identity and recovery key" }));
+    await screen.findByLabelText("Save this recovery key securely", { exact: true });
+    await user.click(screen.getByRole("button", { name: /Second private room/ }));
+    await waitFor(() => expect(router.state.location.search).toBe("?room=room-2"));
+    expect(screen.getByRole("heading", { name: "Second private room" })).toBeVisible();
+    expect(screen.getByLabelText("Save this recovery key securely", { exact: true })).toHaveValue("synthetic-recovery-key");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("private-room browser query history", () => {
+  it("keeps selected room and URL aligned on clean history and locks discarded drafts on dirty history", async () => {
+    const user = userEvent.setup();
+    const nextRoom = { ...room, id: "room-2", title: "Second private room" };
+    harness.api.privateRoomApi.privateRooms.mockResolvedValue([room, nextRoom]);
+    harness.api.privateRoomApi.privateRoom.mockImplementation(async id => id === "room-2" ? nextRoom : room);
+    const router = createMemoryRouter([{ path: "/app/private", element: <UnsavedWorkProvider authority="test"><PrivateRoomsPage /></UnsavedWorkProvider> }], { initialEntries: ["/app/private"] });
+    render(<RouterProvider router={router} />); await unlock(user);
+    await user.click(screen.getByRole("button", { name: /Sample private room/ }));
+    await waitFor(() => expect(router.state.location.search).toBe("?room=room-1"));
+    await user.click(screen.getByRole("button", { name: /Second private room/ }));
+    await waitFor(() => expect(router.state.location.search).toBe("?room=room-2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Lock device" })).toBeEnabled());
+    act(() => { void router.navigate(-1); });
+    await screen.findByRole("heading", { name: "Sample private room" });
+    expect(router.state.location.search).toBe("?room=room-1");
+    await user.type(screen.getByLabelText("Encrypted message", { exact: true }), "Discard only with consent");
+    act(() => { void router.navigate(1); });
+    await user.click(screen.getByRole("button", { name: "Stay here" }));
+    expect(router.state.location.search).toBe("?room=room-1");
+    expect(screen.getByLabelText("Encrypted message", { exact: true })).toHaveValue("Discard only with consent");
+    act(() => { void router.navigate(1); });
+    await user.click(screen.getByRole("button", { name: "Leave and discard" }));
+    expect(router.state.location.search).toBe("?room=room-2");
+    await screen.findByRole("button", { name: "Unlock encrypted device" });
+    expect(screen.queryByLabelText("Encrypted message", { exact: true })).not.toBeInTheDocument();
+    expect(harness.runtime.close).toHaveBeenCalledWith(false);
+    await unlock(user);
+    await screen.findByRole("heading", { name: "Second private room" });
+    expect(screen.getByLabelText("Encrypted message", { exact: true })).toHaveValue("");
   });
 });

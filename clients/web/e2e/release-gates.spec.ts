@@ -29,7 +29,7 @@ async function mockWorkspace(page: Page, role: Role, conversations: unknown[] = 
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: conversations } }));
+  await page.route("**/api/v1/conversations?include=inbox", (route) => route.fulfill({ json: { data: conversations } }));
   await page.route("**/api/v1/conversations/*/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/*/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/*/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(session.user.id) } }));
@@ -144,11 +144,11 @@ test("mobile conversation list does not clear unread state until the message pan
   await page.route("**/api/v1/conversations/conversation-1/read-cursor", (route) => { reads += 1; return route.fulfill({ status: 204 }); });
 
   await page.goto("/app/");
-  await expect(page.getByRole("button", { name: /General/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^General/ })).toBeVisible();
   await page.waitForTimeout(750);
   expect(reads).toBe(0);
 
-  await page.getByRole("button", { name: /General/ }).click();
+  await page.getByRole("button", { name: /^General/ }).click();
   await expect.poll(() => reads).toBeGreaterThan(0);
 });
 

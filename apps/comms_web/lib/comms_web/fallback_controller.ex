@@ -371,7 +371,13 @@ defmodule CommsWeb.FallbackController do
        do: {409, Atom.to_string(reason), "This content collection has reached its capacity"}
 
   defp error(reason)
-       when reason in [:invalid_draft, :invalid_board_title, :asset_unavailable],
+       when reason in [
+              :invalid_draft,
+              :invalid_inbox_query,
+              :invalid_favorite,
+              :invalid_board_title,
+              :asset_unavailable
+            ],
        do: {422, Atom.to_string(reason), "Use valid content and an approved available asset"}
 
   defp error(:stale_whiteboard_generation),
@@ -651,6 +657,8 @@ defmodule CommsWeb.FallbackController do
               :invalid_file_scope,
               :invalid_file_category,
               :invalid_call_scope,
+              :invalid_call_history_filters,
+              :invalid_phone_history_filters,
               :invalid_conversation_id,
               :unsupported_content_type,
               :invalid_attachment_size,

@@ -19,12 +19,18 @@ defmodule CommsCore.AudioCalls.SessionListing do
              has_more: boolean(),
              next_cursor: String.t() | nil
            }}
-          | {:error, :forbidden | :invalid_call_scope | :invalid_media_kind | :invalid_cursor}
+          | {:error,
+             :forbidden
+             | :invalid_call_scope
+             | :invalid_media_kind
+             | :invalid_cursor
+             | :invalid_call_history_filters}
   def list(subject, params) when is_map(subject) and is_map(params) do
     with {:ok, grant} <- Accounts.access_grant(subject),
          {:ok, scope} <- call_scope(value(params, :scope)),
          {:ok, media_kind} <- optional_media_kind(value(params, :media_kind)),
-         {:ok, cursor} <- optional_call_cursor(value(params, :cursor)) do
+         {:ok, cursor} <- optional_call_cursor(value(params, :cursor)),
+         {:ok, filters} <- history_filters(params) do
       observed_at = now()
       authorization_query = Conversations.active_membership_authorization_query(grant)
       limit = session_limit(value(params, :limit))
@@ -40,6 +46,7 @@ defmodule CommsCore.AudioCalls.SessionListing do
         )
         |> maybe_filter_call_scope(scope, observed_at)
         |> maybe_filter_media_kind(media_kind)
+        |> filter_history(filters)
         |> maybe_before_call_cursor(cursor)
         |> order_by([call: call], desc: call.started_at, desc: call.id)
         |> limit(^(limit + 1))
@@ -102,6 +109,57 @@ defmodule CommsCore.AudioCalls.SessionListing do
 
   defp maybe_filter_media_kind(query, media_kind),
     do: where(query, [call: call], call.media_kind == ^media_kind)
+
+  defp history_filters(params) do
+    with {:ok, conversation_id} <- optional_uuid(value(params, :conversation_id)),
+         {:ok, started_by_user_id} <- optional_uuid(value(params, :started_by_user_id)),
+         {:ok, after_at} <- optional_instant(value(params, :after)),
+         {:ok, before_at} <- optional_instant(value(params, :before)),
+         true <-
+           is_nil(after_at) or is_nil(before_at) or DateTime.compare(after_at, before_at) == :lt do
+      {:ok,
+       %{
+         conversation_id: conversation_id,
+         started_by_user_id: started_by_user_id,
+         after: after_at,
+         before: before_at
+       }}
+    else
+      _ -> {:error, :invalid_call_history_filters}
+    end
+  end
+
+  defp optional_uuid(value) when value in [nil, ""], do: {:ok, nil}
+  defp optional_uuid(value), do: Ecto.UUID.cast(value)
+  defp optional_instant(value) when value in [nil, ""], do: {:ok, nil}
+
+  defp optional_instant(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, instant, _} -> {:ok, DateTime.truncate(instant, :microsecond)}
+      _ -> :error
+    end
+  end
+
+  defp optional_instant(_), do: :error
+
+  defp filter_history(query, filters) do
+    Enum.reduce(filters, query, fn
+      {_key, nil}, query ->
+        query
+
+      {:conversation_id, id}, query ->
+        where(query, [call: call], call.conversation_id == ^id)
+
+      {:started_by_user_id, id}, query ->
+        where(query, [call: call], call.started_by_user_id == ^id)
+
+      {:after, instant}, query ->
+        where(query, [call: call], call.started_at >= ^instant)
+
+      {:before, instant}, query ->
+        where(query, [call: call], call.started_at < ^instant)
+    end)
+  end
 
   defp optional_call_cursor(nil), do: {:ok, nil}
   defp optional_call_cursor(""), do: {:ok, nil}

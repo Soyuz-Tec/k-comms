@@ -17,6 +17,19 @@ describe("provider-backed phone controls", () => {
     harness.api.requestPhoneControl.mockResolvedValue(receipt);
     harness.api.completePhoneControl.mockResolvedValue({ ...receipt, status: "submitted", dispatch: false });
   });
+  it("normalizes transfer presentation without inventing country codes or extension routing", async () => {
+    harness.api.phoneCapabilities.mockResolvedValue({ blind_transfer: { supported: true }, consult_transfer: { supported: true } });
+    harness.api.requestPhoneControl.mockResolvedValue({ ...receipt, action: "blind_transfer", status: "pending", dispatch: false });
+    render(<AdvancedPhoneControls call={call} disabled={false} sendDtmf={vi.fn()} refresh={vi.fn().mockResolvedValue(undefined)} />);
+    const input = await screen.findByLabelText("International destination");
+    const user = userEvent.setup();
+    await user.type(input, "101");
+    expect(screen.getByRole("button", { name: "Transfer now" })).toBeDisabled();
+    await user.clear(input);
+    await user.type(input, "+1 (415) 555-0100");
+    await user.click(screen.getByRole("button", { name: "Transfer now" }));
+    expect(harness.api.requestPhoneControl).toHaveBeenCalledWith(call.id, expect.objectContaining({ action: "blind_transfer", destination: "+14155550100" }));
+  });
   it("publishes one real SDK tone only after a fresh durable instruction and acknowledges submission", async () => {
     const sendDtmf = vi.fn().mockResolvedValue(undefined);
     render(<AdvancedPhoneControls call={call} disabled={false} sendDtmf={sendDtmf} refresh={vi.fn().mockResolvedValue(undefined)} />);

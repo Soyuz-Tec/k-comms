@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, mockServiceStatus, test } from "./fixtures";
+import { expect, installSyntheticRealtime, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 import { createHash } from "node:crypto";
 
@@ -183,10 +183,10 @@ test.describe("guest communication by secure link or QR", () => {
     }
   }
 
-  test("the one-step guest entry and room remain usable at 320px", async ({ page }) => {
+  test("the one-step guest entry and room remain usable at 320px", async ({ page, baseURL }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     const fixture = await installGuestCommunicationFixture(page, false);
-    const origin = "http://127.0.0.1:4178";
+    const origin = new URL(baseURL!).origin;
 
     await page.goto(
       `${origin}/join#${new URLSearchParams({ guest: guestToken }).toString()}`
@@ -354,7 +354,7 @@ async function installGuestCommunicationFixture(
     const url = new URL(request.url());
     const path = url.pathname;
     const method = request.method();
-    if (method === "GET" && path === "/api/v1/me/workspace") {
+    if (method === "GET" && ["/api/v1/me/workspace", "/api/v1/me/availability"].includes(path)) {
       return route.fallback();
     }
     const authorization = request.headers().authorization || "";
@@ -588,6 +588,7 @@ async function installGuestCommunicationFixture(
     return json(route, { data: [] });
   });
 
+  await installSyntheticRealtime(page);
   return fixture;
 }
 

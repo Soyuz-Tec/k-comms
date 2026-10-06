@@ -1,4 +1,4 @@
-import { expect, mockServiceStatus, test } from "./fixtures";
+import { expect, installSyntheticRealtime, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 
 test("production capability opens sign-in over the local canvas", async ({ page }, testInfo) => {
@@ -233,7 +233,7 @@ async function installAuthApi(
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
-    if (method === "GET" && path === "/api/v1/me/workspace") {
+    if (method === "GET" && ["/api/v1/me/workspace", "/api/v1/me/availability"].includes(path)) {
       return route.fallback();
     }
     if (method === "GET" && path === "/api/v1/telephony/config") {
@@ -323,6 +323,7 @@ async function installAuthApi(
     return json(route, { error: { code: "unexpected_request", detail: `${method} ${path}` } }, 501);
   });
 
+  await installSyntheticRealtime(page);
   return state;
 }
 

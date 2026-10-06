@@ -64,6 +64,7 @@ defmodule CommsCore.Conversations.Directory do
       select: %{
         conversation: c,
         membership_role: m.role,
+        favorite: m.favorite,
         last_read_sequence: m.last_read_sequence,
         unread_count: fragment("GREATEST((? - 1) - ?, 0)", c.next_sequence, m.last_read_sequence)
       }
@@ -85,6 +86,7 @@ defmodule CommsCore.Conversations.Directory do
         select: %{
           conversation: c,
           membership_role: m.role,
+          favorite: m.favorite,
           last_read_sequence: m.last_read_sequence,
           unread_count:
             fragment("GREATEST((? - 1) - ?, 0)", c.next_sequence, m.last_read_sequence)

@@ -54,3 +54,8 @@ export interface MeetingsQuery {
   from: string;
   to: string;
 }
+
+export interface MeetingsPageResponse {
+  data: Meeting[];
+  meta?: { truncated: boolean };
+}

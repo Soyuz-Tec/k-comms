@@ -50,3 +50,9 @@
   /* Seven dates still need 44px targets at 320px; borrow the page gutter. */
   .meetings-calendar { margin-inline: -.75rem; }
 }
+
+.meeting-saved { display: flex; gap: 1rem; align-items: start; justify-content: space-between; }
+.meeting-saved p, .meeting-join-context { margin: .35rem 0; font-size: var(--text-sm); color: var(--text-secondary); }
+.meeting-saved > div { min-width: 0; }
+.meeting-saved .meeting-row-actions { flex-shrink: 0; }
+@media (max-width: 720px) { .meeting-saved { flex-direction: column; } }

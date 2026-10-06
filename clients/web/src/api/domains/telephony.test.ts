@@ -47,5 +47,7 @@ describe("telephony API boundary", () => {
     expect(request).toHaveBeenLastCalledWith("/api/v1/telephony/calls/call%2Fwith%3Fpath/join", { method: "POST" });
     await api.phoneCalls({ scope: "active", cursor: "cursor&next" });
     expect(request).toHaveBeenLastCalledWith("/api/v1/telephony/calls?limit=30&scope=active&cursor=cursor%26next");
+    await api.phoneCalls({ q: "+1 (415)", direction: "inbound", from: "2026-10-01", to: "2026-10-06", cursor: "same-filter" });
+    expect(request).toHaveBeenLastCalledWith("/api/v1/telephony/calls?limit=30&cursor=same-filter&q=%2B1+%28415%29&direction=inbound&from=2026-10-01&to=2026-10-06");
   });
 });

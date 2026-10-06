@@ -226,6 +226,78 @@ defmodule CommsCore.TelephonyTest do
     assert {:error, :invalid_call_scope} = Telephony.list_calls(subject, %{scope: "anytenant"})
   end
 
+  test "history search filters retained records before pagination and preserves user isolation" do
+    {account, subject} = ready()
+    %{user: colleague} = Fixtures.user_fixture(account)
+    number = Repo.get_by!(Number, tenant_id: account.tenant.id)
+
+    calls =
+      for {user_id, direction, started_at} <- [
+            {account.user.id, :inbound, ~U[2026-10-01 00:00:00.000000Z]},
+            {account.user.id, :inbound, ~U[2026-10-01 23:59:59.999999Z]},
+            {account.user.id, :outbound, ~U[2026-10-01 12:00:00.000000Z]},
+            {account.user.id, :inbound, ~U[2026-10-02 00:00:00.000000Z]},
+            {colleague.id, :inbound, ~U[2026-10-01 23:59:59.999999Z]}
+          ] do
+        %Call{}
+        |> Call.changeset(%{
+          tenant_id: account.tenant.id,
+          user_id: user_id,
+          number_id: number.id,
+          direction: direction,
+          status: :no_answer,
+          end_reason: "no_answer",
+          from_number: if(direction == :inbound, do: "+14155550901", else: number.phone_number),
+          to_number: if(direction == :inbound, do: number.phone_number, else: "+14155550901"),
+          extension: number.extension,
+          inbound_trunk_id: number.inbound_trunk_id,
+          outbound_trunk_id: number.outbound_trunk_id,
+          provider_room: "synthetic_history_" <> Ecto.UUID.generate(),
+          provider_identity: "synthetic-caller",
+          started_at: started_at,
+          ended_at: DateTime.add(started_at, 30, :second),
+          expires_at: DateTime.add(started_at, 60, :second)
+        })
+        |> Repo.insert!()
+      end
+
+    filters = %{
+      q: "+1 (415) 555-0901",
+      direction: "inbound",
+      from: "2026-10-01",
+      to: "2026-10-01",
+      limit: 1
+    }
+
+    assert {:ok, %{calls: [newer], has_more: true, next_cursor: cursor}} =
+             Telephony.list_calls(subject, filters)
+
+    assert newer.id == Enum.at(calls, 1).id
+
+    assert {:ok, %{calls: [older], has_more: false}} =
+             Telephony.list_calls(subject, Map.put(filters, :cursor, cursor))
+
+    assert older.id == hd(calls).id
+
+    assert {:ok, %{calls: [outgoing]}} =
+             Telephony.list_calls(subject, %{filters | direction: "outbound"})
+
+    assert outgoing.id == Enum.at(calls, 2).id
+    assert {:ok, %{calls: []}} = Telephony.list_calls(subject, %{q: "%"})
+
+    assert {:ok, %{calls: []}} =
+             Telephony.list_calls(Fixtures.subject(Fixtures.account_fixture()), filters)
+
+    for filters <- [
+          %{q: String.duplicate("1", 81)},
+          %{direction: "sideways"},
+          %{from: "bad"},
+          %{from: "2026-10-02", to: "2026-10-01"}
+        ] do
+      assert {:error, :invalid_phone_history_filters} = Telephony.list_calls(subject, filters)
+    end
+  end
+
   test "audio policy and revoked sessions block tokens, callbacks and telephone dispatch" do
     {account, subject} = ready()
     assert {:ok, call, :created} = Telephony.start_outbound(outbound(), subject)

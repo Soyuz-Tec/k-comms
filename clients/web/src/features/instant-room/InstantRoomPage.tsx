@@ -8,7 +8,7 @@ import {
 import { useSession } from "../../app/session";
 import { browserName } from "../../lib/format";
 import type { GuestSession } from "../../types";
-import { GuestShell } from "../guest/GuestAccessPage";
+import { GuestShell } from "../guest/GuestShell";
 import { AuthenticationCanvasPage } from "../auth/AuthenticationCanvasPage";
 import {
   type GuestRoomApi,

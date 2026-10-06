@@ -14,13 +14,14 @@ import {
 } from "../../lib/participantIdentity";
 import { callAvailabilityGuidance } from "./callAvailability";
 import { CallReadinessLauncher } from "./CallReadinessLauncher";
-import { CallLaunchButton } from "./CallSessionProvider";
+import { CallLaunchButton, useCallSession } from "./CallSessionProvider";
 import { CallTypeNavigation } from "./CallTypeNavigation";
 import type {
   CallMediaKind,
   CallSummary,
   CallsScope,
   Conversation,
+  DirectoryPerson,
   User
 } from "../../types";
 import { MeetingArtifactsPanel } from "../meeting-artifacts/MeetingArtifactsPanel";
@@ -39,11 +40,24 @@ export function CallsPage() {
     capabilities,
     audioCallsAvailable,
     createConversation,
+    startDirectConversation,
     loading: workspaceLoading,
     refreshCallAvailability,
     videoCallsAvailable
   } = useWorkspaceData();
-  const [scope, setScope] = useState<CallsScope>("active");
+  const { launchCall } = useCallSession();
+  const [scope, setScope] = useState<CallsScope>("recent");
+  const [historyConversation, setHistoryConversation] = useState("");
+  const [historyStarter, setHistoryStarter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const invalidDates = Boolean(fromDate && toDate && fromDate > toDate);
+  const historyFiltered = Boolean(historyConversation || historyStarter || fromDate || toDate);
+  const [people, setPeople] = useState<DirectoryPerson[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [callingPerson, setCallingPerson] = useState<string | null>(null);
+  const peopleGeneration = useRef(0);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [calls, setCalls] = useState<CallSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -63,6 +77,7 @@ export function CallsPage() {
 
   const loadCalls = useCallback(async (mode: "replace" | "append", cursor?: string | null) => {
     const generation = ++requestGeneration.current;
+    if (invalidDates) { setLoading(false); setLoadingMore(false); return; }
     if (mode === "replace") setLoading(true);
     else setLoadingMore(true);
     setError(null);
@@ -72,7 +87,11 @@ export function CallsPage() {
         scope,
         media_kind: mediaFilter === "all" ? undefined : mediaFilter,
         limit: pageSize,
-        cursor
+        cursor,
+        ...(historyConversation ? { conversation_id: historyConversation } : {}),
+        ...(historyStarter ? { started_by_user_id: historyStarter } : {}),
+        ...(fromDate ? { after: dateBoundary(fromDate) } : {}),
+        ...(toDate ? { before: dateBoundary(toDate, true) } : {})
       });
       if (generation !== requestGeneration.current) return;
       setCalls((current) => mode === "append" ? mergeCalls(current, page.data) : page.data);
@@ -80,6 +99,7 @@ export function CallsPage() {
       setHasMore(page.page.has_more);
     } catch (reason: unknown) {
       if (generation !== requestGeneration.current) return;
+      setCalls([]); setNextCursor(null); setHasMore(false);
       setError(errorText(reason));
     } finally {
       if (generation === requestGeneration.current) {
@@ -87,7 +107,7 @@ export function CallsPage() {
         setLoadingMore(false);
       }
     }
-  }, [api, mediaFilter, scope]);
+  }, [api, mediaFilter, scope, historyConversation, historyStarter, fromDate, toDate, invalidDates]);
 
   useEffect(() => {
     setCalls([]);
@@ -126,14 +146,45 @@ export function CallsPage() {
     () => duplicateParticipantNames(users),
     [users]
   );
+  useEffect(() => {
+    const generation = ++peopleGeneration.current;
+    const query = conversationQuery.trim();
+    setPeople([]); setPeopleError(null); setCallingPerson(null);
+    if (query.length < 2 || typeof api.directoryUsers !== "function") { setPeopleLoading(false); return; }
+    setPeopleLoading(true);
+    const timer = window.setTimeout(() => {
+      void api.directoryUsers(query, 20).then(page => {
+        if (generation === peopleGeneration.current) setPeople(page.data);
+      }).catch(reason => {
+        if (generation === peopleGeneration.current) setPeopleError(errorText(reason));
+      }).finally(() => {
+        if (generation === peopleGeneration.current) setPeopleLoading(false);
+      });
+    }, 200);
+    return () => { window.clearTimeout(timer); peopleGeneration.current += 1; };
+  }, [api, conversationQuery]);
+
+  async function callPerson(person: DirectoryPerson, kind: CallMediaKind) {
+    const generation = peopleGeneration.current;
+    setCallingPerson(person.id); setPeopleError(null);
+    try {
+      const target = await startDirectConversation(person.id);
+      if (generation === peopleGeneration.current) launchCall(target, kind);
+    } catch (reason) {
+      if (generation === peopleGeneration.current) setPeopleError(errorText(reason));
+    } finally {
+      if (generation === peopleGeneration.current) setCallingPerson(null);
+    }
+  }
+
   const callableConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
     return conversations
       .filter((conversation) => !conversation.archived_at)
-      .filter((conversation) => !query || conversationTitle(conversation).toLocaleLowerCase().includes(query))
+      .filter((conversation) => !query || [conversationTitle(conversation), conversation.counterpart_display_name, conversation.counterpart_user_id ? userById.get(conversation.counterpart_user_id)?.email : null].some(value => value?.toLocaleLowerCase().includes(query)))
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, 8);
-  }, [conversationQuery, conversations]);
+  }, [conversationQuery, conversations, userById]);
   const launcherExpanded = launcherPreference ?? false;
 
   if (!session) return null;
@@ -211,7 +262,7 @@ export function CallsPage() {
           <div className="calls-panel-heading">
             <div>
               <h2 id="new-call-heading">Start a call</h2>
-              <p>Choose a conversation. Join on your terms.</p>
+              <p>Find a person or conversation. Preview your devices before connecting.</p>
             </div>
           </div>
           <label className="calls-search">
@@ -221,7 +272,7 @@ export function CallsPage() {
               ref={launcherSearchRef}
               type="search"
               value={conversationQuery}
-              placeholder="Find a conversation"
+              placeholder="Find people or conversations"
               onChange={(event) => setConversationQuery(event.currentTarget.value)}
             />
           </label>
@@ -280,6 +331,16 @@ export function CallsPage() {
               })}
             </ul>
           )}
+          {peopleLoading && <p role="status">Finding people…</p>}
+          {peopleError && <p className="inline-notice error" role="alert">{peopleError}</p>}
+          {people.filter(person => person.id !== session.user.id && !callableConversations.some(conversation => conversation.counterpart_user_id === person.id)).length > 0 && <>
+            <h3 className="calls-people-heading">People</h3>
+            <ul className="calls-launch-list" aria-label="People matching your search">{people.filter(person => person.id !== session.user.id && !callableConversations.some(conversation => conversation.counterpart_user_id === person.id)).map(person => <li key={person.id}>
+              <div className="calls-conversation-identity"><span aria-hidden="true"><AppIcon name="contact" /></span><div><strong>{participantIdentifier(person, duplicateParticipantNames(people))}</strong><small>Workspace member</small></div></div>
+              <div className="calls-quick-actions">{canUseAudio && <button type="button" disabled={callingPerson !== null} aria-label={`Audio call ${participantIdentifier(person, duplicateParticipantNames(people))}`} onClick={() => void callPerson(person, "audio")}><AppIcon name="phone" />Audio</button>}{canUseVideo && <button type="button" disabled={callingPerson !== null} aria-label={`Video call ${participantIdentifier(person, duplicateParticipantNames(people))}`} onClick={() => void callPerson(person, "video")}><AppIcon name="video" />Video</button>}</div>
+            </li>)}</ul>
+            <p className="calls-people-note">Showing up to 20 matching people. Refine your search or open Directory for more.</p>
+          </>}
           <Link className="calls-directory-link" to="/app/directory">
             <AppIcon name="contact" />
             Browse directory
@@ -287,7 +348,7 @@ export function CallsPage() {
           </Link>
         </section>
 
-        <section ref={historyRef} className="calls-history" aria-labelledby="call-sessions-heading" tabIndex={-1}>
+        <section ref={historyRef} className="calls-history" aria-label="Call history" tabIndex={-1}>
           <div className="calls-section-heading">
             <div>
               <h2 id="call-sessions-heading">Call history</h2>
@@ -315,6 +376,20 @@ export function CallsPage() {
             </div>
           </div>
 
+          <details className="calls-history-filter-panel">
+            <summary>Filter call history</summary>
+          <fieldset className="calls-history-filters">
+            <legend className="sr-only">Find call history</legend>
+            <label>Conversation<select value={historyConversation} onChange={event => setHistoryConversation(event.target.value)}><option value="">All conversations</option>{conversations.map(conversation => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateDirectNames)}</option>)}</select></label>
+            <label>Started by<select value={historyStarter} onChange={event => setHistoryStarter(event.target.value)}><option value="">Anyone</option>{users.map(user => <option key={user.id} value={user.id}>{participantIdentifier(user, duplicateUserNames)}</option>)}</select></label>
+            <label>From<input type="date" value={fromDate} max={toDate || undefined} onChange={event => setFromDate(event.target.value)} /></label>
+            <label>Through<input type="date" value={toDate} min={fromDate || undefined} onChange={event => setToDate(event.target.value)} /></label>
+            {historyFiltered && <button className="button ghost compact" type="button" onClick={() => { setHistoryConversation(""); setHistoryStarter(""); setFromDate(""); setToDate(""); }}>Clear history filters</button>}
+            <p>Dates use your local time zone and match when the call started.</p>
+          </fieldset>
+          </details>
+          {invalidDates && <p role="alert" className="inline-notice error">Choose an end date on or after the start date.</p>}
+          {historyFiltered && !invalidDates && <p role="status" className="calls-filter-summary">Filtered history{historyConversation ? ` · ${conversationById.get(historyConversation) ? conversationTitle(conversationById.get(historyConversation)!) : "Selected conversation"}` : ""}{historyStarter ? ` · Started by ${userById.get(historyStarter)?.display_name || "selected person"}` : ""}{fromDate ? ` · From ${fromDate}` : ""}{toDate ? ` · Through ${toDate}` : ""}</p>}
           {error && (
             <div className="calls-state error" role="alert">
               <div>
@@ -325,7 +400,7 @@ export function CallsPage() {
             </div>
           )}
 
-          {loading && calls.length === 0 ? (
+          {invalidDates ? null : loading && calls.length === 0 ? (
             <div className="calls-state" role="status" aria-live="polite">
               <span className="spinner" aria-hidden="true" />
               Loading call sessions…
@@ -335,8 +410,8 @@ export function CallsPage() {
               <span className="calls-empty-illustration" aria-hidden="true">
                 <AppIcon name={scope === "active" ? "phone" : "clock"} />
               </span>
-              <strong>{scope === "active" ? "No active call rooms" : "No recent call rooms"}</strong>
-              <span>{scope === "active" ? "Choose a conversation to start one." : "Completed room sessions will appear here."}</span>
+              <strong>{historyFiltered ? "No calls match these filters" : scope === "active" ? "No active call rooms" : "No recent call rooms"}</strong>
+              <span>{historyFiltered ? "Change or clear the filters to see more calls." : scope === "active" ? "Choose a conversation to start one." : "Completed room sessions will appear here."}</span>
             </div>
           ) : (
             <ol className="call-session-list" aria-busy={loadingMore}>
@@ -507,4 +582,9 @@ function formatDuration(seconds: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${remainder}s`;
   return `${remainder}s`;
+}
+
+function dateBoundary(value: string, followingDay = false): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year!, month! - 1, day! + (followingDay ? 1 : 0)).toISOString();
 }

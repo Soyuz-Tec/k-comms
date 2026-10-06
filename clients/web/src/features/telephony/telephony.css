@@ -30,6 +30,12 @@
 .phone-keypad-help p { margin-top: .5rem; }
 .phone-dialer h2, .phone-history h2, .phone-voicemail h2 { font-family: var(--font-body); font-size: var(--text-base); font-weight: 600; margin-block: 0 .75rem; }
 .phone-history .surface-empty { min-height: 10rem; }
+.phone-history-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, .6fr); gap: .75rem; align-items: end; }
+.phone-history-filters > details, .phone-history-filters > .phone-actions { grid-column: 1 / -1; }
+.phone-history-filters summary { cursor: pointer; padding-block: .5rem; font-size: var(--text-sm); }
+.phone-history-date-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: .75rem; }
+.phone-dialer > .phone-help { margin-top: 1rem; }
+.phone-dialer > .phone-help a { color: var(--accent-text); }
 .phone-history-list time, .phone-history-list li > div > span { color: var(--text-muted); font-size: var(--text-sm); }
 .phone-page .phone-setup-note { background: var(--surface-canvas); }
 .phone-page .phone-voicemail, .phone-page .phone-agent-state { grid-column: 1 / -1; padding: 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); }

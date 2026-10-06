@@ -19,7 +19,7 @@ const meeting: Meeting = {
   occurrences: [{ id: "occurrence-1", starts_at: "2026-10-04T09:10:00Z", ends_at: "2026-10-04T09:40:00Z", status: "scheduled" }]
 };
 const harness = vi.hoisted(() => ({
-  api: { meetings: vi.fn(), getMeeting: vi.fn(), createMeeting: vi.fn(), updateMeeting: vi.fn(), cancelMeeting: vi.fn(), meetingCalendar: vi.fn() },
+  api: { meetings: vi.fn(), meetingsPage: vi.fn(), getMeeting: vi.fn(), createMeeting: vi.fn(), updateMeeting: vi.fn(), cancelMeeting: vi.fn(), meetingCalendar: vi.fn() },
   launchCall: vi.fn(), available: true
 }));
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: harness.api, session: { user: { id: "host-1" }, tenant: { id: "tenant-1" } } }) }));
@@ -36,6 +36,7 @@ describe("MeetingsPage", () => {
     vi.setSystemTime(new Date("2026-10-04T09:00:00Z"));
     vi.clearAllMocks();
     harness.available = true;
+    harness.api.meetingsPage.mockImplementation(async (query: unknown) => ({ data: await harness.api.meetings(query), meta: { truncated: false } }));
     harness.api.meetings.mockResolvedValue([meeting]);
     harness.api.getMeeting.mockReset();
     harness.api.createMeeting.mockResolvedValue(meeting);
@@ -74,7 +75,7 @@ describe("MeetingsPage", () => {
     const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
     expect(row).toHaveClass("is-next");
     expect(within(row).getByText("Next meeting")).toBeVisible();
-    expect(screen.getByText("1 upcoming this month")).toBeVisible();
+    expect(screen.getByText("1 upcoming in the next 90 days")).toBeVisible();
     expect(screen.getAllByText("Design review")).toHaveLength(1);
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Agenda" })).toHaveAttribute("aria-pressed", "true");
@@ -93,7 +94,7 @@ describe("MeetingsPage", () => {
     renderMeetings();
     const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
     expect(within(row).getByText("In progress")).toBeVisible();
-    expect(screen.getByText("1 in progress · 0 upcoming this month")).toBeVisible();
+    expect(screen.getByText("1 in progress · 0 upcoming in the next 90 days")).toBeVisible();
     expect(screen.queryByRole("region", { name: "In progress" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start meeting" })).toBeEnabled();
@@ -120,7 +121,10 @@ describe("MeetingsPage", () => {
     const user = userEvent.setup();
     renderMeetings();
 
-    const row = (await screen.findByRole("heading", { name: "Design review" })).closest("li") as HTMLElement;
+    await screen.findByRole("heading", { name: "Design review" });
+    await user.selectOptions(screen.getByLabelText("Agenda range"), "month");
+    await screen.findByRole("heading", { name: "Earlier review 1" });
+    const row = screen.getByRole("heading", { name: "Design review" }).closest("li") as HTMLElement;
     expect(within(screen.getByRole("list", { name: "Scheduled meetings" })).getAllByRole("listitem")).toHaveLength(13);
     expect(within(row).getByText(status)).toBeVisible();
     expect(screen.getAllByText("Design review")).toHaveLength(1);
@@ -219,6 +223,8 @@ describe("MeetingsPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Schedule meeting" }));
     await waitFor(() => expect(harness.api.createMeeting).toHaveBeenCalledWith(conversation.id, expect.objectContaining({ title: "Planning", timezone: "Asia/Kolkata", local_start: "2026-10-07T10:00", recurrence: { frequency: "weekly", interval: 1, count: 6 }, reminder_minutes: 15, host_policy: { allow_guests: true, join_before_host: false } })));
     expect(await screen.findByText("Meeting scheduled.")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Meeting sharing" })).toHaveTextContent("Email invitations are not sent automatically.");
+    expect(screen.getByRole("button", { name: "Copy member meeting link" })).toBeEnabled();
   });
 
   it("opens an audio meeting lobby when video calling is unavailable", async () => {
@@ -290,4 +296,59 @@ describe("MeetingsPage", () => {
     expect(screen.getByRole("heading", { name: "Design review" })).toBeVisible();
     expect(harness.api.meetingCalendar).toHaveBeenCalledWith("meeting-1");
   });
+  it("finds the next meeting across a month boundary while keeping past meetings in the monthly view", async () => {
+    vi.setSystemTime(new Date("2026-10-31T23:55:00Z"));
+    const november = { ...meeting, id: "november", title: "November planning", occurrences: [{ ...meeting.occurrences[0]!, id: "november-occurrence", starts_at: "2026-11-01T09:00:00Z", ends_at: "2026-11-01T09:30:00Z" }] };
+    harness.api.meetings.mockResolvedValue([meeting, november]);
+    const user = userEvent.setup();
+    renderMeetings();
+    expect(await screen.findByRole("heading", { name: "November planning" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Design review" })).not.toBeInTheDocument();
+    const requested = harness.api.meetings.mock.calls[0]![0];
+    expect(Date.parse(requested.to)).toBeGreaterThan(Date.parse(november.occurrences[0]!.starts_at));
+    await user.selectOptions(screen.getByLabelText("Agenda range"), "month");
+    expect(await screen.findByRole("heading", { name: "Design review" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "November planning" })).not.toBeInTheDocument();
+  });
+
+  it("copies an occurrence-specific member meeting link without starting the call", async () => {
+    const user = userEvent.setup();
+    renderMeetings();
+    await user.click(await screen.findByRole("button", { name: "Copy meeting link" }));
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/app/meetings?meeting=meeting-1&occurrence=occurrence-1`);
+    expect(screen.getByRole("status")).toHaveTextContent("Only people with access to this conversation can open it.");
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
+  it("labels a truncated agenda instead of claiming complete counts", async () => {
+    harness.api.meetingsPage.mockResolvedValue({ data: [meeting], meta: { truncated: true } });
+    renderMeetings();
+    expect(await screen.findByText(/This date range contains more meetings than can be shown/)).toBeVisible();
+  });
+
+  it("discards a delayed schedule result when the workspace API changes", async () => {
+    const previousApi = harness.api;
+    let finish: ((value: Meeting) => void) | undefined;
+    harness.api.createMeeting.mockImplementationOnce(() => new Promise<Meeting>(resolve => { finish = resolve; }));
+    const user = userEvent.setup();
+    const view = renderMeetings();
+    await screen.findByRole("heading", { name: "Design review" });
+    await user.click(screen.getByRole("button", { name: "Schedule meeting" }));
+    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+    await user.type(within(dialog).getByLabelText("Title"), "Old workspace planning");
+    await user.selectOptions(within(dialog).getByLabelText("Conversation"), conversation.id);
+    fireEvent.change(within(dialog).getByLabelText("Local start date and time"), { target: { value: "2026-10-07T10:00" } });
+    await user.click(within(dialog).getByRole("button", { name: "Schedule meeting" }));
+    await waitFor(() => expect(previousApi.createMeeting).toHaveBeenCalledTimes(1));
+    try {
+      harness.api = { ...previousApi, meetingsPage: vi.fn().mockResolvedValue({ data: [] }) };
+      view.rerender(<MemoryRouter><MeetingsPage /></MemoryRouter>);
+      await screen.findByText("No upcoming meetings in the next 90 days.");
+      await act(async () => { finish?.({ ...meeting, title: "Old workspace planning" }); });
+      expect(screen.queryByRole("region", { name: "Meeting sharing" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Old workspace planning")).not.toBeInTheDocument();
+      expect(screen.queryByText("Meeting scheduled.")).not.toBeInTheDocument();
+    } finally { harness.api = previousApi; }
+  });
+
 });

@@ -1,5 +1,7 @@
+import { EditorView } from "@codemirror/view";
+import { UnsavedWorkProvider } from "../../app/UnsavedWork";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { createMemoryRouter, Link, MemoryRouter, Outlet, RouterProvider, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSharedDocumentsApi } from "../../api/domains/sharedDocuments";
 import { ApiError } from "../../api/errors";
@@ -219,4 +221,51 @@ describe("immutable document command retries", () => {
     expect(actionCalls()[1]![1].body).toBe(actionCalls()[0]![1].body);
   });
 
+});
+
+
+describe("document navigation protection", () => {
+  it("keeps an unsent document mounted when a sidebar link is followed", async () => {
+    harness.view = { ...harness.view, status: "offline", pendingCount: 1 };
+    const router = createMemoryRouter([{ element: <UnsavedWorkProvider authority="test"><Link to="/app/content">Sidebar Content</Link><Outlet /></UnsavedWorkProvider>, children: [
+      { path: "/app/documents", element: <DocumentsPage /> },
+      { path: "/app/content", element: <h1>Content destination</h1> }
+    ] }], { initialEntries: ["/app/documents?conversation=conversation&document=doc"] });
+    render(<RouterProvider router={router} />);
+    await screen.findByRole("heading", { name: "Notes" });
+    fireEvent.click(screen.getByRole("link", { name: "Sidebar Content" }));
+    expect(screen.queryByRole("heading", { name: "Content destination" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "Leave unfinished work?" })).toBeVisible();
+  });
+});
+
+
+describe("real editor unsent-work lifecycle", () => {
+  it("retains optimistic text on cancelled navigation and clears it only after confirmed leave", async () => {
+    harness.realHook = true;
+    harness.request.mockImplementation(async (path, options) => {
+      if (String(path) === "/api/v1/documents/doc") return { data: document() };
+      if (String(path).endsWith("/operations") && options?.method === "POST") throw new Error("Network unavailable");
+      if (String(path).includes("/operations?")) return { data: [], page: { generation: 1, through_version: 1, next_after_version: 1, has_more: false } };
+      return { data: [] };
+    });
+    const router = createMemoryRouter([{ element: <UnsavedWorkProvider authority="test"><Link to="/app/content">Sidebar Content</Link><Outlet /></UnsavedWorkProvider>, children: [
+      { path: "/app/documents", element: <DocumentsPage /> }, { path: "/app/content", element: <h1>Content destination</h1> }
+    ] }], { initialEntries: ["/app/documents?conversation=conversation&document=doc"] });
+    render(<RouterProvider router={router} />);
+    await screen.findByText(/All changes synced/);
+    const editor = EditorView.findFromDOM(screen.getByRole("textbox", { name: "Shared document content" }))!;
+    act(() => editor.dispatch({ changes: { from: 0, insert: "Keep this unsent text" } }));
+    await screen.findByText(/Offline · 1 unsent edit/);
+    expect(screen.getByText("Live presence is unavailable while disconnected.")).toBeVisible();
+    fireEvent.click(screen.getByRole("link", { name: "Sidebar Content" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stay here" }));
+    expect(screen.getByRole("textbox", { name: "Shared document content" })).toHaveTextContent("Keep this unsent text");
+    fireEvent.click(screen.getByRole("link", { name: "Sidebar Content" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave and discard" }));
+    expect(screen.getByRole("heading", { name: "Content destination" })).toBeVisible();
+    await act(() => router.navigate(-1));
+    await screen.findByText(/All changes synced/);
+    expect(screen.getByRole("textbox", { name: "Shared document content" })).not.toHaveTextContent("Keep this unsent text");
+  });
 });

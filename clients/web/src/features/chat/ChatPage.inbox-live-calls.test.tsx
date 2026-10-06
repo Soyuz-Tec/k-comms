@@ -53,10 +53,10 @@ describe("inbox live call indicator", () => {
     calls.mockResolvedValue(callsPage(["conversation-2"]));
     renderInbox();
 
-    const liveRow = await screen.findByRole("button", { name: /Release captains/ });
+    const liveRow = await screen.findByRole("button", { name: /^Release captains/ });
     await waitFor(() => expect(liveRow).toHaveTextContent("Active call"));
     expect(calls).toHaveBeenCalledWith({ scope: "active", limit: 100 });
-    expect(screen.getByRole("button", { name: /General/ })).not.toHaveTextContent("Active call");
+    expect(screen.getByRole("button", { name: /^General/ })).not.toHaveTextContent("Active call");
   });
 
   it("leaves the inbox unmarked when no call is running", async () => {
@@ -70,7 +70,7 @@ describe("inbox live call indicator", () => {
     calls.mockResolvedValueOnce(callsPage(["conversation-2"]));
     renderInbox();
 
-    const liveRow = await screen.findByRole("button", { name: /Release captains/ });
+    const liveRow = await screen.findByRole("button", { name: /^Release captains/ });
     await waitFor(() => expect(liveRow).toHaveTextContent("Active call"));
 
     calls.mockRejectedValue(new Error("offline"));
@@ -84,7 +84,7 @@ describe("inbox live call indicator", () => {
     calls.mockResolvedValueOnce(callsPage(["conversation-2"]));
     renderInbox();
 
-    const liveRow = await screen.findByRole("button", { name: /Release captains/ });
+    const liveRow = await screen.findByRole("button", { name: /^Release captains/ });
     await waitFor(() => expect(liveRow).toHaveTextContent("Active call"));
 
     calls.mockResolvedValue(callsPage([]));

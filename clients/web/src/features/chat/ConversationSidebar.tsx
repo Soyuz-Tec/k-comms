@@ -1,4 +1,7 @@
+import { useSyncExternalStore } from "react";
 import type { MutableRefObject, ReactNode } from "react";
+import { useSession } from "../../app/session";
+import { draftSnapshot, localDraftPreview, subscribeDrafts } from "../../lib/drafts";
 import { Link } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { AppIcon } from "../../components/AppIcon";
@@ -16,10 +19,14 @@ import { conversationInitials } from "./chatSupport";
 import { useDesktopShell } from "../../app/ProductShell";
 import { NotificationCenter } from "../notifications/NotificationCenter";
 
-export type InboxFilter = "all" | "unread" | "direct" | "rooms";
+export type InboxFilter = "all" | "unread" | "favorites" | "direct" | "rooms";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
+  composer: string;
+  pendingFavoriteId: string | null;
+  favoriteError: string | null;
+  onToggleFavorite: (conversation: Conversation) => void;
   activeCallConversationIds: ReadonlySet<string>;
   capabilities: UserCapabilities | null;
   canInviteTeammates: boolean;
@@ -60,6 +67,10 @@ const peoplePath = "/admin?section=people#people-title";
 
 export function ConversationSidebar({
   activeConversationId,
+  composer,
+  pendingFavoriteId,
+  favoriteError,
+  onToggleFavorite,
   activeCallConversationIds,
   capabilities,
   canInviteTeammates,
@@ -93,6 +104,8 @@ export function ConversationSidebar({
   onShowBrowseChannels
 }: ConversationSidebarProps) {
   const desktopShell = useDesktopShell();
+  const { session } = useSession();
+  useSyncExternalStore(subscribeDrafts, draftSnapshot, draftSnapshot);
   const contentSearchButton = (
     <button
       className="button ghost inbox-content-search"
@@ -285,6 +298,7 @@ export function ConversationSidebar({
             {([
               ["all", "All"],
               ["unread", "Unread"],
+              ["favorites", "Favorites"],
               ["direct", "Direct"],
               ["rooms", "Rooms"]
             ] as const).map(([value, label]) => (
@@ -311,6 +325,7 @@ export function ConversationSidebar({
         </button>
       </div>
 
+      {favoriteError && <p className="error-copy" role="alert">{favoriteError}</p>}
       <nav className="conversation-list" aria-label="Conversation list">
         {conversations.length === 0 ? (
           showOnboardingSpotlight ? (
@@ -354,7 +369,19 @@ export function ConversationSidebar({
           filteredConversations.map((conversation) => {
             const unreadCount = conversation.unread_count || 0;
             const hasActiveCall = activeCallConversationIds.has(conversation.id);
+            const draft = conversation.id === activeConversationId ? composer : session
+              ? localDraftPreview(session.tenant.id, session.user.id, conversation.id) ??
+                (conversation.inbox?.draft && Date.parse(conversation.inbox.draft.expires_at) > Date.now() ? conversation.inbox.draft.excerpt : "")
+              : "";
+            const message = conversation.inbox?.message;
+            const activityAt = message?.inserted_at ?? conversation.updated_at;
+            const preview = draft.trim() ? `Draft: ${draft.trim().replace(/\s+/g, " ").slice(0, 200)}`
+              : message ? message.status !== "active" ? "Message removed"
+                : `${message.sender_user_id === session?.user.id ? "You" : message.sender_display_name}: ${message.excerpt.trim() || "Shared content"}`
+              : conversation.latest_sequence === 0 ? "No messages yet"
+                : conversation.kind === "direct" ? "Direct message" : conversation.kind === "channel" ? "Room conversation" : "Group conversation";
             return (
+              <div key={conversation.id} className="conversation-list-item">
               <button
                 ref={(element) => {
                   if (element) {
@@ -396,19 +423,15 @@ export function ConversationSidebar({
                   <span className="conversation-title-line">
                     <strong>{conversationIdentifier(conversation)}</strong>
                     <time
-                      dateTime={conversation.updated_at}
-                      title={formatDateTime(conversation.updated_at)}
+                      dateTime={activityAt}
+                      title={formatDateTime(activityAt)}
                     >
-                      {formatTime(conversation.updated_at)}
+                      {formatTime(activityAt)}
                     </time>
                   </span>
-                  <small className="conversation-summary-line">
+                  <small className={`conversation-summary-line ${draft.trim() ? "has-draft" : ""}`}>
                     <span>
-                      {conversation.kind === "direct"
-                        ? "Direct message"
-                        : conversation.kind === "channel"
-                          ? "Room conversation"
-                          : "Group conversation"}
+                      {preview}
                     </span>
                     {hasActiveCall && (
                       <span className="conversation-live-call">
@@ -435,6 +458,17 @@ export function ConversationSidebar({
                   </span>
                 )}
               </button>
+              {conversation.content_mode !== "matrix_e2ee" && (
+                <button type="button" className="icon-button conversation-favorite"
+                  aria-label={`${conversation.favorite ? "Remove" : "Add"} ${conversationIdentifier(conversation)} ${conversation.favorite ? "from" : "to"} favorites`}
+                  aria-pressed={conversation.favorite === true}
+                  disabled={pendingFavoriteId !== null}
+                  aria-busy={pendingFavoriteId === conversation.id}
+                  onClick={() => onToggleFavorite(conversation)}>
+                  <AppIcon name="star" fill={conversation.favorite ? "currentColor" : "none"} />
+                </button>
+              )}
+              </div>
             );
           })
         )}

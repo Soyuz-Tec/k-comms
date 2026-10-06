@@ -208,6 +208,28 @@ defmodule CommsWeb.MemberReadControllerTest do
       |> json_response(422)
 
     assert invalid["error"]["code"] == "invalid_call_scope"
+
+    filtered =
+      account
+      |> authenticated_conn()
+      |> get("/api/v1/calls", %{
+        scope: "active",
+        conversation_id: account.conversation.id,
+        started_by_user_id: account.user.id,
+        after: DateTime.to_iso8601(call.started_at)
+      })
+      |> json_response(200)
+
+    assert [%{"id" => id}] = filtered["data"]
+    assert id == call.id
+
+    invalid_filter =
+      account
+      |> authenticated_conn()
+      |> get("/api/v1/calls?after=not-a-date")
+      |> json_response(422)
+
+    assert invalid_filter["error"]["code"] == "invalid_call_history_filters"
   end
 
   test "member read endpoints require a human session" do

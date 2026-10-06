@@ -31,16 +31,14 @@ const appHarness = vi.hoisted(() => {
   };
 });
 
-vi.mock("./app/session", () => ({
-  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
-  useSession: () => ({
-    session: appHarness.session,
-    transportPolicyReady: appHarness.transportPolicyReady,
-    accountActionsAllowed: appHarness.transportPolicyReady,
-    api: appHarness.api,
-    setSession: appHarness.setSession
-  })
-}));
+vi.mock("./app/session", async () => {
+  const { createContext, useContext } = await import("react");
+  const value = () => ({ session: appHarness.session, transportPolicyReady: appHarness.transportPolicyReady,
+    accountActionsAllowed: appHarness.transportPolicyReady, api: appHarness.api, setSession: appHarness.setSession });
+  const context = createContext(value());
+  return { SessionProvider: ({ children }: { children: React.ReactNode }) => <context.Provider value={value()}>{children}</context.Provider>,
+    useSession: () => useContext(context) };
+});
 
 vi.mock("./features/guest/GuestAccessPage", () => ({
   GuestAccessPage: () => <main><h1>Guest join route</h1></main>
@@ -87,14 +85,14 @@ describe("application route priority", () => {
     window.history.replaceState({}, "", "/join#guest=route-token");
   });
 
-  it("renders /join before the authenticated product fallback", () => {
+  it("renders /join before the authenticated product fallback", async () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Guest join route" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Guest join route" })).toBeVisible();
     expect(screen.queryByText("Inbox")).not.toBeInTheDocument();
   });
 
-  it("preserves a trailing-slash guest bearer route for both auth states", () => {
+  it("preserves a trailing-slash guest bearer route for both auth states", async () => {
     for (const memberSession of [
       { access_token: "member-access", refresh_token: "member-refresh" },
       null
@@ -104,7 +102,7 @@ describe("application route priority", () => {
       const view = render(<App />);
 
       expect(
-        screen.getByRole("heading", { name: "Guest join route" })
+        await screen.findByRole("heading", { name: "Guest join route" })
       ).toBeVisible();
       expect(window.location.pathname).toBe("/join/");
       expect(window.location.hash).toBe("#guest=route-token");

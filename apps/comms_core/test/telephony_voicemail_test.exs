@@ -143,8 +143,32 @@ defmodule CommsCore.TelephonyVoicemailTest do
     assert {:ok, %{read_at: nil}} = Telephony.list_voicemails(subject, %{}) |> first_message()
     assert {:ok, read} = Telephony.mark_voicemail_read(v.id, subject)
     assert read.read_at
+    assert read.caller_number == Repo.get!(Call, v.call_id).to_number
+
+    assert {:ok, %{caller_number: caller}} =
+             Telephony.list_voicemails(subject, %{}) |> first_message()
+
+    assert caller == read.caller_number
     assert {:ok, repeated} = Telephony.mark_voicemail_read(v.id, subject)
     assert repeated.read_at == read.read_at
+  end
+
+  test "incoming voicemail exposes only its authorized external caller number" do
+    {_account, subject, v} = reserved()
+
+    Repo.get!(Call, v.call_id)
+    |> Call.changeset(%{
+      direction: :inbound,
+      from_number: "+14155550999",
+      to_number: "+14155550100"
+    })
+    |> Repo.update!()
+
+    assert {:ok, %{caller_number: "+14155550999"}} =
+             Telephony.list_voicemails(subject, %{}) |> first_message()
+
+    assert {:ok, %{messages: []}} =
+             Telephony.list_voicemails(Fixtures.subject(Fixtures.account_fixture()), %{})
   end
 
   test "idempotent completion rejects another tenant, recording key and object version" do
@@ -236,10 +260,16 @@ defmodule CommsCore.TelephonyVoicemailTest do
 
     Repo.get!(Call, v.call_id) |> Call.changeset(%{route_id: route.id}) |> Repo.update!()
     assert {:ok, _} = Telephony.voicemail_playback(v.id, context.subject)
+
+    assert {:ok, %{caller_number: caller}} =
+             Telephony.list_voicemails(context.subject, %{}) |> first_message()
+
+    assert caller == Repo.get!(Call, v.call_id).to_number
     assert {:ok, %{read_at: read}} = Telephony.mark_voicemail_read(v.id, context.subject)
     assert read
     assert {:ok, %{read_at: nil}} = Telephony.list_voicemails(subject, %{}) |> first_message()
     route |> Route.changeset(%{member_ids: [account.user.id]}) |> Repo.update!()
+    assert {:ok, %{messages: []}} = Telephony.list_voicemails(context.subject, %{})
     assert {:error, :not_found} = Telephony.voicemail_playback(v.id, context.subject)
     assert {:error, :not_found} = Telephony.delete_voicemail(v.id, context.subject)
   end

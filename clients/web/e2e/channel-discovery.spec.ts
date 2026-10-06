@@ -21,7 +21,7 @@ async function mockChannelWorkspace(page: Page, allowPublicChannels: boolean, co
   } } }));
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [user] } }));
-  await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: conversations() } }));
+  await page.route("**/api/v1/conversations?include=inbox", (route) => route.fulfill({ json: { data: conversations() } }));
   await page.route("**/api/v1/conversations/*/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/channel-1/messages**", (route) => route.fulfill({ json: { data: [], page: { has_more: false, next_after_sequence: null, reset_required: false } } }));
   await page.route("**/api/v1/conversations/channel-1/draft?thread_key=main", (route) => route.fulfill({ json: { data: { conversation_id: conversation.id, thread_key: "main", body: "", version: 0, expires_at: null } } }));
@@ -79,7 +79,7 @@ test("joined user leaves a public channel with the membership version", async ({
     return route.fulfill({ json: { data: { conversation, membership: { ...membership, version: 4, left_at: "2026-07-12T10:10:00Z" } }, replayed: false } });
   });
   await page.goto("/app/");
-  await page.getByRole("button", { name: /Projects/ }).click();
+  await page.getByRole("button", { name: /^Projects/ }).click();
   await expect(page.getByRole("region", { name: "Projects" })).toBeVisible();
   // Details is a header control on desktop and an overflow-sheet entry on phones.
   const conversationMore = page.getByRole("button", { name: "More conversation actions" });
@@ -90,6 +90,6 @@ test("joined user leaves a public channel with the membership version", async ({
   const confirmation = page.getByRole("alertdialog", { name: "Leave Projects?" });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Leave channel" }).click();
-  await expect(page.getByRole("button", { name: /Projects/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Projects/ })).toHaveCount(0);
   expect(leaveBody).toEqual({ version: 3 });
 });

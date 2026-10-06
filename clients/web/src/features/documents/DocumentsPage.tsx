@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
+import { useUnsavedWork } from "../../app/UnsavedWork";
 import { SurfaceHeader } from "../../components/SurfaceHeader";
 import { AppIcon } from "../../components/AppIcon";
 import { formatDateTime } from "../../lib/format";
@@ -114,7 +115,9 @@ function DocumentWorkspace({ id, onCopy, onChanged, onAccessChanged }: { id: str
       reportedLoss.current = authorityEpoch; onAccessChanged();
     }
   }, [status, authorityEpoch, onAccessChanged]);
-  if (!document) return <section className="document-welcome" aria-busy={status === "connecting"}><h2>{status === "unavailable" ? "Document unavailable" : "Opening document…"}</h2>{error && <p role="alert">{error}</p>}</section>;
+  useUnsavedWork(() => Boolean(document && (pendingCount > 0 || intent.current || (titleDraft !== null && titleDraft !== document.title))),
+    "This document has unsent edits, a changed title, or an action awaiting confirmation.");
+  if (!document) return <section className="document-welcome" aria-busy={status === "connecting"}><h2>{status === "unavailable" ? "Document unavailable" : status === "offline" ? "Document connection unavailable" : "Opening document…"}</h2>{error && <p role="alert">{error}</p>}</section>;
   const connectionReady = status === "live" && pendingCount === 0;
   const actionsAllowed = connectionReady && !busy && !pendingAction;
   async function submitAction(request: ActionIntent) {
@@ -179,14 +182,14 @@ function DocumentWorkspace({ id, onCopy, onChanged, onAccessChanged }: { id: str
     }).finally(() => { if (current()) { inFlight.current = false; setBusy(false); } });
   }
   return <section className="document-workspace" aria-label={document.title}>
-    <header className="document-toolbar"><div><h2>{document.title}</h2><p role="status" aria-live="polite">{pendingCount ? `${pendingCount} unsent ${pendingCount === 1 ? "edit" : "edits"}` : status === "live" ? "All changes synced" : "Connection interrupted"} · Version {document.version}</p></div>
+    <header className="document-toolbar"><div><h2>{document.title}</h2><p role="status" aria-live="polite">{status === "live" ? pendingCount ? `Syncing · ${pendingCount} unsent ${pendingCount === 1 ? "edit" : "edits"}` : "All changes synced" : `Offline · ${pendingCount ? `${pendingCount} unsent ${pendingCount === 1 ? "edit" : "edits"}` : "Showing the last synced version"}`} · Version {document.version}</p></div>
       <div className="document-actions"><button className="button ghost" type="button" disabled={!actionsAllowed || document.readonly} onClick={() => setTitleDraft(document.title)}>Rename</button><button className="button ghost" type="button" disabled={!actionsAllowed} onClick={copy}>Make a copy</button><button className="button ghost" type="button" disabled={!actionsAllowed} onClick={download}>Export text</button></div></header>
     {pendingAction && <p role="status">{busy ? `Confirming ${pendingAction.kind === "copy" ? "the copy" : "the title change"}…` : `A ${pendingAction.kind === "copy" ? "copy" : "title change"} is awaiting confirmation.`} <button className="button ghost" type="button" disabled={!connectionReady || busy} onClick={() => { if (intent.current) void submitAction(intent.current); }}>Retry pending action</button></p>}
     {titleDraft !== null && <form className="document-title-form" onSubmit={event => { event.preventDefault(); void rename(); }}><label className="field">Document title<input value={titleDraft} onChange={event => setTitleDraft(event.target.value)} disabled={!!pendingAction || busy} maxLength={160} autoFocus /></label><button className="button primary" disabled={!actionsAllowed || !titleDraft.trim()}>Save title</button><button className="button ghost" type="button" disabled={!!pendingAction || busy} onClick={() => setTitleDraft(null)}>Cancel</button></form>}
     {(error || actionError) && <p role="alert">{actionError || error}</p>}
-    <p className="document-presence" aria-live="polite">{peers.length ? `${peers.length} other ${peers.length === 1 ? "device is" : "devices are"} editing here. Highlighted text shows their selections.` : "You are editing this document."}</p>
+    <p className="document-presence" aria-live="polite">{status !== "live" ? "Live presence is unavailable while disconnected." : peers.length ? `${peers.length} other ${peers.length === 1 ? "device is" : "devices are"} editing here. Highlighted text shows their selections.` : "You are editing this document."}</p>
     {document.readonly && <p role="status">This document reached its retained edit limit. Export it or make a lineage-preserving copy to continue.</p>}
     <SharedDocumentEditor content={document.content} atoms={document.atoms} readonly={document.readonly || status === "unavailable"} peers={peers} onEdit={edit} onSelection={presence} onError={setActionError} />
-    <footer className="document-disclosure"><p>Plaintext and Markdown · {Array.from(document.content).length.toLocaleString()} / 16,000 characters.</p><details><summary>Document limits and retention</summary><p>Paste up to 2,048 characters per edit.</p><p>Governed deletion of any original author removes this entire document and its copies. Legal holds preserve the content and its edit history.</p><p>Unsent text and pending action confirmations clear when this tab closes or your sign-in or permissions change.</p></details></footer>
+    <footer className="document-disclosure"><p>Plaintext and Markdown · {Array.from(document.content).length.toLocaleString()} / 16,000 characters.</p><details><summary>Document limits and retention</summary><p>Paste up to 2,048 characters per edit.</p><p>Governed deletion of any original author removes this entire document and its copies. Legal holds preserve the content and its edit history.</p><p>Unsent text stays only in this tab. Leaving requires confirmation until edits sync and pending actions finish. Closing the tab or changing your sign-in or permissions clears local work.</p></details></footer>
   </section>;
 }

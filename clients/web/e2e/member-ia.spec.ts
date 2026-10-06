@@ -267,7 +267,7 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }),
       () => actions += 1
     );
-    await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "You", exact: true })).toBeVisible();
     expect(actions).toBe(1);
     expect(actions).toBeLessThanOrEqual(1);
 

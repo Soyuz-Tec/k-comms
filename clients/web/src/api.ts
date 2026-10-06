@@ -214,6 +214,7 @@ export class ApiClient {
   exportFederationMetadata(...args: Parameters<FederationApi["exportFederationMetadata"]>) { return this.federationApi.exportFederationMetadata(...args); }
   closeFederationRoom(...args: Parameters<FederationApi["closeFederationRoom"]>) { return this.federationApi.closeFederationRoom(...args); }
 
+  meetingsPage(...args: Parameters<MeetingsApi["meetingsPage"]>) { return this.meetingsApi.meetingsPage(...args); }
   meetings(query: MeetingsQuery): Promise<Meeting[]> { return this.meetingsApi.meetings(query); }
   createMeeting(conversationId: string, input: MeetingInput): Promise<Meeting> { return this.meetingsApi.createMeeting(conversationId, input); }
   updateMeeting(id: string, input: UpdateMeetingInput): Promise<Meeting> { return this.meetingsApi.updateMeeting(id, input); }
@@ -751,6 +752,10 @@ export class ApiClient {
 
   endAudioCall(conversationId: string, callId: string): Promise<Call>{
     return this.callsApi.endAudioCall(conversationId, callId);
+  }
+
+  setConversationFavorite(id: string, favorite: boolean): Promise<{ conversation_id: string; favorite: boolean }> {
+    return this.messagingApi.setConversationFavorite(id, favorite);
   }
 
   conversations(): Promise<Conversation[]>{

@@ -38,6 +38,7 @@ const harness = vi.hoisted(() => ({
   createConversation: vi.fn(),
   startDirectConversation: vi.fn(),
   refreshConversations: vi.fn().mockResolvedValue(undefined),
+  updateConversationFavorite: vi.fn().mockResolvedValue(undefined),
   launchCall: vi.fn(),
   publishRealtimeEvent: vi.fn(),
   callSessionState: null as { joined: boolean } | null,
@@ -203,7 +204,8 @@ vi.mock("../../app/workspace-data", () => ({
     setConversations: harness.setConversations,
     createConversation: harness.createConversation,
     startDirectConversation: harness.startDirectConversation,
-    refreshConversations: harness.refreshConversations
+    refreshConversations: harness.refreshConversations,
+    updateConversationFavorite: harness.updateConversationFavorite
   })
 }));
 
@@ -328,6 +330,7 @@ export function resetChatPageHarness() {
       status: "active"
     }
   ];
+  harness.updateConversationFavorite.mockReset().mockResolvedValue(undefined);
   harness.createConversation.mockReset();
   harness.startDirectConversation.mockReset();
   harness.markRead.mockReset().mockResolvedValue({});

@@ -1,4 +1,4 @@
-import type { CallCredential } from "../../types";
+import type { CallCredential, Session } from "../../types";
 
 export type PhoneCallStatus = "ringing" | "answered" | "declined" | "busy" | "no_answer" | "cancelled" | "failed" | "ended";
 
@@ -125,4 +125,20 @@ export function phoneDurationLabel(call: PhoneCall): string {
 
 export function otherPhoneNumber(call: PhoneCall): string {
   return call.direction === "inbound" ? call.from_number : call.to_number;
+}
+
+/** Remove presentation separators only; never guess a country code or extension. */
+export function normalizePhoneDestination(input: string): string | null {
+  const value = input.trim();
+  if (value.length > 40 || !/^\+[0-9 ()\-.\u00a0\u202f]+$/.test(value) || /\(0\)/.test(value)) return null;
+  const normalized = value.replace(/[ ()\-.\u00a0\u202f]/g, "");
+  return /^\+[1-9]\d{7,14}$/.test(normalized) ? normalized : null;
+}
+
+export function phoneIdentityKey(session: Session | null | undefined): string {
+  return [session?.tenant.id, session?.tenant.status, session?.user.id, session?.device.id, session?.user.access_scope, session?.user.status, session?.user.account_type, session?.user.role, session?.user.version, session?.device.revoked_at, session?.access_token, session?.refresh_token].join(":");
+}
+
+export function phoneAuthorityLost(reason: unknown): boolean {
+  return Boolean(reason && typeof reason === "object" && "status" in reason && [401, 403, 404].includes(Number(reason.status)));
 }

@@ -10,10 +10,13 @@ const appHarness = vi.hoisted(() => ({
   workspaceLoads: vi.fn()
 }));
 
-vi.mock("./app/session", () => ({
-  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
-  useSession: () => ({ session: appHarness.session, transportPolicyReady: appHarness.transportPolicyReady })
-}));
+vi.mock("./app/session", async () => {
+  const { createContext, useContext } = await import("react");
+  const value = () => ({ session: appHarness.session, transportPolicyReady: appHarness.transportPolicyReady });
+  const context = createContext(value());
+  return { SessionProvider: ({ children }: { children: React.ReactNode }) => <context.Provider value={value()}>{children}</context.Provider>,
+    useSession: () => useContext(context) };
+});
 vi.mock("./app/workspace-data", () => ({ WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => {
   appHarness.workspaceLoads(); return children;
 } }));
@@ -109,14 +112,14 @@ describe("installed-client public shell", () => {
     expect(window.location.pathname).toBe("/");
   });
 
-  it("keeps narrow and short installed guest titlebars identity-free with real app Help", () => {
+  it("keeps narrow and short installed guest titlebars identity-free with real app Help", async () => {
     windowControlsOverlay(true);
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 480 });
     appHarness.session = member;
     window.history.replaceState({ idx: 0, key: "overlay-guest" }, "", "/join#guest=synthetic-bearer");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Guest join" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Guest join" })).toBeVisible();
     expect(screen.getAllByRole("menubar", { name: "Application menu" })).toHaveLength(1);
     for (const privateValue of ["synthetic-bearer", "Private member name", "Private workspace name"]) {
       expect(document.body).not.toHaveTextContent(privateValue);
@@ -166,7 +169,7 @@ describe("installed-client public shell", () => {
     appHarness.session = member;
     window.history.replaceState({ idx: 0, key: "guest" }, "", "/join#guest=synthetic-bearer");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Guest join" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Guest join" })).toBeVisible();
     await intent("open-help");
     expect(screen.getByRole("dialog", { name: "K-Comms" })).toBeVisible();
     expect(screen.getByText("Unsigned desktop evaluation. Automatic updates are off.")).toBeVisible();

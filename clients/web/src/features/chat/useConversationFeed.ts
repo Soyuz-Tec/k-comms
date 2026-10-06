@@ -107,6 +107,8 @@ export function useConversationFeed({
 
   const updateLoadedMessage = useCallback((updated: Message) => {
     if (updated.conversation_id !== activeConversationIdRef.current) return;
+    setConversations(current => current.map(conversation => conversation.inbox?.message?.id === updated.id
+      ? { ...conversation, inbox: { ...conversation.inbox, message: null } } : conversation));
     // A thread can load history outside the transcript's current window.
     // Mutations must not insert that history, advance cursors or count new mail.
     setMessages((current) => current.some((message) => message.id === updated.id)
@@ -119,7 +121,7 @@ export function useConversationFeed({
             : updated;
         })
       : current);
-  }, [setMessages]);
+  }, [setConversations, setMessages]);
 
   const updateConversationSummaries = useCallback(
     (incoming: Message[]) => {
@@ -135,7 +137,11 @@ export function useConversationFeed({
           activeConversationIdRef.current,
           document.visibilityState === "visible" &&
             nearBottomRef.current
-        )
+        ).map(conversation => incoming.some(message =>
+          message.conversation_id === conversation.id &&
+          (message.id === conversation.inbox?.message?.id ||
+            (!message.thread_root_message_id && message.conversation_sequence > (conversation.inbox?.message?.sequence ?? 0)))
+        ) ? { ...conversation, inbox: conversation.inbox ? { ...conversation.inbox, message: null } : null } : conversation)
       );
     },
     [session?.user.id, setConversations]

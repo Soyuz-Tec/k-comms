@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phoneNumberInputError, phoneReadiness } from "./types";
+import { normalizePhoneDestination, phoneNumberInputError, phoneReadiness } from "./types";
 import type { PhoneConfiguration, PhoneNumberInput } from "./types";
 
 const number = { id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1" };
@@ -7,6 +7,14 @@ const configuration: PhoneConfiguration = { enabled: true, configured: false, pr
 const validInput: PhoneNumberInput = { phone_number: number.phone_number, extension: "101", user_id: number.user_id, inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out", reason: "Assign pilot phone line" };
 
 describe("phone readiness and setup boundaries", () => {
+  it.each(["+1 (415) 555-0123", "+1.415.555.0123", " +1\u00a0415\u202f5550123 "])("normalizes presentation separators in %s", input => {
+    expect(normalizePhoneDestination(input)).toBe("+14155550123");
+  });
+
+  it.each(["4155550123", "0014155550123", "+14155550123 ext 5", "+14155550123,5", "+14155550123#5", "+44 (0)20 7946 0000", "+00012345678", "+14155550123\n5", "+1234567890123456"])("does not guess or silently change ambiguous destination %s", input => {
+    expect(normalizePhoneDestination(input)).toBeNull();
+  });
+
   it("does not mistake an unassigned line for missing provider configuration", () => {
     expect(phoneReadiness(configuration)).toMatchObject({ state: "unassigned", providerReady: true, lineAssigned: false, canCall: false });
     expect(phoneReadiness({ ...configuration, enabled: false })).toMatchObject({ state: "disabled", canCall: false });

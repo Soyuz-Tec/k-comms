@@ -954,6 +954,15 @@ paths:
       operationId: listConversations
       security:
       - bearerAuth: []
+      parameters:
+      - name: include
+        in: query
+        schema:
+          type: string
+          enum: [inbox]
+        description: Include main-timeline previews for the first 500 current conversations. Workspace humans only;
+          each message or own unexpired draft excerpt is bounded to 200 characters. Private encrypted rooms,
+          removed message bodies, attachment metadata and guest history are excluded.
       responses:
         '200':
           description: Conversations visible to the current user
@@ -975,6 +984,57 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/v1/conversations/{conversationId}/favorite:
+    put:
+      tags: [Conversations]
+      operationId: setConversationFavorite
+      summary: Set the current member's synchronized conversation favorite
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [favorite]
+              additionalProperties: false
+              properties:
+                favorite:
+                  type: boolean
+      responses:
+        '200':
+          description: Idempotent preference saved to the current active membership; concurrent writes use last writer wins
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [conversation_id, favorite]
+                    properties:
+                      conversation_id:
+                        type: string
+                        format: uuid
+                      favorite:
+                        type: boolean
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
@@ -1380,6 +1440,29 @@ paths:
           - active
           - missed
           default: all
+      - name: q
+        in: query
+        description: Literal substring of the other party's number in authorized retained history. Phone presentation separators are ignored. Caller ID is display data, not authenticated identity.
+        schema:
+          type: string
+          maxLength: 80
+      - name: direction
+        in: query
+        schema:
+          type: string
+          enum: [all, inbound, outbound]
+      - name: from
+        in: query
+        description: Inclusive call start date in UTC. Must not be later than to.
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        description: Inclusive call start date in UTC.
+        schema:
+          type: string
+          format: date
       - name: limit
         in: query
         schema:
@@ -1653,6 +1736,30 @@ paths:
           enum:
           - audio
           - video
+      - name: conversation_id
+        in: query
+        description: Restrict results to this currently authorized conversation before pagination.
+        schema:
+          type: string
+          format: uuid
+      - name: started_by_user_id
+        in: query
+        description: Restrict currently authorized room sessions to this starter. This does not grant access to that person's other calls.
+        schema:
+          type: string
+          format: uuid
+      - name: after
+        in: query
+        description: Inclusive lower bound on the call start instant. Must be earlier than before when both are supplied.
+        schema:
+          type: string
+          format: date-time
+      - name: before
+        in: query
+        description: Exclusive upper bound on the call start instant.
+        schema:
+          type: string
+          format: date-time
       - name: limit
         in: query
         schema:
@@ -12314,6 +12421,13 @@ components:
               type: boolean
             push_notifications:
               type: boolean
+            private_rooms:
+              type: boolean
+              description: Read-only deployment configuration preflight for encrypted private-room setup. False
+                unless secure account actions, room creation, client provisioning, a configured HTTPS identity
+                provider and installed provisioning/control adapters are available. True does not establish
+                live provider health, enrollment success or cryptographic qualification. Clients must fail
+                closed when this optional capability is absent or unknown.
             realtime:
               type: boolean
             secure_account_actions:
@@ -14655,6 +14769,45 @@ components:
           $ref: '#/components/schemas/Conversation'
         created:
           type: boolean
+    ConversationInboxPreview:
+      type: [object, 'null']
+      required: [message, draft]
+      properties:
+        message:
+          type: [object, 'null']
+          required: [id, sequence, sender_user_id, sender_display_name, status, excerpt, inserted_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+            sequence:
+              type: integer
+              minimum: 1
+            sender_user_id:
+              type: string
+              format: uuid
+            sender_display_name:
+              type: string
+            status:
+              type: string
+              enum: [active, deleted, moderated]
+            excerpt:
+              type: string
+              maxLength: 200
+              description: Empty for removed messages or an attachment-only message; no file metadata is included
+            inserted_at:
+              type: string
+              format: date-time
+        draft:
+          type: [object, 'null']
+          required: [excerpt, expires_at]
+          properties:
+            excerpt:
+              type: string
+              maxLength: 200
+            expires_at:
+              type: string
+              format: date-time
     Conversation:
       type: object
       required:
@@ -14671,6 +14824,11 @@ components:
       - inserted_at
       - updated_at
       properties:
+        favorite:
+          type: boolean
+          description: The requesting member's durable preference; absent on shared projections
+        inbox:
+          $ref: '#/components/schemas/ConversationInboxPreview'
         content_mode:
           type: string
           enum:
@@ -18384,6 +18542,11 @@ components:
           type: string
           format: uuid
         call_id: *id046
+        caller_number:
+          description: Other party's caller ID from the voicemail's tenant-bound call. Display data only, never an authenticated identity; null if the call is no longer retained.
+          type:
+          - string
+          - 'null'
         status:
           type: string
           enum:

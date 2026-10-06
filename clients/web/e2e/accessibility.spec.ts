@@ -225,7 +225,7 @@ test("files satisfies automated WCAG A and AA checks", async ({ page }) => {
 test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await page.goto("/app/you");
-  await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You", exact: true })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -411,7 +411,7 @@ async function installAuthenticatedMocks(
   await page.route("**/api/v1/channels/discover**", (route) => route.fulfill({
     json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
   }));
-  await page.route("**/api/v1/conversations", (route) => {
+  await page.route("**/api/v1/conversations?include=inbox", (route) => {
     if (options.workspaceError) return route.fulfill({ status: 503, json: { error: { code: "unavailable", detail: "Synthetic workspace refresh failure" } } });
     return route.fulfill({ json: { data: options.populated ? [conversation] : [] } });
   });

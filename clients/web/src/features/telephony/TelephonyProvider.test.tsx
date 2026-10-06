@@ -30,7 +30,7 @@ vi.mock("./phoneMedia", () => ({ PhoneMedia: class {
 
 function Controls() {
   const phone = useTelephony();
-  return <><button onClick={() => void phone.dial("+14155550199")}>Dial test</button><output aria-label="Phone error">{phone.error}</output></>;
+  return <><button onClick={() => void phone.dial("+14155550199")}>Dial test</button><output aria-label="Phone error">{phone.error}</output><output aria-label="Phone line">{phone.configuration?.number?.phone_number || "Unavailable"}</output></>;
 }
 function mount() { return render(<MemoryRouter><TelephonyProvider><Controls /></TelephonyProvider></MemoryRouter>); }
 
@@ -197,6 +197,16 @@ describe("persistent phone controls", () => {
     await waitFor(() => expect(harness.disconnect).toHaveBeenCalled());
     expect(phoneMediaIsBusy()).toBe(false);
     expect(screen.queryByRole("region", { name: "Current phone call" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Phone line")).toHaveTextContent("Unavailable");
+  });
+
+  it("clears the retained line when refreshing configuration loses authority", async () => {
+    mount();
+    await waitFor(() => expect(screen.getByLabelText("Phone line")).toHaveTextContent(configuration.number!.phone_number));
+    harness.api.phoneConfiguration.mockRejectedValueOnce(new ApiError(403, "forbidden", "Phone assignment access revoked"));
+    fireEvent.focus(window);
+    await waitFor(() => expect(screen.getByLabelText("Phone line")).toHaveTextContent("Unavailable"));
+    expect(screen.getByLabelText("Phone error")).toHaveTextContent("Phone assignment access revoked");
   });
 
   it("reconnects audio on the same claimed device without redialing a PSTN leg", async () => {

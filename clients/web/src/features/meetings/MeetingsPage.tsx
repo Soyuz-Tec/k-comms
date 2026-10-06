@@ -10,7 +10,7 @@ import { conversationTitle, errorText } from "../../lib/format";
 import type { Conversation } from "../../types";
 import type { Meeting, MeetingInput, MeetingOccurrence } from "../../types/meetings";
 import { useCallSession } from "../calls/CallSessionProvider";
-import { dateInTimezone, meetingInput, monthDays, monthQuery, systemTimezone, validateMeeting } from "./meetingCalendar";
+import { dateInTimezone, meetingInput, monthDays, monthQuery, upcomingQuery, systemTimezone, validateMeeting } from "./meetingCalendar";
 import "./meetings.css";
 import { MeetingCalendarExport } from "../calendar-sync/MeetingCalendarExport";
 
@@ -23,6 +23,11 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function MeetingsPage() {
   const { api, session } = useSession();
+  const authority = `${session?.tenant.id || ""}:${session?.user.id || ""}`;
+  const currentAuthority = useRef(authority);
+  currentAuthority.current = authority;
+  const currentApi = useRef(api);
+  currentApi.current = api;
   const { conversations, capabilities, audioCallsAvailable, videoCallsAvailable, loading: workspaceLoading } = useWorkspaceData();
   const { launchCall } = useCallSession();
   const [params, setParams] = useSearchParams();
@@ -36,19 +41,23 @@ export function MeetingsPage() {
   const [timezone] = useState(systemTimezone);
   const [month, setMonth] = useState(() => dateInTimezone(new Date().toISOString(), timezone).slice(0, 7));
   const [view, setView] = useState<"list" | "calendar">("list");
+  const [agendaRange, setAgendaRange] = useState<"upcoming" | "month">("upcoming");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [savedMeeting, setSavedMeeting] = useState<Meeting | null>(null);
   const [editor, setEditor] = useState<Meeting | "new" | null>(null);
   const [cancelling, setCancelling] = useState<Meeting | null>(null);
   const [saving, setSaving] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const generation = useRef(0);
-  const query = useMemo(() => monthQuery(month, timezone), [month, timezone]);
+  const upcoming = view === "list" && agendaRange === "upcoming";
+  const query = useMemo(() => upcoming ? upcomingQuery() : monthQuery(month, timezone), [month, timezone, upcoming, refresh]);
   const activeConversations = conversations.filter((conversation) => !conversation.archived_at);
   const conversationById = new Map(conversations.map((conversation) => [conversation.id, conversation]));
   const videoEnabled = !workspaceLoading && capabilities?.allow_video_calls === true && videoCallsAvailable;
@@ -56,18 +65,23 @@ export function MeetingsPage() {
   const meetingKind = videoEnabled ? "video" : "audio";
 
   useEffect(() => {
+    setSavedMeeting(null); setNotice(null); setEditor(null); setCancelling(null); setSaving(false); setDownloadingId(null); setActionError(null);
+  }, [api, session?.user.id, session?.tenant.id]);
+
+  useEffect(() => {
     const requestGeneration = ++generation.current;
     setLoading(true);
     setLoadError(null);
-    void api.meetings(query).then((next) => {
-      if (requestGeneration === generation.current) setMeetings(next);
+    setTruncated(false);
+    void api.meetingsPage(query).then((next) => {
+      if (requestGeneration === generation.current && api === currentApi.current && authority === currentAuthority.current) { setMeetings(next.data); setTruncated(next.meta?.truncated === true); }
     }).catch((reason: unknown) => {
-      if (requestGeneration === generation.current) setLoadError(errorText(reason));
+      if (requestGeneration === generation.current && api === currentApi.current && authority === currentAuthority.current) { setMeetings([]); setSavedMeeting(null); setLoadError(errorText(reason)); }
     }).finally(() => {
-      if (requestGeneration === generation.current) setLoading(false);
+      if (requestGeneration === generation.current && api === currentApi.current && authority === currentAuthority.current) setLoading(false);
     });
     return () => { generation.current += 1; };
-  }, [api, query, refresh]);
+  }, [api, authority, query, refresh]);
 
   useEffect(() => {
     const generation = ++linkGeneration.current;
@@ -79,22 +93,22 @@ export function MeetingsPage() {
     }
     setLinkLoading(true);
     void api.getMeeting(requestedMeeting).then(meeting => {
-      if (generation !== linkGeneration.current) return;
+      if (generation !== linkGeneration.current || api !== currentApi.current || authority !== currentAuthority.current) return;
       if (meeting.id.toLowerCase() !== requestedMeeting.toLowerCase()) throw new Error("The requested meeting could not be verified.");
       const occurrence = requestedOccurrence
         ? meeting.occurrences.find(item => item.id.toLowerCase() === requestedOccurrence.toLowerCase())
         : meeting.occurrences.find(item => Date.parse(item.ends_at) > Date.now()) || meeting.occurrences[0];
       if (!occurrence) throw new Error("The selected meeting occurrence is unavailable.");
       const day = dateInTimezone(occurrence.starts_at, timezone);
-      setMonth(day.slice(0, 7)); setSelectedDay(day); setView("list");
+      setMonth(day.slice(0, 7)); setAgendaRange("month"); setSelectedDay(day); setView("list");
       setLinkedMeeting(meeting); setLinkedOccurrence(occurrence.id);
     }).catch((reason: unknown) => {
-      if (generation === linkGeneration.current) setLinkError(errorText(reason));
+      if (generation === linkGeneration.current && api === currentApi.current && authority === currentAuthority.current) setLinkError(errorText(reason));
     }).finally(() => {
-      if (generation === linkGeneration.current) setLinkLoading(false);
+      if (generation === linkGeneration.current && api === currentApi.current && authority === currentAuthority.current) setLinkLoading(false);
     });
     return () => { linkGeneration.current += 1; };
-  }, [api, requestedMeeting, requestedOccurrence, timezone, refresh]);
+  }, [api, authority, requestedMeeting, requestedOccurrence, timezone, refresh]);
 
   const rows = useMemo(() => (linkedMeeting ? [...meetings.filter(meeting => meeting.id !== linkedMeeting.id), linkedMeeting] : meetings).flatMap((meeting) => meeting.occurrences
     .filter((occurrence) => Date.parse(occurrence.starts_at) >= Date.parse(query.from) && Date.parse(occurrence.starts_at) < Date.parse(query.to))
@@ -102,7 +116,7 @@ export function MeetingsPage() {
     .sort((left, right) => left.occurrence.starts_at.localeCompare(right.occurrence.starts_at)), [meetings, linkedMeeting, query]);
   const visibleRows = selectedDay
     ? rows.filter(({ occurrence }) => dateInTimezone(occurrence.starts_at, timezone) === selectedDay)
-    : rows;
+    : upcoming ? rows.filter(({ meeting, occurrence }) => meeting.status !== "cancelled" && occurrence.status !== "cancelled" && Date.parse(occurrence.ends_at) > Date.now()) : rows;
   const upcomingRows = rows.filter(({ meeting, occurrence }) => meeting.status !== "cancelled" && occurrence.status !== "cancelled" && Date.parse(occurrence.ends_at) > Date.now());
   const nextMeeting = upcomingRows[0];
   const inProgressCount = upcomingRows.filter(({ occurrence }) => Date.parse(occurrence.starts_at) <= Date.now()).length;
@@ -113,6 +127,7 @@ export function MeetingsPage() {
   function focusNextMeeting() {
     if (!nextMeeting) return;
     setView("list");
+    if (view === "calendar") setAgendaRange("month");
     setSelectedDay(null);
     window.requestAnimationFrame(() => document.getElementById(`meeting-${nextMeeting.occurrence.id}`)?.focus());
   }
@@ -123,18 +138,18 @@ export function MeetingsPage() {
     setSaving(true);
     setActionError(null);
     try {
-      if (editor && editor !== "new") {
-        await api.updateMeeting(editor.id, { ...input, expected_version: editor.version });
-      } else {
-        await api.createMeeting(conversationId, input);
-      }
+      const saved = editor && editor !== "new"
+        ? await api.updateMeeting(editor.id, { ...input, expected_version: editor.version })
+        : await api.createMeeting(conversationId, input);
+      if ((api !== currentApi.current || authority !== currentAuthority.current)) return;
+      setSavedMeeting(saved);
       setEditor(null);
       setNotice(editor === "new" ? "Meeting scheduled." : "Meeting updated.");
       setRefresh((value) => value + 1);
     } catch (reason: unknown) {
-      setActionError(errorText(reason));
+      if ((api === currentApi.current && authority === currentAuthority.current)) setActionError(errorText(reason));
     } finally {
-      setSaving(false);
+      if ((api === currentApi.current && authority === currentAuthority.current)) setSaving(false);
     }
   }
 
@@ -144,13 +159,15 @@ export function MeetingsPage() {
     setActionError(null);
     try {
       await api.cancelMeeting(cancelling.id, cancelling.version);
+      if ((api !== currentApi.current || authority !== currentAuthority.current)) return;
       setCancelling(null);
+      setSavedMeeting(null);
       setNotice("Meeting cancelled. Download the updated invitation to update your calendar.");
       setRefresh((value) => value + 1);
     } catch (reason: unknown) {
-      setActionError(errorText(reason));
+      if ((api === currentApi.current && authority === currentAuthority.current)) setActionError(errorText(reason));
     } finally {
-      setSaving(false);
+      if ((api === currentApi.current && authority === currentAuthority.current)) setSaving(false);
     }
   }
 
@@ -159,6 +176,7 @@ export function MeetingsPage() {
     setActionError(null);
     try {
       const ics = await api.meetingCalendar(meeting.id);
+      if ((api !== currentApi.current || authority !== currentAuthority.current)) return;
       const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -168,9 +186,23 @@ export function MeetingsPage() {
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (reason: unknown) {
-      setActionError(errorText(reason));
+      if ((api === currentApi.current && authority === currentAuthority.current)) setActionError(errorText(reason));
     } finally {
-      setDownloadingId(null);
+      if ((api === currentApi.current && authority === currentAuthority.current)) setDownloadingId(null);
+    }
+  }
+
+  async function copyMemberLink(meeting: Meeting, occurrence?: MeetingOccurrence) {
+    setActionError(null);
+    try {
+      const query = new URLSearchParams({ meeting: meeting.id });
+      if (occurrence) query.set("occurrence", occurrence.id);
+      await navigator.clipboard.writeText(`${window.location.origin}/app/meetings?${query.toString()}`);
+      if ((api !== currentApi.current || authority !== currentAuthority.current)) return;
+      setNotice("Meeting link copied. Only people with access to this conversation can open it.");
+    } catch {
+      if ((api !== currentApi.current || authority !== currentAuthority.current)) return;
+      setActionError("The meeting link could not be copied. Download the invitation to share it instead.");
     }
   }
 
@@ -188,30 +220,34 @@ export function MeetingsPage() {
     </>} />
     {!workspaceLoading && activeConversations.length === 0 && <p role="note">Create or join a conversation in <Link to="/app/">Inbox</Link> to schedule a meeting.</p>}
     <div className="meetings-toolbar">
-      <label className="field">Month<input type="month" value={month} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setMonth(event.target.value); setSelectedDay(null); } }} /></label>
+      <label className="field">Month<input type="month" value={month} onChange={(event) => { if (/^\d{4}-\d{2}$/.test(event.target.value)) { setMonth(event.target.value); setAgendaRange("month"); setSelectedDay(null); } }} /></label>
       <div className="member-segmented-control" role="group" aria-label="Meeting view">
         <button type="button" aria-pressed={view === "list"} onClick={() => { setView("list"); setSelectedDay(null); }}>Agenda</button>
         <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Calendar</button>
       </div>
+      {view === "list" && <label className="field">Agenda range<select value={agendaRange} onChange={event => { setAgendaRange(event.target.value as "upcoming" | "month"); setSelectedDay(null); }}><option value="upcoming">Next 90 days</option><option value="month">Selected month</option></select></label>}
       <span>Calendar time zone: {timezone}</span>
-      {!loading && !loadError && nextMeeting && <span className="status-pill neutral">{inProgressCount > 0 && `${inProgressCount} in progress · `}{upcomingRows.length - inProgressCount} upcoming this month</span>}
+      {!loading && !loadError && nextMeeting && <span className="status-pill neutral">{inProgressCount > 0 && `${inProgressCount} in progress · `}{upcomingRows.length - inProgressCount} upcoming {upcoming ? "in the next 90 days" : "this month"}</span>}
       {!loading && !loadError && !showNextSummary && nextAgendaIndex > 0 && <button className="button ghost" type="button" onClick={focusNextMeeting}>{nextInProgress ? "View current meeting" : "View next meeting"}</button>}
       <button className="button ghost" type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh meetings</button>
     </div>
     {notice && <p className="inline-notice" role="status">{notice}</p>}
+    {savedMeeting && <section className="meeting-saved surface-card" aria-label="Meeting sharing"><div><strong>{savedMeeting.title}</strong><p>Conversation members can see this meeting. Share its link or download the invitation to invite them. Email invitations are not sent automatically.</p><p>Connected calendars add this meeting to your own calendar.</p></div><div className="meeting-row-actions"><button className="button primary compact" type="button" onClick={() => void copyMemberLink(savedMeeting)}>Copy member meeting link</button><button className="button ghost compact" type="button" disabled={downloadingId === savedMeeting.id} onClick={() => void downloadInvitation(savedMeeting)}>Download calendar invitation</button><button className="button ghost compact" type="button" onClick={() => setSavedMeeting(null)}>Dismiss sharing details</button></div></section>}
     {linkLoading && <p role="status">Opening the selected meeting…</p>}
     {linkError && <p className="inline-notice error" role="alert">{linkError}</p>}
     {linkedMeeting && <p className="inline-notice" role="status">Selected meeting: {linkedMeeting.title} <button className="button ghost compact" type="button" onClick={() => { const next = new URLSearchParams(params); next.delete("meeting"); next.delete("occurrence"); setParams(next); setSelectedDay(null); }}>Show all meetings</button></p>}
     {actionError && !editor && !cancelling && <p className="inline-notice error" role="alert">{actionError}</p>}
     {loadError && <div className="inline-notice error" role="alert"><span>{loadError}</span><button type="button" onClick={() => setRefresh((value) => value + 1)}>Try again</button></div>}
     {loading ? <p className="member-status-view" role="status">Loading meetings…</p> : !loadError && <>
+      {truncated && <p className="inline-notice" role="status">This date range contains more meetings than can be shown. Choose a month to narrow the agenda; counts cover the displayed results.</p>}
       {showNextSummary && nextMeeting && <section className="meetings-next surface-card" aria-labelledby="meetings-next-heading">
         <div><h2 id="meetings-next-heading">{nextInProgress ? "In progress" : "Up next"}</h2><strong>{nextMeeting.meeting.title}</strong><p><time dateTime={nextMeeting.occurrence.starts_at}>{formatMeetingTime(nextMeeting.occurrence.starts_at, timezone)}</time> · {nextMeeting.meeting.duration_minutes} minutes</p>{nextInProgress && <p>The scheduled meeting time is underway.</p>}</div>
         <div className="meetings-next-actions"><button className="button ghost" type="button" onClick={focusNextMeeting}>{nextInProgress ? "View current meeting" : "View next meeting"}</button></div>
       </section>}
+      {visibleRows.some(({ meeting, occurrence }) => meeting.status !== "cancelled" && Date.parse(occurrence.ends_at) > Date.now()) && <p className="meeting-join-context">Join as <strong>{session.user.display_name || "your signed-in account"}</strong>. Review your microphone and camera in the lobby before connecting.</p>}
       {view === "calendar" && <MeetingCalendar month={month} timezone={timezone} rows={rows} selectedDay={selectedDay} onSelect={setSelectedDay} />}
       {selectedDay && <div className="meetings-day-heading"><h2>Meetings on {selectedDay}</h2><button className="button ghost" type="button" onClick={() => setSelectedDay(null)}>Show all days</button></div>}
-      {visibleRows.length === 0 ? <div className="surface-empty"><strong>{selectedDay ? "No meetings on this day." : "No meetings scheduled this month."}</strong><p>Schedule a meeting with an existing conversation or choose another month.</p></div> : <ol className="meetings-list" aria-label="Scheduled meetings">
+      {visibleRows.length === 0 ? <div className="surface-empty"><strong>{selectedDay ? "No meetings on this day." : upcoming ? "No upcoming meetings in the next 90 days." : "No meetings scheduled this month."}</strong><p>Schedule a meeting with your conversation, or choose a month to see earlier meetings.</p></div> : <ol className="meetings-list" aria-label="Scheduled meetings">
         {visibleRows.map(({ meeting, occurrence }) => {
           const conversation = conversationById.get(meeting.conversation_id);
           const cancelled = meeting.status === "cancelled" || occurrence.status === "cancelled";
@@ -236,6 +272,7 @@ export function MeetingsPage() {
             <div className="meeting-row-actions">
               {conversation && <Link className="button ghost compact" to={`/app/?${new URLSearchParams({ conversation: conversation.id }).toString()}`}>Open conversation</Link>}
               {!cancelled && !ended && <button className="button primary compact" type="button" disabled={!canJoin} title={!joinWindowOpen ? "The lobby opens 15 minutes before the meeting." : waitingForHost ? "Waiting for the host to join." : canJoin ? `Open ${meetingKind} meeting lobby` : "Calling is unavailable. Check availability from Calls."} onClick={() => launchMeeting(meeting, occurrence)}>{meeting.host_user_id === session.user.id ? "Start meeting" : "Join meeting"}</button>}
+              {!cancelled && <button className="button ghost compact" type="button" onClick={() => void copyMemberLink(meeting, occurrence)}>Copy meeting link</button>}
               <button className="button ghost compact" type="button" disabled={downloadingId === meeting.id} onClick={() => void downloadInvitation(meeting)}>{downloadingId === meeting.id ? "Downloading…" : "Download invitation"}</button>
               {meeting.can_manage && !cancelled && <>
                 <button className="button ghost compact" type="button" onClick={() => { setEditor(meeting); setActionError(null); }}>Edit {meeting.recurrence.count > 1 ? "series" : "meeting"}</button>
@@ -320,6 +357,8 @@ function MeetingEditor({ meeting, conversations, busy, error, onClose, onSave }:
       <fieldset disabled={busy}>
         <label className="field">Title<input data-initial-focus required maxLength={200} value={input.title} onChange={(event) => change("title", event.target.value)} /></label>
         <label className="field"><span id={`${formId}-conversation`}>Conversation</span><select aria-labelledby={`${formId}-conversation`} required disabled={Boolean(meeting)} value={conversationId} onChange={(event) => setConversationId(event.target.value)}><option value="">Choose a conversation</option>{meeting && !conversations.some((conversation) => conversation.id === meeting.conversation_id) && <option value={meeting.conversation_id}>Meeting conversation</option>}{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationTitle(conversation)}</option>)}</select></label>
+        <p className="meeting-form-help">Everyone in the selected conversation can see this meeting. After scheduling, share the member meeting link or calendar invitation. Email invitations are not sent automatically; connected calendars update your own calendar.</p>
+        {meeting && meeting.recurrence.count > 1 && <p className="inline-notice">Changes apply to every occurrence in this series.</p>}
         <div className="meeting-form-grid">
           <label className="field">Local start date and time<input type="datetime-local" required value={input.local_start} onChange={(event) => change("local_start", event.target.value)} /></label>
           <label className="field"><span id={`${formId}-timezone`}>Time zone</span><input aria-labelledby={`${formId}-timezone`} required list="meeting-timezones" value={input.timezone} onChange={(event) => change("timezone", event.target.value)} placeholder="America/New_York" /><datalist id="meeting-timezones">{[...new Set([systemTimezone(), "UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Kolkata", "Asia/Tokyo", "Australia/Sydney"])].map((zone) => <option key={zone} value={zone} />)}</datalist></label>

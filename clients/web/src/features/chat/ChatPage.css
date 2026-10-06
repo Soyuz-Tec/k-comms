@@ -317,3 +317,12 @@
     height: 44px;
   }
 }
+
+/* Keep the favorite action a sibling of the conversation link for keyboard access. */
+.conversation-list-item { position: relative; min-width: 0; }
+.conversation-list-item .conversation-row { padding-right: 42px; }
+.conversation-favorite { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 36px; min-height: 44px; font-size: 20px; color: var(--text-muted); }
+.conversation-favorite[aria-pressed="true"] { color: var(--accent-text); }
+.conversation-copy .conversation-summary-line { text-transform: none; }
+.conversation-copy .conversation-summary-line.has-draft { color: var(--accent-text); }
+.inbox-segments { flex-wrap: wrap; }

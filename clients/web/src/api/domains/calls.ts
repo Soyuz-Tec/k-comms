@@ -10,6 +10,9 @@ export function createCallsApi(request: ApiRequest) {
         });
         if (options.media_kind) query.set("media_kind", options.media_kind);
         if (options.cursor) query.set("cursor", options.cursor);
+        for (const key of ["conversation_id", "started_by_user_id", "after", "before"] as const) {
+          if (options[key]) query.set(key, options[key]);
+        }
         return request(`/api/v1/calls?${query.toString()}`);
       },
 

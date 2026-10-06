@@ -193,6 +193,7 @@ contexts:
       - edit_message/3
       - get_draft/3
       - get_thread/4
+      - inbox_summaries/2
       - list_delivery_cursors/2
       - list_history/3
       - list_history_page/3
@@ -296,6 +297,7 @@ contexts:
       - preview_ephemeral_room/1
       - preview_guest_link/1
       - private_room/2
+      - put_favorite/3
       - put_federation_trust/2
       - reconcile_ephemeral_room/3
       - reconcile_ephemeral_rooms/1
