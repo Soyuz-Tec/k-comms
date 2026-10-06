@@ -402,10 +402,10 @@ describe("ProductShell", () => {
     const rail = screen.getByRole("navigation", { name: "Workspace shortcuts" });
     const sidebar = screen.getByRole("complementary", { name: "Workspace navigation" });
     expect(within(rail).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
-      "/app/", "/app/calls", "/app/meetings", "/app/documents", "/app/files", "/app/directory"
+      "/app/", "/app/calls", "/app/meetings", "/app/content", "/app/files", "/app/directory"
     ]);
     expect(within(sidebar).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-      "/app/private", "/app/saved", "/app/calls/phone", "/app/artifacts", "/app/whiteboard"
+      "/app/private", "/app/saved", "/app/calls/phone", "/app/artifacts", "/app/documents", "/app/whiteboard"
     ]);
     expect(within(sidebar).getByRole("button", { name: "New instant room" })).toBeVisible();
     expect(screen.getAllByLabelText("Account menu for Taylor Example")).toHaveLength(1);

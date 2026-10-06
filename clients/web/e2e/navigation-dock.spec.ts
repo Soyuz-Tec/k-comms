@@ -98,7 +98,7 @@ for (const width of [1024, 1440]) {
       )).toBe(0);
       expect(await dock.boundingBox()).toMatchObject({ x: 52, width: 48 });
       expect(await workspace.boundingBox()).toEqual(original);
-      await expect(dock.getByRole("link", { name: "Phone", exact: true })).toHaveAttribute("title", "Phone");
+      await expect(dock.getByRole("link", { name: "Shared documents", exact: true })).toHaveAttribute("title", "Shared documents");
       const accessibility = await new AxeBuilder({ page }).include("#workspace-navigation").analyze();
       expect(accessibility.violations).toEqual([]);
     });
@@ -195,7 +195,7 @@ test("dark-mode controls retain a backplate over the white drawing canvas", asyn
   await expect(page.locator(".k-comms-drawing-surface")).toBeVisible();
   const dock = page.locator("#workspace-navigation");
   await expect(dock).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(dock.getByRole("link", { name: "Phone", exact: true })).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(dock.getByRole("link", { name: "Shared documents", exact: true })).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
     await page.screenshot({ path: testInfo.outputPath("whiteboard-dark.png") });
   }

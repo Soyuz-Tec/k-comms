@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { useSession } from "../../app/session";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { errorText } from "../../lib/format";
@@ -40,7 +41,7 @@ function MeetingCalendarExportBody({ meeting }: { meeting: Meeting }) {
       {!["stopping", "removed"].includes(item.status) && <button className="button ghost compact" disabled={busy}
         onClick={() => void act(() => api.resolveCalendarExport(item.id, item.version, "stop_syncing", meeting.version))}>Stop syncing and remove managed events</button>}
     </div>)}
-    {connections.length === 0 && <p>Connect a calendar from your profile to enable export.</p>}
+    {connections.length === 0 && <p>Choose a calendar in <Link to="/app/you?section=calendar">Connected calendars</Link> to enable export.</p>}
     <button className="button ghost compact" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh export status</button>
   </div>;
 }

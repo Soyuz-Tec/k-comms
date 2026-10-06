@@ -28,7 +28,7 @@ export function MeetingArtifactsPage() {
   const valid = uuid.test(conversationId) && uuid.test(callId) && (!artifactId || uuid.test(artifactId));
   const conversation = conversations.find(item => item.id === conversationId);
   return <main id="main-content" className="member-page artifacts-page">
-    <SurfaceHeader title="Meeting recordings and transcripts" description={valid ? undefined : "Find saved meeting content by conversation and call date."} back={referenced ? { to: "/app/artifacts", label: "All recent calls" } : undefined} actions={<Link className="button ghost" to="/app/calls">Calls</Link>} />
+    <SurfaceHeader title="Meeting recordings and transcripts" description={valid ? undefined : "Find saved meeting content by conversation and call date."} back={referenced ? { to: "/app/artifacts", label: "All recent calls" } : { to: "/app/content", label: "Content" }} actions={<Link className="button ghost" to="/app/calls">Calls</Link>} />
     {valid ? <>
       <section className="artifacts-context surface-card" aria-label="Selected call">
         <div><span className="artifacts-eyebrow">Conversation</span><h2>{conversation ? conversationTitle(conversation) : "Selected conversation"}</h2><p>Saved content from this call follows your current membership and workspace retention policy.</p></div>

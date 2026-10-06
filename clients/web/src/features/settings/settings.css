@@ -12,6 +12,8 @@
 .profile-remove-avatar { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; font-size: var(--text-sm); }
 .settings-page .you-role-shortcuts h2 { margin: 0; font-size: var(--text-sm); font-weight: 600; }
 .settings-page .you-role-shortcuts > p { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }
+.settings-calendar-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.settings-calendar-actions .button { min-height: 44px; max-width: 100%; white-space: normal; }
 .enterprise-settings { min-width: 0; }
 .enterprise-settings form { display: grid; min-width: 0; gap: .75rem; margin-top: 1rem; }
 .enterprise-settings .field { min-width: 0; }

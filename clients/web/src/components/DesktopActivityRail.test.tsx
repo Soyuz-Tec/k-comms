@@ -60,7 +60,7 @@ describe("DesktopActivityRail", () => {
     open();
     const rail = screen.getByRole("navigation", { name: "Workspace shortcuts" });
     expect(within(rail).getByRole("link", { name: "Open Inbox" })).toHaveAttribute("aria-current", "page");
-    expect(within(rail).getByRole("link", { name: "Open Shared documents" })).toHaveAttribute("href", "/app/documents");
+    expect(within(rail).getByRole("link", { name: "Open Content" })).toHaveAttribute("href", "/app/content");
     expect(within(rail).getByRole("link", { name: "Open Files" })).toHaveAttribute("href", "/app/files");
     expect(within(rail).getByRole("link", { name: "Open Directory" })).toHaveAttribute("href", "/app/directory");
     await interaction.click(within(rail).getByRole("link", { name: "Open Calls" }));
@@ -80,21 +80,21 @@ describe("DesktopActivityRail", () => {
     }
   );
 
-  it("keeps the calling overview scoped and does not claim the separate Phone destination", () => {
+  it("keeps the Calls parent selected for its Phone destination", () => {
     open(member, "/app/calls/phone?tab=history");
-    expect(screen.getByRole("link", { name: "Open Calls" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Open Calls" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Open Inbox" })).not.toHaveAttribute("aria-current");
   });
 
-  it("retains the current conversation, document and anchor when reopening Shared documents", async () => {
+  it("opens the Content parent from a scoped document", async () => {
     const interaction = userEvent.setup();
     const route = "/app/documents?conversation=room%2Fone&document=notes#paragraph";
     open(member, route);
-    const documents = screen.getByRole("link", { name: "Open Shared documents" });
+    const documents = screen.getByRole("link", { name: "Open Content" });
     expect(documents).toHaveAttribute("aria-current", "page");
-    expect(documents).toHaveAttribute("href", route);
+    expect(documents).toHaveAttribute("href", "/app/content");
     await interaction.click(documents);
-    expect(screen.getByLabelText("Current route")).toHaveTextContent(route);
+    expect(screen.getByLabelText("Current route")).toHaveTextContent("/app/content");
     expect(screen.getByRole("link", { name: "Open Inbox" })).not.toHaveAttribute("aria-current");
   });
 

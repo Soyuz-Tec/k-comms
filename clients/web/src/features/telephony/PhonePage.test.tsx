@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PhonePage } from "./PhonePage";
 import type { PhoneCall, PhoneConfiguration } from "./types";
@@ -38,6 +38,27 @@ describe("Phone page", () => {
     expect(screen.queryByText("47s connected")).not.toBeInTheDocument();
   });
 
+  it("marks Phone active and returns to internet calls without dialing", async () => {
+    render(<MemoryRouter initialEntries={["/app/calls/phone"]}>
+      <Routes>
+        <Route path="/app/calls/phone" element={<PhonePage />} />
+        <Route path="/app/calls" element={<h1>Internet calls destination</h1>} />
+      </Routes>
+    </MemoryRouter>);
+    await screen.findByText("Incoming · Missed");
+
+    const callTypes = screen.getByRole("navigation", { name: "Call types" });
+    expect(within(callTypes).getAllByRole("link")).toHaveLength(2);
+    expect(within(callTypes).getByRole("link", { name: "Phone" })).toHaveAttribute("aria-current", "page");
+    expect(within(callTypes).getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
+    const internetCalls = within(callTypes).getByRole("link", { name: "Internet calls" });
+    expect(internetCalls).not.toHaveAttribute("aria-current");
+    await userEvent.setup().click(internetCalls);
+
+    expect(screen.getByRole("heading", { name: "Internet calls destination" })).toBeVisible();
+    expect(harness.dial).not.toHaveBeenCalled();
+  });
+
   it.each([
     { enabled: false, provider_ready: false, line_assigned: false, title: "Phone service is off" },
     { enabled: true, provider_ready: false, line_assigned: false, title: "Phone provider needs setup" },
@@ -48,6 +69,9 @@ describe("Phone page", () => {
     expect(screen.getByRole("heading", { name: title })).toBeVisible();
     expect(await screen.findByText("Incoming · Missed")).toBeVisible();
     expect(screen.getByRole("button", { name: "Call number" })).toBeDisabled();
+    const callTypes = screen.getByRole("navigation", { name: "Call types" });
+    expect(within(callTypes).getByRole("link", { name: "Internet calls" })).toHaveAttribute("href", "/app/calls");
+    expect(within(callTypes).queryByRole("link", { name: /setup|admin/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Review phone setup" })).toHaveAttribute("href", "/admin?section=phone");
     if (!readiness.enabled) {
       expect(screen.getByText(/Review line assignments in Phone administration/)).toBeVisible();

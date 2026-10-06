@@ -43,7 +43,7 @@ test("Phone explains carrier setup and preserves the five mobile destinations", 
   await installWorkspace(page);
   await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: true } } }));
   await page.goto("/app/calls");
-  await page.getByRole("link", { name: "Phone", exact: true }).click();
+  await page.getByRole("navigation", { name: "Call types", exact: true }).getByRole("link", { name: "Phone", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/calls\/phone$/);
   await expect(page.getByRole("heading", { name: "Phone", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Phone service is off" })).toBeVisible();
@@ -85,7 +85,7 @@ test("incoming phone controls persist across routes and reject without microphon
   await page.goto("/app/calls");
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
   expect(await microphoneRequests(page)).toBe(0);
-  await page.getByRole("link", { name: "Phone", exact: true }).click();
+  await page.getByRole("navigation", { name: "Call types", exact: true }).getByRole("link", { name: "Phone", exact: true }).click();
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
   await page.getByRole("button", { name: "Reject", exact: true }).click();
   await expect.poll(() => rejected).toBe(true);

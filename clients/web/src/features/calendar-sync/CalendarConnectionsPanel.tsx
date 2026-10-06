@@ -63,8 +63,9 @@ function CalendarConnectionsBody() {
   </section>;
 }
 
-export function CalendarConnectionsPanel() {
+export function CalendarConnectionsPanel({ collapsible = true }: { collapsible?: boolean } = {}) {
   const [open, setOpen] = useState(() => new URLSearchParams(window.location.search).get("section") === "calendar");
+  if (!collapsible) return <CalendarConnectionsBody />;
   return <details className="calendar-sync-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Connected calendars</summary>{open && <CalendarConnectionsBody />}
   </details>;

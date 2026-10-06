@@ -57,6 +57,7 @@ const FilesPage = lazy(() =>
   import("./features/files/FilesPage").then(({ FilesPage: page }) => ({ default: page }))
 );
 const DocumentsPage = lazy(() => import("./features/documents/DocumentsPage").then(({ DocumentsPage: page }) => ({ default: page })));
+const ContentPage = lazy(() => import("./features/content/ContentPage").then(({ ContentPage: page }) => ({ default: page })));
 
 const WhiteboardPage = lazy(() =>
   import("./features/whiteboard/WhiteboardPage").then(({ WhiteboardPage: page }) => ({ default: page }))
@@ -183,6 +184,7 @@ function ApplicationRoutes() {
                 <Route path="/app/calls/phone" element={<PhonePage />} />
                 <Route path="/app/directory" element={<DirectoryPage />} />
                 <Route path="/app/files" element={<FilesPage />} />
+                <Route path="/app/content" element={<ContentPage />} />
                 <Route path="/app/whiteboard" element={<WhiteboardPage />} />
                 <Route path="/app/documents" element={<DocumentsPage />} />
                 <Route path="/app/private" element={<PrivateRoomsPage />} />

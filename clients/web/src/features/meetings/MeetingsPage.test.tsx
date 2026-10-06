@@ -55,6 +55,16 @@ describe("MeetingsPage", () => {
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "video", null, { meetingId: "meeting-1", occurrenceId: "occurrence-1" });
   });
 
+  it("keeps connected calendars and recordings reachable beside scheduling", async () => {
+    renderMeetings();
+    await screen.findByRole("heading", { name: "Design review" });
+
+    expect(screen.getByRole("link", { name: "Connected calendars" })).toHaveAttribute("href", "/app/you?section=calendar");
+    expect(screen.getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
+    expect(screen.getByRole("button", { name: "Schedule meeting" })).toBeEnabled();
+    expect(harness.launchCall).not.toHaveBeenCalled();
+  });
+
   it("leads with the agenda and focuses the next eligible occurrence without launching it", async () => {
     const user = userEvent.setup();
     const cancelled = { ...meeting, id: "cancelled", title: "Cancelled planning", status: "cancelled" as const, occurrences: [{ ...meeting.occurrences[0]!, id: "cancelled-occurrence", starts_at: "2026-10-04T09:05:00Z" }] };

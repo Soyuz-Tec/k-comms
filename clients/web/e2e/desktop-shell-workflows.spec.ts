@@ -154,10 +154,13 @@ test("menu keyboard navigation and Help retain focus while shortcut guards prote
   expect(errors).toEqual([]);
 });
 
-test("Shared documents shortcut preserves a deep-linked conversation", async ({ page }) => {
+test("Content keeps shared documents reachable without losing a deep-linked conversation", async ({ page }) => {
   const path = `/app/documents?conversation=${conversationId}`;
   const { state, errors } = await openWorkspace(page, path);
-  const documents = page.getByRole("navigation", { name: "Workspace shortcuts" }).getByRole("link", { name: "Open Shared documents", exact: true });
+  const content = page.getByRole("navigation", { name: "Workspace shortcuts" }).getByRole("link", { name: "Open Content", exact: true });
+  await expect(content).toHaveAttribute("aria-current", "page");
+  await expect(content).toHaveAttribute("href", "/app/content");
+  const documents = page.getByRole("navigation", { name: "Workspace tools", exact: true }).getByRole("link", { name: "Shared documents", exact: true });
   await expect(documents).toHaveAttribute("aria-current", "page");
   await expect(documents).toHaveAttribute("href", path);
   await documents.click();

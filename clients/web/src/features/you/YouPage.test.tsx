@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { memberDestinations } from "../../components/MemberAreaLinks";
 import { YouPage } from "./YouPage";
 
 const harness = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ vi.mock("../settings/SettingsPage", () => ({
         <button type="button" role="tab">Profile</button>
         <button type="button" role="tab">Security</button>
         <button type="button" role="tab">Notifications</button>
+        <button type="button" role="tab">Connected calendars</button>
       </nav>
       {roleTools}
     </main>
@@ -64,7 +66,8 @@ describe("YouPage", () => {
     expect(screen.queryByRole("link", { name: /People & invitations/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Safety review/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Workspace administration/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Administration and operations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace administration" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Service operations" })).not.toBeInTheDocument();
   });
 
   it("keeps role tools out of the member profile", () => {
@@ -75,7 +78,8 @@ describe("YouPage", () => {
     render(<MemoryRouter><YouPage /></MemoryRouter>);
 
     expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
-    expect(screen.queryByRole("navigation", { name: "Administration and operations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Workspace administration" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Service operations" })).not.toBeInTheDocument();
     const sections = screen.getByRole("navigation", { name: "Profile and settings sections" });
     expect(
       screen.getByRole("heading", { name: "You" }).compareDocumentPosition(sections)
@@ -84,16 +88,12 @@ describe("YouPage", () => {
     expect(screen.getByRole("tab", { name: "Profile" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "Security" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "Notifications" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Connected calendars" })).toBeVisible();
     expect(sections).toContainElement(screen.getByRole("tab", { name: "Profile" }));
     const workspace = screen.getByRole("navigation", { name: "Workspace" });
-    expect(workspace).toContainElement(screen.getByRole("link", { name: "Meetings" }));
-    expect(screen.getByRole("link", { name: "Meetings" })).toHaveAttribute("href", "/app/meetings");
-    expect(workspace).toContainElement(screen.getByRole("link", { name: "Saved items" }));
-    expect(screen.getByRole("link", { name: "Saved items" })).toHaveAttribute("href", "/app/saved");
-    expect(workspace).toContainElement(screen.getByRole("link", { name: "Shared documents" }));
-    expect(within(workspace).getByRole("link", { name: "Phone" })).toHaveAttribute("href", "/app/calls/phone");
-    expect(within(workspace).getByRole("link", { name: "Recordings" })).toHaveAttribute("href", "/app/artifacts");
-    expect(within(workspace).getByRole("link", { name: "Private rooms" })).toHaveAttribute("href", "/app/private");
+    for (const destination of memberDestinations.filter(({ mobilePrimary }) => !mobilePrimary)) {
+      expect(within(workspace).getByRole("link", { name: destination.label })).toHaveAttribute("href", destination.path);
+    }
     expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
     expect(screen.queryByText("User", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Role", { exact: true })).not.toBeInTheDocument();
@@ -108,7 +108,8 @@ describe("YouPage", () => {
     const view = render(<MemoryRouter><YouPage /></MemoryRouter>);
 
     expect(screen.queryByRole("navigation", { name: "Workspace" })).not.toBeInTheDocument();
-    expect(screen.getByText("Connected calendars")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Connected calendars" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Connected calendars" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
 
     harness.hasSidebarNavigation = false;
@@ -152,9 +153,23 @@ describe("YouPage", () => {
       "href",
       "/ops"
     );
-    const administration = screen.getByRole("navigation", { name: "Administration and operations" });
+    const administration = screen.getByRole("navigation", { name: "Workspace administration" });
     expect(within(administration).getByRole("link", { name: "Workspace administration" })).toBeVisible();
+    expect(within(administration).queryByRole("link", { name: "Service operations" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Service operations" })).getByRole("link", { name: "Service operations" })).toBeVisible();
     expect(within(administration).queryByRole("link", { name: "Whiteboard" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Workspace" })).queryByRole("link", { name: "Workspace administration" })).not.toBeInTheDocument();
+  });
+
+  it("shows service operations independently from workspace administration", () => {
+    harness.role = "member";
+    harness.accessScope = "workspace";
+    harness.platformRole = "platform_operator";
+    harness.platformRoleExpiresAt = "2099-01-01T00:00:00Z";
+    render(<MemoryRouter><YouPage /></MemoryRouter>);
+
+    expect(screen.getByRole("navigation", { name: "Service operations" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Service operations" })).toHaveAttribute("href", "/ops");
+    expect(screen.queryByRole("navigation", { name: "Workspace administration" })).not.toBeInTheDocument();
   });
 });

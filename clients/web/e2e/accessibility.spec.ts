@@ -71,6 +71,8 @@ const representativeStateIds = [
   "calls",
   "directory",
   "files",
+  "content",
+  "content-search-results",
   "you",
   "admin",
   "operations",
@@ -79,7 +81,7 @@ const representativeStateIds = [
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(21);
+  expect(new Set(representativeStateIds).size).toBe(23);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
@@ -167,7 +169,7 @@ test("unified workspace search satisfies automated WCAG A and AA checks", async 
   await search.getByRole("searchbox").fill("message");
   await search.getByRole("button", { name: "Search", exact: true }).click();
   await expect(search.getByRole("list", { name: "Ranked search results" })).toContainText(message.body);
-  await expect(search.getByText(/ranked within authorized source candidates/)).toBeVisible();
+  await expect(search.getByText(/Only content you can access is shown/)).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -224,6 +226,19 @@ test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await page.goto("/app/you");
   await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("Content categories and inline search results satisfy automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/content");
+  await expect(page.getByRole("heading", { name: "Content", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Browse content", exact: true }).getByRole("link")).toHaveCount(5);
+  await expect(page.getByRole("dialog", { name: "Search workspace", exact: true })).toHaveCount(0);
+  await expectNoWcagFailures(page);
+  await page.getByRole("searchbox", { name: "Search messages, files, boards and meetings", exact: true }).fill("message");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Ranked search results" })).toContainText(message.body);
   await expectNoWcagFailures(page);
 });
 
@@ -357,6 +372,15 @@ async function installAuthenticatedMocks(
         message_edit_window_seconds: 900,
         max_attachment_bytes: 25_000_000
       }
+    }
+  }));
+  await page.route("**/api/v1/socket-tickets", route => route.fulfill({ json: { data: {
+    ticket: "synthetic-accessibility-ticket", expires_in: 60
+  } } }));
+  await page.routeWebSocket(/\/socket\/websocket(?:\?|$)/, socket => socket.onMessage(message => {
+    const [joinRef, reference, topic, event] = JSON.parse(String(message)) as [string | null, string, string, string, unknown];
+    if (["phx_join", "phx_leave", "heartbeat"].includes(event)) {
+      socket.send(JSON.stringify([joinRef, reference, topic, "phx_reply", { status: "ok", response: {} }]));
     }
   }));
   await page.route("**/api/v1/status", (route) => route.fulfill({

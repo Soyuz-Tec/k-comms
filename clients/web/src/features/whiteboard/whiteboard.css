@@ -21,7 +21,7 @@
   min-width: 0;
   min-height: 52px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(240px, min(38vw, 440px));
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(240px, min(38vw, 440px));
   align-items: center;
   gap: 12px;
   padding: 4px 16px;
@@ -38,10 +38,12 @@
 
 .whiteboard-heading-title { min-width: 0; max-width: 12rem; }
 
-.whiteboard-heading-copy > .app-icon {
-  width: 18px;
-  height: 18px;
+.whiteboard-heading .whiteboard-content-link {
+  min-width: 44px;
+  min-height: 44px;
   flex: 0 0 auto;
+  justify-content: center;
+  margin: 0;
   color: var(--text-secondary);
 }
 
@@ -281,11 +283,12 @@
   }
 
   .whiteboard-heading-copy { grid-column: 1; grid-row: 1; }
-  .whiteboard-context-actions { grid-column: 2; grid-row: 1; }
-  .whiteboard-heading-status { grid-column: 1 / -1; grid-row: 2; }
+  .whiteboard-heading-status { grid-column: 2; grid-row: 1; }
+  .whiteboard-content-link { grid-column: 1; grid-row: 2; justify-self: start; }
+  .whiteboard-context-actions { grid-column: 2; grid-row: 2; }
 
   .whiteboard-heading h1 { font-size: 1rem; }
-  .whiteboard-heading-copy > .app-icon { display: none; }
+  .whiteboard-content-link > span { display: none; }
   .whiteboard-heading p { display: none; }
 
   .whiteboard-heading label span {

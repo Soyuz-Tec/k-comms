@@ -86,7 +86,7 @@ function SavedItemsForIdentity() {
     finally { if (scope.current === generation) setBusy(false); }
   }
   return <main id="main-content" className="page-shell saved-items-page" aria-busy={busy}>
-    <SurfaceHeader title="Saved items" description="Your private collection of messages to revisit." />
+    <SurfaceHeader title="Saved items" back={{ to: "/app/content", label: "Content" }} description="Your private collection of messages to revisit." />
     <p className="saved-items-access">Saved messages remain available while you have access to their conversations.</p>
     {error && <p className="form-error" role="alert">{error} <button className="button ghost" type="button" onClick={() => setAttempt(v => v + 1)}>Retry saved items</button></p>}
     {removed && <div className="saved-items-feedback" role="status"><span>Removed from saved items.</span><button className="button ghost compact" type="button" disabled={busy || Boolean(removingId)} onClick={() => void undo()}>Undo</button></div>}
