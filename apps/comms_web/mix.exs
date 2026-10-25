@@ -30,7 +30,7 @@ defmodule CommsWeb.MixProject do
       {:comms_observability, in_umbrella: true},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.7"},
-      {:bandit, "~> 1.12.1"},
+      {:bandit, "~> 1.13.1"},
       {:jason, "~> 1.4"},
       {:sobelow, "0.15.0", only: [:dev, :test], runtime: false}
     ]
